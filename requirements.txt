@@ -1,4 +1,5 @@
 numpy
+brotli
 build
 coverage
 jupyterlab
@@ -8,6 +9,8 @@ pandas
 pip>20
 pylint
 python-libsbml
+scikit-learn
+scipy
 seaborn
 tellurium
 toml
