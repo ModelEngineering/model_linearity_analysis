@@ -18,16 +18,18 @@ EXCLUDED_MODELS = [
     "BIOMD0000000205",
     "BIOMD0000000235",
     "BIOMD0000000255",
+    "BIOMD0000000469",  # 2500 reactions
     "BIOMD0000000470",  # 2500 reactions
     "BIOMD0000000471",  # 2100 reactions
     "BIOMD0000000472",  # >2000 reactions
     "BIOMD0000000473",  # >2000reactions
+    "BIOMD0000000574",
 ]
 
 import src.constants as cn  # noqa: E402
 from linear_analyzer import LinearAnalyzer  # type: ignore
 
-N_CLUSTER = 1
+N_CLUSTER = 3
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 OUTPUT_FILENAME = f"{N_CLUSTER}_model_linearity_analysis_data.csv"
 OUTPUT_PTH = os.path.join(cn.DATA_DIR, OUTPUT_FILENAME)
@@ -50,7 +52,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--n_cluster",
-        default=1,
+        default=N_CLUSTER,
         help="Number of clusters for k-means clustering (default: %(default)s)",
     )
     args = parser.parse_args()

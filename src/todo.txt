@@ -1,0 +1,2 @@
+Fix install of temp-biomodels so works on server
+BioModels path is a constant

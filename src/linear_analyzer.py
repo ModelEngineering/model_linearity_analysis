@@ -298,16 +298,16 @@ class LinearAnalyzer:
         # Iterate over models and append results to CSV after each model is processed
         result_dct: Dict[str, float] = {}
         ser = pd.Series(dtype=float)
-        for ffile in sorted(os.listdir(directory)):
-            ffile = ffile.strip()
-            print(ffile)
-            if ffile in excluded_models:
-                print(f"Skipping excluded model: {ffile}")
+        for model_dir in sorted(os.listdir(directory)):
+            model_dir = model_dir.strip()
+            print(model_dir)
+            if model_dir in excluded_models:
+                print(f"Skipping excluded model: {model_dir}")
                 continue
-            if ffile in processed_model_ids:
-                print(f"Skipping already-processed model: {ffile}")
+            if model_dir in processed_model_ids:
+                print(f"Skipping already-processed model: {model_dir}")
                 continue
-            model_path = os.path.join(directory, ffile)
+            model_path = os.path.join(directory, model_dir)
             if not os.path.isdir(model_path):
                 continue
             sbml_files = [
@@ -325,9 +325,9 @@ class LinearAnalyzer:
                 analyzer = cls(sbml_str)
                 cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
                 max_cv = cluster_result.max_cv
-                result_dct[ffile] = max_cv
+                result_dct[model_dir] = max_cv
                 ser = _write_csv(result_dct)
             except Exception as e:
-                print(f"Warning: skipping {ffile}: {e}")
+                print(f"Warning: skipping {model_dir}: {e}")
         #
         return ser
