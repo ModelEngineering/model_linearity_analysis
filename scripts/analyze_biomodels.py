@@ -5,11 +5,11 @@ Usage:
     source activate.sh
     python scripts/analyze_biomodels.py [--directory DIR] [--output FILE]
 """
+import src.constants as cn  # noqa: E402
+
 import argparse
 import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 EXCLUDED_MODELS = [
     "BIOMD0000000014",
@@ -18,6 +18,7 @@ EXCLUDED_MODELS = [
     "BIOMD0000000205",
     "BIOMD0000000235",
     "BIOMD0000000255",
+    "BIOMD0000000293",
     "BIOMD0000000469",  # 2500 reactions
     "BIOMD0000000470",  # 2500 reactions
     "BIOMD0000000471",  # 2100 reactions
@@ -29,10 +30,10 @@ EXCLUDED_MODELS = [
 import src.constants as cn  # noqa: E402
 from linear_analyzer import LinearAnalyzer  # type: ignore
 
-N_CLUSTER = 3
-BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
+N_CLUSTER = 5
 OUTPUT_FILENAME = f"{N_CLUSTER}_model_linearity_analysis_data.csv"
 OUTPUT_PTH = os.path.join(cn.DATA_DIR, OUTPUT_FILENAME)
+NO_PATH = "no_path"
 
 
 def main() -> None:
@@ -42,31 +43,50 @@ def main() -> None:
     )
     parser.add_argument(
         "--directory",
-        default=BIOMODELS_DIR,
+        default=cn.BIOMODELS_DIR,
         help="Directory containing BioModel subdirectories (default: %(default)s)",
     )
     parser.add_argument(
         "--output",
-        default=OUTPUT_PTH,
+        default=NO_PATH,
         help="Path for the output CSV file (default: %(default)s)",
     )
     parser.add_argument(
         "--n_cluster",
         default=N_CLUSTER,
+        type=int,
         help="Number of clusters for k-means clustering (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--sequential",
+        action="store_true",
+        default=False,
+        help="Use sequential (contiguous) partitioning instead of k-means (default: False)",
     )
     args = parser.parse_args()
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    if args.output == NO_PATH:
+        if args.sequential:
+            output_filename = f"{args.n_cluster}s_model_linearity_analysis_data_sequential.csv"
+        else:
+            output_filename = f"{args.n_cluster}_model_linearity_analysis_data.csv"
+        output_path = os.path.join(cn.DATA_DIR, output_filename)
+    else:
+        output_path = args.output
 
-    print(f"Processing models in: {args.directory}")
-    print(f"Output file: {args.output}")
+    print("\n**********************************************************")
+    print(f"***Processing models in: {args.directory}")
+    print(f"***Output path: {output_path}")
+    print(f"***Number of clusters: {args.n_cluster}")
+    print(f"***Using sequential partitioning: {args.sequential}")
+    print("**********************************************************\n")
 
     result_dct = LinearAnalyzer.processBioModelsCVs(
         directory=args.directory,
-        output_data_file=args.output,
+        output_data_file=output_path,
         excluded_models=EXCLUDED_MODELS,
         n_cluster=args.n_cluster,
+        is_sequential_partition=args.sequential,
     )
 
     n_success = len(result_dct)

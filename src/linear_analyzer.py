@@ -67,7 +67,7 @@ class LinearAnalyzer:
             The loaded RoadRunner model instance.
         """
         stripped = model.strip()
-        if stripped.startswith("<?xml") or stripped.startswith("<sbml"):
+        if "<?xml" in stripped or "<sbml" in stripped:
             return te.loadSBMLModel(model)
         return te.loada(model)
 
@@ -200,10 +200,96 @@ class LinearAnalyzer:
             max_cv=worst_cv
         )
 
+    def partitionJacobiansSequentially(
+        self, n_cluster: int, max_iter: int = 300
+    ) -> ClusterResult:
+        """
+        Partition the collected Jacobians into n_cluster contiguous time segments.
+
+        Unlike partitionJacobians (which uses KMeans and may produce non-contiguous
+        clusters), this method constrains each cluster to be a contiguous run of
+        timepoints. Dynamic programming is used to find the partition into exactly
+        n_cluster contiguous segments that minimises the maximum within-segment CV.
+
+        Parameters
+        ----------
+        n_cluster : int
+            Number of contiguous segments to partition the Jacobians into.
+        max_iter : int
+            Unused; present for signature compatibility with partitionJacobians.
+
+        Returns
+        -------
+        ClusterResult
+            Named tuple containing the clustered Jacobians (in time order) and the
+            maximum CV across all segments.
+
+        Raises
+        ------
+        ValueError
+            n_cluster exceeds the number of timepoints.
+        """
+        if self._jacobian_arr is None:
+            self.collectJacobians()
+        assert self._jacobian_arr is not None
+        jacobian_arr = self._jacobian_arr
+        n_point = jacobian_arr.shape[0]
+
+        if n_cluster > n_point:
+            raise ValueError(
+                f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_point})."
+            )
+
+        def _segment_max_cv(i: int, j: int) -> float:
+            """Return the max CV for the contiguous segment [i, j] inclusive."""
+            seg = jacobian_arr[i : j + 1]
+            if seg.shape[0] == 1:
+                return 0.0
+            mean_arr = np.mean(seg, axis=0)
+            std_arr = np.std(seg, axis=0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                cv_arr = np.where(mean_arr != 0, std_arr / np.abs(mean_arr), 0.0)
+            finite_cv = cv_arr[np.isfinite(cv_arr)]
+            return float(np.max(finite_cv)) if len(finite_cv) > 0 else 0.0
+
+        # Precompute cost[i][j] = max CV for segment [i, j]
+        cost = np.zeros((n_point, n_point))
+        for i in range(n_point):
+            for j in range(i, n_point):
+                cost[i][j] = _segment_max_cv(i, j)
+
+        # DP: dp[k][i] = min possible max-segment-CV when partitioning
+        #     the first i timepoints into k contiguous segments.
+        INF = float("inf")
+        dp = [[INF] * (n_point + 1) for _ in range(n_cluster + 1)]
+        split = [[0] * (n_point + 1) for _ in range(n_cluster + 1)]
+        dp[0][0] = 0.0
+        for k in range(1, n_cluster + 1):
+            for i in range(k, n_point + 1):
+                for j in range(k - 1, i):
+                    val = max(dp[k - 1][j], cost[j][i - 1])
+                    if val < dp[k][i]:
+                        dp[k][i] = val
+                        split[k][i] = j
+
+        # Reconstruct contiguous segment boundaries from the split table
+        boundaries = []
+        i = n_point
+        for k in range(n_cluster, 0, -1):
+            j = split[k][i]
+            boundaries.append((j, i))
+            i = j
+        boundaries.reverse()
+
+        clusters = [jacobian_arr[start:end] for start, end in boundaries]
+        worst_cv = dp[n_cluster][n_point]
+
+        return ClusterResult(clusters=clusters, max_cv=worst_cv)
+
     @classmethod
     def processBioModels(
         cls,
-        directory: str = "/Users/jlheller/home/Technical/repos/temp-biomodels/final",
+        directory: str = cn.BIOMODELS_DIR,
     ) -> List[Tuple[str, "LinearAnalyzer"]]:
         """
         Process all SBML models found in subdirectories of the given directory.
@@ -250,10 +336,11 @@ class LinearAnalyzer:
     @classmethod
     def processBioModelsCVs(
         cls,
-        directory: str = "/Users/jlheller/home/Technical/repos/temp-biomodels/final",
+        directory: str = cn.BIOMODELS_DIR,
         output_data_file: str = OUTPUT_DATA_FILE,
         excluded_models: Optional[List[str]] = None,
         n_cluster: int = 3,
+        is_sequential_partition: bool = False,
     ) -> pd.Series:
         """
         Compute Jacobian CVs for all SBML models in subdirectories of directory.
@@ -268,6 +355,8 @@ class LinearAnalyzer:
             List of model identifiers to exclude from processing.
         n_cluster : int
             Number of clusters of Jacobians for timepoints to use for k-means clustering.
+        is_sequential_partition : bool
+            Whether to use sequential partitioning instead of k-means clustering.
 
         Returns
         -------
@@ -323,7 +412,10 @@ class LinearAnalyzer:
                 with open(sbml_file, "r") as f:
                     sbml_str = f.read()
                 analyzer = cls(sbml_str)
-                cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
+                if is_sequential_partition:
+                    cluster_result = analyzer.partitionJacobiansSequentially(n_cluster=n_cluster)
+                else:
+                    cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
                 max_cv = cluster_result.max_cv
                 result_dct[model_dir] = max_cv
                 ser = _write_csv(result_dct)

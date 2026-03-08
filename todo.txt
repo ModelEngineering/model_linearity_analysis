@@ -1,0 +1,3 @@
+Fix install of temp-biomodels so works on server
+BioModels path is a constant
+Create JacobianCluster. Knows Jacobians and their timepoints.
