@@ -130,6 +130,8 @@ class JacobianCollectionMaker:
             If the model has no floating species after reset.
         """
         self._roadrunner.reset()
+        if len(self._roadrunner.getFloatingSpeciesIds()) == 0:
+            raise ValueError("Model has no floating species; cannot compute Jacobian.")
         result_arr = self._roadrunner.simulate(self._start_time, self._end_time, self._num_points)
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
 

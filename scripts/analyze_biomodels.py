@@ -91,7 +91,7 @@ def main() -> None:
 
     n_success = len(result_dct)
     print(f"\nDone. Successfully processed {n_success} model(s).")
-    print(f"Results written to: {args.output}")
+    print(f"Results written to: {output_path}")
 
 
 if __name__ == "__main__":
