@@ -1,3 +1,4 @@
-Fix install of temp-biomodels so works on server
+Refactor using jacobian.py to reduce code in linear_analyzer.py
+JacobianCluster has visualization for clusters that show max mean-normalized distance from cluster mean for each timepoint
 BioModels path is a constant
 Create JacobianCluster. Knows Jacobians and their timepoints.

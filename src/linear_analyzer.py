@@ -1,7 +1,9 @@
 """
 Module for analyzing linearity of SBML and Antimony models via Jacobian analysis.
 """
+from jacobian_collection import JacobianCollection # type: ignore
 import src.constants as cn
+from jacobian_collection_maker import JacobianCollectionMaker  # type: ignore
 
 import collections
 import os
@@ -12,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np # type: ignore
 import tellurium as te # type: ignore
 from sklearn.cluster import KMeans # type: ignore
+from jacobian_collection_maker import JacobianCollectionMaker  # type: ignore
 
 OUTPUT_DATA_FILE = os.path.join(cn.DATA_DIR, "model_linearity_analysis_data.csv")
 ClusterResult = collections.namedtuple("ClusterResult", ["clusters", "max_cv"])
@@ -45,90 +48,8 @@ class LinearAnalyzer:
         self.start = start
         self.end = end
         self.num_point = num_point
-        self._rr = self._loadModel(model)
-        self._jacobian_arr: Optional[np.ndarray] = None
-        self._species_ids: List[str] = self._rr.getFloatingSpeciesIds()
-
-    def _loadModel(self, model: str) -> te.roadrunner.ExtendedRoadRunner:  # type: ignore
-        """
-        Load a model from an SBML or Antimony string.
-
-        SBML is detected by the presence of an XML declaration or <sbml> root tag.
-        All other strings are treated as Antimony.
-
-        Parameters
-        ----------
-        model : str
-            SBML XML string or Antimony model string.
-
-        Returns
-        -------
-        te.roadrunner.ExtendedRoadRunner
-            The loaded RoadRunner model instance.
-        """
-        stripped = model.strip()
-        if "<?xml" in stripped or "<sbml" in stripped:
-            return te.loadSBMLModel(model)
-        return te.loada(model)
-
-    def collectJacobians(self) -> np.ndarray:
-        """
-        Run the model and collect the full Jacobian at each simulation timepoint.
-
-        The Jacobian contains only floating species. The model is reset before
-        simulation and stepped forward timepoint-by-timepoint so a Jacobian can
-        be captured at each output time.
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (num_points, n_species, n_species) containing the
-            Jacobian matrix at each timepoint.
-        """
-        self._rr.reset()
-        if len(self._rr.getFloatingSpeciesIds()) == 0:
-            raise ValueError("Model species changed after reset, cannot collect Jacobians.")
-        result_arr = self._rr.simulate(self.start, self.end, self.num_point)
-        times_arr = np.array(result_arr["time"])  # copy before reset invalidates C++ buffer
-
-        self._rr.reset()
-        jacobians = []
-        for i, t in enumerate(times_arr):
-            if i == 0:
-                self._rr.simulate(self.start, t + 1e-10, 2)
-            else:
-                self._rr.simulate(times_arr[i - 1], t, 2)
-            jacobian = np.array(self._rr.getFullJacobian())
-            jacobians.append(jacobian.copy())
-        # Processed all times
-        self._jacobian_arr = np.array(jacobians)
-        assert(isinstance(self._jacobian_arr, np.ndarray))
-        return self._jacobian_arr
-
-    def makeJacobianCVs(self) -> np.ndarray:
-        """
-        Compute the coefficient of variation for each cell in the Jacobian.
-
-        The coefficient of variation (CV = |std / mean|) is computed across all
-        simulation timepoints for each (i, j) entry of the Jacobian matrix.
-        Entries where the mean is zero are set to 0. If Jacobians have not
-        been collected yet, collectJacobians() is called automatically.
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (n_species, n_species) containing the CV for each
-            Jacobian cell.
-        """
-        if self._jacobian_arr is None:
-            self.collectJacobians()
-        assert self._jacobian_arr is not None
-
-        mean_arr = np.mean(self._jacobian_arr, axis=0)
-        std_arr = np.std(self._jacobian_arr, axis=0)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            cv_arr = np.where(mean_arr != 0, np.abs(std_arr / mean_arr), 0)
-        return cv_arr
+        self._jacobian_collection = JacobianCollectionMaker(model, 
+                start_time=start, end_time=end, num_points=num_point).makeCollection()
 
     def partitionJacobians(
         self, n_cluster: int, max_iter: int = 300
@@ -159,10 +80,7 @@ class LinearAnalyzer:
         ValueError
             n_cluster exceeds the number of timepoints
         """
-        if self._jacobian_arr is None:
-            self.collectJacobians()
-        assert self._jacobian_arr is not None
-        jacobian_arr = self._jacobian_arr
+        jacobian_arr = self._jacobian_collection.jacobian_arr
         n_points = jacobian_arr.shape[0]
 
         if n_cluster > n_points:
@@ -179,21 +97,8 @@ class LinearAnalyzer:
         )
         labels_arr = kmeans.fit_predict(flat_arr)
 
-        # Compute the max CV within each cluster
-        def _cluster_max_cv(indices: np.ndarray) -> float:
-            """Return the max CV across all Jacobian entries for the given indices."""
-            seg = jacobian_arr[indices]
-            mean_arr = np.mean(seg, axis=0)
-            std_arr = np.std(seg, axis=0)
-            with np.errstate(divide="ignore", invalid="ignore"):
-                cv_arr = np.where(mean_arr != 0, std_arr / np.abs(mean_arr), 0.0)
-            finite_cv = cv_arr[np.isfinite(cv_arr)]
-            return float(np.max(finite_cv)) if len(finite_cv) > 0 else 0.0
-
         cluster_indices = [np.where(labels_arr == c)[0] for c in range(n_cluster)]
-        worst_cv = max(
-            _cluster_max_cv(idx) for idx in cluster_indices if len(idx) > 0
-        )
+        worst_cv = self._jacobian_collection.max_cv
 
         return ClusterResult(
             clusters=[jacobian_arr[idx] for idx in cluster_indices],
@@ -229,10 +134,7 @@ class LinearAnalyzer:
         ValueError
             n_cluster exceeds the number of timepoints.
         """
-        if self._jacobian_arr is None:
-            self.collectJacobians()
-        assert self._jacobian_arr is not None
-        jacobian_arr = self._jacobian_arr
+        jacobian_arr = self._jacobian_collection.jacobian_arr
         n_point = jacobian_arr.shape[0]
 
         if n_cluster > n_point:
@@ -240,23 +142,13 @@ class LinearAnalyzer:
                 f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_point})."
             )
 
-        def _segment_max_cv(i: int, j: int) -> float:
-            """Return the max CV for the contiguous segment [i, j] inclusive."""
-            seg = jacobian_arr[i : j + 1]
-            if seg.shape[0] == 1:
-                return 0.0
-            mean_arr = np.mean(seg, axis=0)
-            std_arr = np.std(seg, axis=0)
-            with np.errstate(divide="ignore", invalid="ignore"):
-                cv_arr = np.where(mean_arr != 0, std_arr / np.abs(mean_arr), 0.0)
-            finite_cv = cv_arr[np.isfinite(cv_arr)]
-            return float(np.max(finite_cv)) if len(finite_cv) > 0 else 0.0
-
         # Precompute cost[i][j] = max CV for segment [i, j]
         cost = np.zeros((n_point, n_point))
         for i in range(n_point):
             for j in range(i, n_point):
-                cost[i][j] = _segment_max_cv(i, j)
+                jacobian_collection = JacobianCollection(jacobian_arr[i : j + 1],
+                        self._jacobian_collection.timepoints[i : j + 1])
+                cost[i][j] = jacobian_collection.max_cv
 
         # DP: dp[k][i] = min possible max-segment-CV when partitioning
         #     the first i timepoints into k contiguous segments.
@@ -287,12 +179,12 @@ class LinearAnalyzer:
         return ClusterResult(clusters=clusters, max_cv=worst_cv)
 
     @classmethod
-    def processBioModels(
+    def makeBioModelAnalyzers(
         cls,
         directory: str = cn.BIOMODELS_DIR,
     ) -> List[Tuple[str, "LinearAnalyzer"]]:
         """
-        Process all SBML models found in subdirectories of the given directory.
+        Create a LinearAnalyzer for each SBML model in subdirectories of directory.
 
         Each subdirectory is expected to contain one or more XML files. The first
         non-manifest XML file found is loaded as the SBML model. Models that fail
@@ -327,14 +219,13 @@ class LinearAnalyzer:
                 with open(sbml_file, "r") as f:
                     sbml_str = f.read()
                 analyzer = cls(sbml_str)
-                analyzer.collectJacobians()
                 results.append((model_dir, analyzer))
             except Exception as e:
                 print(f"Warning: skipping {model_dir}: {e}")
         return results
 
     @classmethod
-    def processBioModelsCVs(
+    def partitionBiomodelsJacobians(
         cls,
         directory: str = cn.BIOMODELS_DIR,
         output_data_file: str = OUTPUT_DATA_FILE,
@@ -343,7 +234,10 @@ class LinearAnalyzer:
         is_sequential_partition: bool = False,
     ) -> pd.Series:
         """
-        Compute Jacobian CVs for all SBML models in subdirectories of directory.
+        For each model in BioModels, partition its Jacobians into n_cluster clusters and save 
+        the max CV of the clusters to a CSV.
+        Two partitionation methods are available:
+            k-means clustering (partitionJacobians) and sequential partitioning
 
         Parameters
         ----------

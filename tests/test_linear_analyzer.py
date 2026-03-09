@@ -7,16 +7,14 @@ import sys
 import tempfile
 import unittest
 
-import matplotlib   # type: ignore
-matplotlib.use("Agg")  # Non-interactive backend for testing; must precede pyplot import
-import matplotlib.pyplot as plt # type: ignore
-import numpy as np # type: ignore
-import pandas as pd # type: ignore
+import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 import tellurium as te  # type: ignore
 
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from linear_analyzer import LinearAnalyzer # type: ignore
+import src.constants as cn
+from jacobian_collection import JacobianCollection  # type: ignore
+from linear_analyzer import LinearAnalyzer, ClusterResult  # type: ignore
 
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
@@ -25,9 +23,10 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
-FIRST_BIOMODEL_SBML = os.path.join(
-    BIOMODELS_DIR, "BIOMD0000000001", "BIOMD0000000001_url.xml"
-)
+BIOMD1_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000001", "BIOMD0000000001_url.xml")
+BIOMD3_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000003", "BIOMD0000000003_url.xml")
+BIOMD4_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000004", "BIOMD0000000004_url.xml")
+HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
 
 
 def _load_sbml(path: str) -> str:
@@ -39,72 +38,42 @@ def _load_sbml(path: str) -> str:
 class TestLinearAnalyzerInit(unittest.TestCase):
     """Tests for LinearAnalyzer.__init__."""
 
-    def test_init_antimony_defaults(self) -> None:
-        """Initializing with an Antimony string uses default simulation parameters."""
+    def test_defaults_stored(self) -> None:
+        """Default simulation parameters are stored on the instance."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL)
         self.assertEqual(analyzer.start, 0)
         self.assertEqual(analyzer.end, 10)
         self.assertEqual(analyzer.num_point, 100)
-        self.assertIsNotNone(analyzer._rr)
 
-    def test_init_antimony_custom_params(self) -> None:
-        """Custom start, end, and num_points are stored correctly."""
+    def test_custom_params_stored(self) -> None:
+        """Custom start, end, and num_point are stored correctly."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL, start=1, end=5, num_point=50)
         self.assertEqual(analyzer.start, 1)
         self.assertEqual(analyzer.end, 5)
         self.assertEqual(analyzer.num_point, 50)
 
-    def test_init_sbml(self) -> None:
-        """Initializing with an SBML string loads the model correctly."""
-        sbml = _load_sbml(FIRST_BIOMODEL_SBML)
-        analyzer = LinearAnalyzer(sbml)
-        self.assertIsNotNone(analyzer._rr)
-        self.assertGreater(len(analyzer._species_ids), 0)
-
-    def test_init_species_ids_populated(self) -> None:
-        """Floating species IDs are extracted from the model on construction."""
+    def test_model_stored(self) -> None:
+        """The model string is stored on the instance."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL)
-        self.assertIn("S1", analyzer._species_ids)
-        self.assertIn("S2", analyzer._species_ids)
+        self.assertEqual(analyzer.model, ANTIMONY_MODEL)
 
-
-class TestCollectJacobians(unittest.TestCase):
-    """Tests for LinearAnalyzer.collectJacobians."""
-
-    def test_returns_ndarray(self) -> None:
-        """collectJacobians returns a numpy ndarray."""
+    def test_jacobian_collection_created(self) -> None:
+        """A JacobianCollection is created during __init__."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        jacobian_arr = analyzer.collectJacobians()
-        self.assertIsInstance(jacobian_arr, np.ndarray)
+        self.assertIsInstance(analyzer._jacobian_collection, JacobianCollection)
 
-    def test_shape(self) -> None:
-        """Jacobian array has shape (n_points, n_species, n_species)."""
-        n_points = 10
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=n_points)
-        jacobian_arr = analyzer.collectJacobians()
-        n_species = len(analyzer._species_ids)
-        self.assertEqual(jacobian_arr.shape, (n_points, n_species, n_species))
-
-    def test_jacobians_stored_on_instance(self) -> None:
-        """After collection, _jacobians attribute is set on the instance."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=5)
-        self.assertIsNone(analyzer._jacobian_arr)
-        analyzer.collectJacobians()
-        self.assertIsNotNone(analyzer._jacobian_arr)
-
-    def test_jacobians_contain_finite_values(self) -> None:
-        """Collected Jacobians contain at least some finite (non-NaN) values."""
+    def test_jacobian_collection_shape(self) -> None:
+        """The JacobianCollection has the expected shape for the ANTIMONY_MODEL."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        jacobian_arr = analyzer.collectJacobians()
-        self.assertTrue(np.any(np.isfinite(jacobian_arr)))
+        arr = analyzer._jacobian_collection.jacobian_arr
+        self.assertEqual(arr.shape, (10, 2, 2))  # 2 floating species: S1, S2
 
-    def test_sbml_model_jacobians(self) -> None:
-        """collectJacobians works correctly on an SBML model."""
-        sbml = _load_sbml(FIRST_BIOMODEL_SBML)
-        analyzer = LinearAnalyzer(sbml, num_point=5)
-        jacobian_arr = analyzer.collectJacobians()
-        n_species = len(analyzer._species_ids)
-        self.assertEqual(jacobian_arr.shape, (5, n_species, n_species))
+    def test_init_sbml(self) -> None:
+        """Initializing with an SBML string (from Antimony) loads correctly."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
+        analyzer = LinearAnalyzer(sbml_str, num_point=5)
+        self.assertIsInstance(analyzer._jacobian_collection, JacobianCollection)
+        self.assertEqual(analyzer._jacobian_collection.jacobian_arr.ndim, 3)
 
 
 class TestPartitionJacobians(unittest.TestCase):
@@ -113,63 +82,72 @@ class TestPartitionJacobians(unittest.TestCase):
     def setUp(self) -> None:
         self.n_points = 20
         self.analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=self.n_points)
-        self.analyzer.collectJacobians()
 
     def test_returns_cluster_result(self) -> None:
         """partitionJacobians returns a ClusterResult namedtuple."""
         result = self.analyzer.partitionJacobians(n_cluster=2)
-        self.assertIsInstance(result.max_cv, float)
+        self.assertIsInstance(result, ClusterResult)
+        self.assertTrue(hasattr(result, "clusters"))
+        self.assertTrue(hasattr(result, "max_cv"))
 
     def test_cluster_count_equals_n_cluster(self) -> None:
         """The clusters list has exactly n_cluster elements."""
         result = self.analyzer.partitionJacobians(n_cluster=3)
         self.assertEqual(len(result.clusters), 3)
 
-    def test_each_partition_is_ndarray(self) -> None:
+    def test_each_cluster_is_ndarray(self) -> None:
         """Each element in clusters is a numpy ndarray."""
         result = self.analyzer.partitionJacobians(n_cluster=2)
-        for partition in result.clusters:
-            self.assertIsInstance(partition, np.ndarray)
+        for cluster in result.clusters:
+            self.assertIsInstance(cluster, np.ndarray)
 
-    def test_partition_ndim(self) -> None:
-        """Each partition array has 3 dimensions (n_i, n_species, n_species)."""
+    def test_cluster_ndim(self) -> None:
+        """Each cluster array has 3 dimensions (n_i, n_species, n_species)."""
         result = self.analyzer.partitionJacobians(n_cluster=2)
-        for partition in result.clusters:
-            self.assertEqual(partition.ndim, 3)
+        for cluster in result.clusters:
+            self.assertEqual(cluster.ndim, 3)
 
-    def test_partition_shape_species_dims(self) -> None:
-        """The last two dimensions of each partition match n_species."""
-        n_species = len(self.analyzer._species_ids)
+    def test_cluster_species_dims(self) -> None:
+        """The last two dimensions of each cluster match n_species (2 for ANTIMONY_MODEL)."""
         result = self.analyzer.partitionJacobians(n_cluster=2)
-        for partition in result.clusters:
-            self.assertEqual(partition.shape[1], n_species)
-            self.assertEqual(partition.shape[2], n_species)
+        for cluster in result.clusters:
+            self.assertEqual(cluster.shape[1], 2)
+            self.assertEqual(cluster.shape[2], 2)
 
     def test_total_jacobians_preserved(self) -> None:
-        """Total Jacobian count across all partitions equals n_points."""
+        """Total Jacobian count across all clusters equals n_points."""
         result = self.analyzer.partitionJacobians(n_cluster=4)
-        total = sum(p.shape[0] for p in result.clusters)
+        total = sum(c.shape[0] for c in result.clusters)
         self.assertEqual(total, self.n_points)
 
-    def test_auto_collects_jacobians(self) -> None:
-        """partitionJacobians calls collectJacobians automatically if not cached."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        self.assertIsNone(analyzer._jacobian_arr)
-        result = analyzer.partitionJacobians(n_cluster=2)
-        self.assertIsNotNone(analyzer._jacobian_arr)
-        self.assertEqual(len(result.clusters), 2)
+    def test_max_cv_is_float(self) -> None:
+        """max_cv in ClusterResult is a float."""
+        result = self.analyzer.partitionJacobians(n_cluster=2)
+        self.assertIsInstance(result.max_cv, float)
 
-    def test_raises_for_n_cluster_exceeds_n_points(self) -> None:
+    def test_max_cv_is_non_negative(self) -> None:
+        """max_cv is non-negative."""
+        result = self.analyzer.partitionJacobians(n_cluster=2)
+        self.assertGreaterEqual(result.max_cv, 0.0)
+
+    def test_raises_when_n_cluster_exceeds_n_points(self) -> None:
         """ValueError is raised when n_cluster exceeds the number of timepoints."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=5)
-        analyzer.collectJacobians()
         with self.assertRaises(ValueError):
             analyzer.partitionJacobians(n_cluster=10)
 
-    def test_max_cv_is_non_negative(self) -> None:
-        """max_cv in ClusterResult is non-negative."""
-        result = self.analyzer.partitionJacobians(n_cluster=4)
-        self.assertGreaterEqual(result.max_cv, 0.0)
+    def test_n_cluster_one(self) -> None:
+        """With n_cluster=1, returns a single cluster containing all timepoints."""
+        result = self.analyzer.partitionJacobians(n_cluster=1)
+        self.assertEqual(len(result.clusters), 1)
+        self.assertEqual(result.clusters[0].shape[0], self.n_points)
+
+    def test_n_cluster_equals_n_points(self) -> None:
+        """With n_cluster == n_points, each cluster has at least one timepoint."""
+        result = self.analyzer.partitionJacobians(n_cluster=self.n_points)
+        self.assertEqual(len(result.clusters), self.n_points)
+        total = sum(c.shape[0] for c in result.clusters)
+        self.assertEqual(total, self.n_points)
 
 
 class TestPartitionJacobiansSequentially(unittest.TestCase):
@@ -178,78 +156,75 @@ class TestPartitionJacobiansSequentially(unittest.TestCase):
     def setUp(self) -> None:
         self.n_points = 20
         self.analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=self.n_points)
-        self.analyzer.collectJacobians()
 
     def test_returns_cluster_result(self) -> None:
         """partitionJacobiansSequentially returns a ClusterResult namedtuple."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        self.assertIsInstance(result.max_cv, float)
+        self.assertIsInstance(result, ClusterResult)
 
     def test_cluster_count_equals_n_cluster(self) -> None:
         """The clusters list has exactly n_cluster elements."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
         self.assertEqual(len(result.clusters), 3)
 
-    def test_each_partition_is_ndarray(self) -> None:
+    def test_each_cluster_is_ndarray(self) -> None:
         """Each element in clusters is a numpy ndarray."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        for partition in result.clusters:
-            self.assertIsInstance(partition, np.ndarray)
+        for cluster in result.clusters:
+            self.assertIsInstance(cluster, np.ndarray)
 
-    def test_partition_ndim(self) -> None:
-        """Each partition array has 3 dimensions (n_i, n_species, n_species)."""
+    def test_cluster_ndim(self) -> None:
+        """Each cluster array has 3 dimensions."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        for partition in result.clusters:
-            self.assertEqual(partition.ndim, 3)
+        for cluster in result.clusters:
+            self.assertEqual(cluster.ndim, 3)
 
-    def test_partition_shape_species_dims(self) -> None:
-        """The last two dimensions of each partition match n_species."""
-        n_species = len(self.analyzer._species_ids)
+    def test_cluster_species_dims(self) -> None:
+        """The last two dimensions of each cluster match n_species."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        for partition in result.clusters:
-            self.assertEqual(partition.shape[1], n_species)
-            self.assertEqual(partition.shape[2], n_species)
+        for cluster in result.clusters:
+            self.assertEqual(cluster.shape[1], 2)
+            self.assertEqual(cluster.shape[2], 2)
 
     def test_total_jacobians_preserved(self) -> None:
-        """Total Jacobian count across all partitions equals n_points."""
+        """Total Jacobian count across all clusters equals n_points."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=4)
-        total = sum(p.shape[0] for p in result.clusters)
+        total = sum(c.shape[0] for c in result.clusters)
         self.assertEqual(total, self.n_points)
 
-    def test_auto_collects_jacobians(self) -> None:
-        """partitionJacobiansSequentially calls collectJacobians automatically if not cached."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        self.assertIsNone(analyzer._jacobian_arr)
-        result = analyzer.partitionJacobiansSequentially(n_cluster=2)
-        self.assertIsNotNone(analyzer._jacobian_arr)
-        self.assertEqual(len(result.clusters), 2)
+    def test_max_cv_is_non_negative(self) -> None:
+        """max_cv is non-negative."""
+        result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
+        self.assertGreaterEqual(result.max_cv, 0.0)
 
-    def test_raises_for_n_cluster_exceeds_n_points(self) -> None:
+    def test_raises_when_n_cluster_exceeds_n_points(self) -> None:
         """ValueError is raised when n_cluster exceeds the number of timepoints."""
         analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=5)
-        analyzer.collectJacobians()
         with self.assertRaises(ValueError):
             analyzer.partitionJacobiansSequentially(n_cluster=10)
-
-    def test_max_cv_is_non_negative(self) -> None:
-        """max_cv in ClusterResult is non-negative."""
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=4)
-        self.assertGreaterEqual(result.max_cv, 0.0)
 
     def test_clusters_are_contiguous_in_time(self) -> None:
         """Concatenating clusters in order reconstructs the original Jacobian array."""
         result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
         reconstructed = np.concatenate(result.clusters, axis=0)
-        np.testing.assert_array_equal(reconstructed, self.analyzer._jacobian_arr)
+        np.testing.assert_array_equal(
+            reconstructed, self.analyzer._jacobian_collection.jacobian_arr
+        )
 
-    def test_no_timepoint_is_skipped_or_repeated(self) -> None:
-        """Each timepoint appears in exactly one cluster."""
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
-        total = sum(p.shape[0] for p in result.clusters)
-        self.assertEqual(total, self.n_points)
-        # Verify data identity, not just count
-        reconstructed = np.concatenate(result.clusters, axis=0)
-        self.assertEqual(reconstructed.shape[0], self.n_points)
+    def test_n_cluster_one_returns_all_jacobians(self) -> None:
+        """With n_cluster=1, the single cluster contains all timepoints."""
+        result = self.analyzer.partitionJacobiansSequentially(n_cluster=1)
+        self.assertEqual(len(result.clusters), 1)
+        np.testing.assert_array_equal(
+            result.clusters[0], self.analyzer._jacobian_collection.jacobian_arr
+        )
+
+    def test_n_cluster_equals_n_points(self) -> None:
+        """With n_cluster == n_points, every cluster has exactly one timepoint."""
+        result = self.analyzer.partitionJacobiansSequentially(n_cluster=self.n_points)
+        self.assertEqual(len(result.clusters), self.n_points)
+        for cluster in result.clusters:
+            self.assertEqual(cluster.shape[0], 1)
 
     def test_max_cv_le_unpartitioned(self) -> None:
         """Sequential partitioning into multiple clusters yields max_cv <= single-segment CV."""
@@ -257,72 +232,53 @@ class TestPartitionJacobiansSequentially(unittest.TestCase):
         multi = self.analyzer.partitionJacobiansSequentially(n_cluster=4)
         self.assertLessEqual(multi.max_cv, single.max_cv + 1e-9)
 
-    def test_n_cluster_one_returns_all_jacobians(self) -> None:
-        """With n_cluster=1, the single cluster contains all timepoints."""
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=1)
-        self.assertEqual(len(result.clusters), 1)
-        np.testing.assert_array_equal(result.clusters[0], self.analyzer._jacobian_arr)
-
-    def test_n_cluster_equals_n_points(self) -> None:
-        """With n_cluster == n_points every cluster has exactly one timepoint."""
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=self.n_points)
-        self.assertEqual(len(result.clusters), self.n_points)
-        for partition in result.clusters:
-            self.assertEqual(partition.shape[0], 1)
+    def test_no_timepoints_skipped_or_repeated(self) -> None:
+        """Each timepoint appears in exactly one cluster."""
+        result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
+        total = sum(c.shape[0] for c in result.clusters)
+        self.assertEqual(total, self.n_points)
+        reconstructed = np.concatenate(result.clusters, axis=0)
+        self.assertEqual(reconstructed.shape[0], self.n_points)
 
 
-class TestProcessBioModels(unittest.TestCase):
-    """Tests for LinearAnalyzer.processBioModels."""
+class TestMakeBioModelAnalyzers(unittest.TestCase):
+    """Tests for LinearAnalyzer.makeBioModelAnalyzers."""
 
     def test_returns_list(self) -> None:
-        """processBioModels returns a list."""
+        """makeBioModelAnalyzers returns a list."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            results = LinearAnalyzer.processBioModels(directory=tmp_dir)
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
         self.assertIsInstance(results, list)
 
     def test_empty_directory_returns_empty_list(self) -> None:
-        """An empty directory yields an empty results list."""
+        """An empty directory yields an empty list."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            results = LinearAnalyzer.processBioModels(directory=tmp_dir)
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
         self.assertEqual(results, [])
 
-    def test_processes_sbml_model_in_subdirectory(self) -> None:
-        """A valid SBML file in a subdirectory is loaded and processed."""
-
-        rr = te.loada(ANTIMONY_MODEL)
-        sbml_str = rr.getSBML()
-
+    def test_processes_sbml_in_subdirectory(self) -> None:
+        """A valid SBML file in a subdirectory produces one (model_id, LinearAnalyzer) tuple."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_dir = os.path.join(tmp_dir, "MODEL0001")
             os.makedirs(model_dir)
-            sbml_path = os.path.join(model_dir, "MODEL0001_url.xml")
-            with open(sbml_path, "w") as f:
+            with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
                 f.write(sbml_str)
-
-            results = LinearAnalyzer.processBioModels(directory=tmp_dir)
-
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
         self.assertEqual(len(results), 1)
         model_id, analyzer = results[0]
         self.assertEqual(model_id, "MODEL0001")
         self.assertIsInstance(analyzer, LinearAnalyzer)
-        self.assertIsNotNone(analyzer._jacobian_arr)
 
-    def test_result_tuples_contain_model_id_and_analyzer(self) -> None:
-        """Each result tuple contains (str, LinearAnalyzer)."""
-        import tellurium as te
-
-        rr = te.loada(ANTIMONY_MODEL)
-        sbml_str = rr.getSBML()
-
+    def test_result_tuple_types(self) -> None:
+        """Each result tuple is (str, LinearAnalyzer)."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_dir = os.path.join(tmp_dir, "TESTMODEL")
             os.makedirs(model_dir)
             with open(os.path.join(model_dir, "TESTMODEL_url.xml"), "w") as f:
                 f.write(sbml_str)
-
-            results = LinearAnalyzer.processBioModels(directory=tmp_dir)
-
-        self.assertEqual(len(results), 1)
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
         model_id, analyzer = results[0]
         self.assertIsInstance(model_id, str)
         self.assertIsInstance(analyzer, LinearAnalyzer)
@@ -334,91 +290,112 @@ class TestProcessBioModels(unittest.TestCase):
             os.makedirs(bad_dir)
             with open(os.path.join(bad_dir, "BADMODEL_url.xml"), "w") as f:
                 f.write("<?xml version='1.0'?><not_sbml/>")
-
-            results = LinearAnalyzer.processBioModels(directory=tmp_dir)
-
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
         self.assertEqual(results, [])
 
+    def test_skips_manifest_xml(self) -> None:
+        """manifest.xml files are not loaded as SBML models."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model_dir = os.path.join(tmp_dir, "MODEL0001")
+            os.makedirs(model_dir)
+            # Write only a manifest.xml — should be ignored
+            with open(os.path.join(model_dir, "manifest.xml"), "w") as f:
+                f.write(sbml_str)
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
+        self.assertEqual(results, [])
 
-class TestMakeJacobianCVs(unittest.TestCase):
-    """Tests for LinearAnalyzer.makeJacobianCVs."""
-
-    def test_returns_ndarray(self) -> None:
-        """makeJacobianCVs returns a numpy ndarray."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        cv_arr = analyzer.makeJacobianCVs()
-        self.assertIsInstance(cv_arr, np.ndarray)
-
-    def test_shape(self) -> None:
-        """CV array has shape (n_species, n_species)."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        cv_arr = analyzer.makeJacobianCVs()
-        n_species = len(analyzer._species_ids)
-        self.assertEqual(cv_arr.shape, (n_species, n_species))
-
-    def test_auto_collects_jacobians(self) -> None:
-        """makeJacobianCVs calls collectJacobians automatically if needed."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=5)
-        self.assertIsNone(analyzer._jacobian_arr)
-        analyzer.makeJacobianCVs()
-        self.assertIsNotNone(analyzer._jacobian_arr)
-
-    def test_values_are_non_negative_or_nan(self) -> None:
-        """All finite CV values are non-negative."""
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=10)
-        cv_arr = analyzer.makeJacobianCVs()
-        finite_arr = cv_arr[np.isfinite(cv_arr)]
-        self.assertTrue(np.all(finite_arr >= 0))
+    def test_analyzer_has_jacobian_collection(self) -> None:
+        """Each returned LinearAnalyzer has a populated JacobianCollection."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model_dir = os.path.join(tmp_dir, "MODEL0001")
+            os.makedirs(model_dir)
+            with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
+                f.write(sbml_str)
+            results = LinearAnalyzer.makeBioModelAnalyzers(directory=tmp_dir)
+        _, analyzer = results[0]
+        self.assertIsInstance(analyzer._jacobian_collection, JacobianCollection)
+        self.assertGreater(analyzer._jacobian_collection.jacobian_arr.size, 0)
 
 
-class TestProcessBioModelsCVs(unittest.TestCase):
-    """Tests for LinearAnalyzer.processBioModelsCVs."""
+class TestPartitionBiomodelsJacobians(unittest.TestCase):
+    """Tests for LinearAnalyzer.partitionBiomodelsJacobians."""
 
-    def test_returns_dict(self) -> None:
-        """processBioModelsCVs returns a Series."""
+    def test_returns_series(self) -> None:
+        """partitionBiomodelsJacobians returns a pd.Series."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             data_file = os.path.join(tmp_dir, "out.csv")
-            ser = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
         self.assertIsInstance(ser, pd.Series)
 
-    def test_empty_directory_returns_empty_dict(self) -> None:
+    def test_empty_directory_returns_empty_series(self) -> None:
         """An empty directory yields an empty Series."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             data_file = os.path.join(tmp_dir, "out.csv")
-            ser = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
         self.assertEqual(len(ser), 0)
 
-    def test_keys_are_model_ids_values_are_arrays(self) -> None:
-        """Dict keys are model id strings and values are CV ndarrays."""
-        rr = te.loada(ANTIMONY_MODEL)
-        sbml_str = rr.getSBML()
-
+    def test_index_contains_model_id(self) -> None:
+        """Series index contains the processed model ID."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_dir = os.path.join(tmp_dir, "MODEL0001")
             os.makedirs(model_dir)
             with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
                 f.write(sbml_str)
             data_file = os.path.join(tmp_dir, "out.csv")
-            ser = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
         self.assertIn("MODEL0001", ser.index)
+
+    def test_values_are_floats(self) -> None:
+        """Series values are floats (max_cv per model)."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model_dir = os.path.join(tmp_dir, "MODEL0001")
+            os.makedirs(model_dir)
+            with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
+                f.write(sbml_str)
+            data_file = os.path.join(tmp_dir, "out.csv")
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
         self.assertIsInstance(ser["MODEL0001"], float)
 
-    def test_cv_array_shape(self) -> None:
-        """CV arrays in the result have shape (n_species, n_species)."""
-        rr = te.loada(ANTIMONY_MODEL)
-        sbml_str = rr.getSBML()
-        n_species = len(rr.getFloatingSpeciesIds())
-
+    def test_csv_is_created(self) -> None:
+        """The output CSV file is created."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_dir = os.path.join(tmp_dir, "MODEL0001")
             os.makedirs(model_dir)
             with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
                 f.write(sbml_str)
             data_file = os.path.join(tmp_dir, "out.csv")
-            result_dct = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
+            LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
+            self.assertTrue(os.path.isfile(data_file))
 
-        self.assertTrue(isinstance(result_dct["MODEL0001"], float))
+    def test_csv_is_valid_and_readable(self) -> None:
+        """The written CSV can be read back by pandas and contains the model ID."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model_dir = os.path.join(tmp_dir, "MODEL0001")
+            os.makedirs(model_dir)
+            with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
+                f.write(sbml_str)
+            data_file = os.path.join(tmp_dir, "out.csv")
+            LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
+            df = pd.read_csv(data_file, header=None, index_col=0)
+        self.assertIn("MODEL0001", df.index)
 
     def test_skips_invalid_model(self) -> None:
         """A directory with an invalid XML file is skipped without raising."""
@@ -428,128 +405,103 @@ class TestProcessBioModelsCVs(unittest.TestCase):
             with open(os.path.join(bad_dir, "BADMODEL_url.xml"), "w") as f:
                 f.write("<?xml version='1.0'?><not_sbml/>")
             data_file = os.path.join(tmp_dir, "out.csv")
-            ser = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
         self.assertEqual(len(ser), 0)
 
-
-class TestProcessBioModelsCVsDataFile(unittest.TestCase):
-    """Tests for the data_file feature of LinearAnalyzer.processBioModelsCVs."""
-
-    BIOMD3_SBML = os.path.join(
-        "/Users/jlheller/home/Technical/repos/temp-biomodels/final",
-        "BIOMD0000000003",
-        "BIOMD0000000003_url.xml",
-    )
-
-    def _make_model_dir(self, parent: str, model_id: str, sbml_path: str) -> None:
-        """Write a single SBML file into a model subdirectory under parent."""
-        model_dir = os.path.join(parent, model_id)
-        os.makedirs(model_dir)
-        with open(sbml_path) as src, open(os.path.join(model_dir, f"{model_id}_url.xml"), "w") as dst:
-            dst.write(src.read())
-
-    def test_data_file_is_created(self) -> None:
-        """processBioModelsCVs creates the CSV file at the specified path."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            self._make_model_dir(tmp_dir, "BIOMD0000000003", self.BIOMD3_SBML)
-            data_file = os.path.join(tmp_dir, "out.csv")
-            LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-            self.assertTrue(os.path.isfile(data_file))
-
-    def test_data_file_is_valid_csv(self) -> None:
-        """The written file can be read back as a CSV with pandas when models exist."""
-        rr = te.loada(ANTIMONY_MODEL)
-        sbml_str = rr.getSBML()
+    def test_excluded_models_are_skipped(self) -> None:
+        """Models in excluded_models are not processed."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
             model_dir = os.path.join(tmp_dir, "MODEL0001")
             os.makedirs(model_dir)
             with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
                 f.write(sbml_str)
             data_file = os.path.join(tmp_dir, "out.csv")
-            LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-            result_df = pd.read_csv(data_file, header=None)
-            self.assertIsInstance(result_df, pd.DataFrame)
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir,
+                output_data_file=data_file,
+                excluded_models=["MODEL0001"],
+            )
+        self.assertNotIn("MODEL0001", ser.index)
 
-    def test_data_file_index_contains_model_ids(self) -> None:
-        """CSV row index contains the processed model IDs."""
+    def test_sequential_partition_flag(self) -> None:
+        """is_sequential_partition=True runs without error and returns a Series."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
-            self._make_model_dir(tmp_dir, "BIOMD0000000003", self.BIOMD3_SBML)
+            model_dir = os.path.join(tmp_dir, "MODEL0001")
+            os.makedirs(model_dir)
+            with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
+                f.write(sbml_str)
             data_file = os.path.join(tmp_dir, "out.csv")
-            LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-            df = pd.read_csv(data_file, header=None, index_col=0)
-            self.assertIn("BIOMD0000000003", df.index)
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir,
+                output_data_file=data_file,
+                is_sequential_partition=True,
+            )
+        self.assertIsInstance(ser, pd.Series)
+        self.assertIn("MODEL0001", ser.index)
 
-    def test_data_file_custom_path(self) -> None:
-        """A custom data_file path is respected."""
+    def test_already_processed_model_is_skipped(self) -> None:
+        """A model already in the CSV is not reprocessed."""
+        sbml_str = te.loada(ANTIMONY_MODEL).getSBML()
         with tempfile.TemporaryDirectory() as tmp_dir:
-            self._make_model_dir(tmp_dir, "BIOMD0000000003", self.BIOMD3_SBML)
-            custom_path = os.path.join(tmp_dir, "subdir", "results.csv")
-            os.makedirs(os.path.dirname(custom_path))
-            LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=custom_path)
-            self.assertTrue(os.path.isfile(custom_path))
+            model_dir = os.path.join(tmp_dir, "MODEL0001")
+            os.makedirs(model_dir)
+            with open(os.path.join(model_dir, "MODEL0001_url.xml"), "w") as f:
+                f.write(sbml_str)
+            data_file = os.path.join(tmp_dir, "out.csv")
+            # First run — processes the model
+            LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
+            # Second run — should skip the already-processed model
+            ser2 = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
+        # Second run returns empty new results (model was already processed)
+        self.assertEqual(len(ser2), 0)
 
 
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels directory not available")
 class TestWithBioModels(unittest.TestCase):
     """Integration tests using real SBML files from temp-biomodels."""
 
-    BIOMD2_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000002", "BIOMD0000000002_url.xml")
-    BIOMD3_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000003", "BIOMD0000000003_url.xml")
-    BIOMD4_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000004", "BIOMD0000000004_url.xml")
+    def test_init_biomd3(self) -> None:
+        """LinearAnalyzer initializes correctly for BIOMD3 (3 floating species)."""
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD3_SBML), num_point=10)
+        arr = analyzer._jacobian_collection.jacobian_arr
+        self.assertEqual(arr.shape, (10, 3, 3))
 
-    # ------------------------------------------------------------------ #
-    # collectJacobians                                                     #
-    # ------------------------------------------------------------------ #
+    def test_init_biomd1_timepoints(self) -> None:
+        """JacobianCollection timepoints length equals num_point."""
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD1_SBML), num_point=10)
+        self.assertEqual(len(analyzer._jacobian_collection.timepoints), 10)
 
-    def test_collect_jacobians_biomd2_shape(self) -> None:
-        """collectJacobians returns the correct shape for BIOMD2 (13 species)."""
-        analyzer = LinearAnalyzer(_load_sbml(self.BIOMD2_SBML), num_point=10)
-        jacobian_arr = analyzer.collectJacobians()
-        self.assertEqual(jacobian_arr.shape, (10, 13, 13))
+    def test_partition_jacobians_biomd3(self) -> None:
+        """partitionJacobians works on a real SBML model."""
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD3_SBML), num_point=20)
+        result = analyzer.partitionJacobians(n_cluster=3)
+        self.assertEqual(len(result.clusters), 3)
+        total = sum(c.shape[0] for c in result.clusters)
+        self.assertEqual(total, 20)
 
-    def test_collect_jacobians_biomd3_shape(self) -> None:
-        """collectJacobians returns the correct shape for BIOMD3 (3 species)."""
-        analyzer = LinearAnalyzer(_load_sbml(self.BIOMD3_SBML), num_point=10)
-        jacobian_arr = analyzer.collectJacobians()
-        self.assertEqual(jacobian_arr.shape, (10, 3, 3))
+    def test_sequential_partition_biomd3(self) -> None:
+        """partitionJacobiansSequentially produces contiguous segments on a real SBML model."""
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD3_SBML), num_point=20)
+        result = analyzer.partitionJacobiansSequentially(n_cluster=3)
+        reconstructed = np.concatenate(result.clusters, axis=0)
+        np.testing.assert_array_equal(
+            reconstructed, analyzer._jacobian_collection.jacobian_arr
+        )
 
-    def test_collect_jacobians_biomd3_species_ids(self) -> None:
-        """Species IDs for BIOMD3 match the expected floating species."""
-        analyzer = LinearAnalyzer(_load_sbml(self.BIOMD3_SBML))
-        self.assertEqual(sorted(analyzer._species_ids), ["C", "M", "X"])
-
-    # ------------------------------------------------------------------ #
-    # makeJacobianCVs                                                      #
-    # ------------------------------------------------------------------ #
-
-    def test_make_jacobian_cvs_biomd1_shape(self) -> None:
-        """makeJacobianCVs returns (12, 12) CV array for BIOMD1."""
-        analyzer = LinearAnalyzer(_load_sbml(FIRST_BIOMODEL_SBML), num_point=10)
-        cv_arr = analyzer.makeJacobianCVs()
-        self.assertEqual(cv_arr.shape, (12, 12))
-
-    def test_make_jacobian_cvs_biomd4_shape(self) -> None:
-        """makeJacobianCVs returns (5, 5) CV array for BIOMD4."""
-        analyzer = LinearAnalyzer(_load_sbml(self.BIOMD4_SBML), num_point=10)
-        cv_arr = analyzer.makeJacobianCVs()
-        self.assertEqual(cv_arr.shape, (5, 5))
-
-    def test_make_jacobian_cvs_biomd3_finite_values(self) -> None:
-        """makeJacobianCVs for BIOMD3 contains at least one finite CV value."""
-        analyzer = LinearAnalyzer(_load_sbml(self.BIOMD3_SBML), num_point=20)
-        cv_arr = analyzer.makeJacobianCVs()
-        self.assertTrue(np.any(np.isfinite(cv_arr)))
-
-    # ------------------------------------------------------------------ #
-    # processBioModelsCVs                                                  #
-    # ------------------------------------------------------------------ #
-
-    def test_process_bio_models_cvs_with_real_models(self) -> None:
-        """processBioModelsCVs returns CV arrays for real BioModel SBML files."""
+    def test_partition_biomodels_with_real_models(self) -> None:
+        """partitionBiomodelsJacobians returns valid max_cv values for real models."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             for model_id, src_file in [
-                ("BIOMD0000000003", self.BIOMD3_SBML),
-                ("BIOMD0000000004", self.BIOMD4_SBML),
+                ("BIOMD0000000003", BIOMD3_SBML),
+                ("BIOMD0000000004", BIOMD4_SBML),
             ]:
                 model_dir = os.path.join(tmp_dir, model_id)
                 os.makedirs(model_dir)
@@ -557,27 +509,13 @@ class TestWithBioModels(unittest.TestCase):
                 with open(src_file) as src, open(dst, "w") as out:
                     out.write(src.read())
             data_file = os.path.join(tmp_dir, "out.csv")
-            result_dct = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-
-        self.assertIn("BIOMD0000000003", result_dct)
-        self.assertIn("BIOMD0000000004", result_dct)
-        self.assertTrue(isinstance(result_dct["BIOMD0000000003"], float))
-        self.assertTrue(isinstance(result_dct["BIOMD0000000004"], float))
-
-    def test_process_bio_models_cvs_values_non_negative(self) -> None:
-        """All finite CV values from real models are non-negative."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            model_dir = os.path.join(tmp_dir, "BIOMD0000000003")
-            os.makedirs(model_dir)
-            dst = os.path.join(model_dir, "BIOMD0000000003_url.xml")
-            with open(self.BIOMD3_SBML) as src, open(dst, "w") as out:
-                out.write(src.read())
-            data_file = os.path.join(tmp_dir, "out.csv")
-            result_dct = LinearAnalyzer.processBioModelsCVs(directory=tmp_dir, output_data_file=data_file)
-
-        cv_arr = result_dct["BIOMD0000000003"]
-        finite_arr = cv_arr[np.isfinite(cv_arr)]
-        self.assertTrue(np.all(finite_arr >= 0))
+            ser = LinearAnalyzer.partitionBiomodelsJacobians(
+                directory=tmp_dir, output_data_file=data_file
+            )
+        self.assertIn("BIOMD0000000003", ser.index)
+        self.assertIn("BIOMD0000000004", ser.index)
+        self.assertGreaterEqual(ser["BIOMD0000000003"], 0.0)
+        self.assertGreaterEqual(ser["BIOMD0000000004"], 0.0)
 
 
 if __name__ == "__main__":

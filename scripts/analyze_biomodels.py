@@ -81,7 +81,7 @@ def main() -> None:
     print(f"***Using sequential partitioning: {args.sequential}")
     print("**********************************************************\n")
 
-    result_dct = LinearAnalyzer.processBioModelsCVs(
+    result_dct = LinearAnalyzer.partitionBiomodelsJacobians(
         directory=args.directory,
         output_data_file=output_path,
         excluded_models=EXCLUDED_MODELS,
