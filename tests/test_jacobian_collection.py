@@ -3,11 +3,28 @@
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
-import numpy as np
+import matplotlib # type: ignore
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt # type: ignore
+import numpy as np # type: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+import src.constants as cn
 from jacobian_collection import JacobianCollection  # type: ignore
+from jacobian_collection_maker import JacobianCollectionMaker  # type: ignore
+from roadrunner_maker import RoadRunnerMaker  # type: ignore
+
+ANTIMONY_MODEL = """
+S1 -> S2; k1*S1
+S2 -> ; k2*S2
+k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
+"""
+
+BIOMD4_PATH = os.path.join(
+    cn.BIOMODELS_DIR, "BIOMD0000000004", "BIOMD0000000004_url.xml"
+)
 
 
 def _make_collection(n_points: int = 5, n_species: int = 3) -> JacobianCollection:
@@ -106,6 +123,140 @@ class TestMaxCV(unittest.TestCase):
         """max_cv is always non-negative."""
         jc = _make_collection()
         self.assertGreaterEqual(jc.max_cv, 0.0)
+
+
+class TestCalculateDeviation(unittest.TestCase):
+    """Tests for JacobianCollection._calculateDeviation."""
+
+    def test_returns_1d_array_of_correct_length(self) -> None:
+        """Result has shape (num_points,)."""
+        jc = _make_collection(n_points=5, n_species=3)
+        result = jc._calculateDeviation()
+        self.assertEqual(result.shape, (5,))
+
+    def test_identical_jacobians_give_zero_deviation(self) -> None:
+        """When all Jacobians are identical the centroid equals every Jacobian, so deviation is 0."""
+        jacobian_arr = np.ones((4, 2, 2))
+        timepoints = np.linspace(0, 3, 4)
+        jc = JacobianCollection(jacobian_arr, timepoints)
+        result = jc._calculateDeviation()
+        np.testing.assert_array_almost_equal(result, np.zeros(4))
+
+    def test_known_value_1x1(self) -> None:
+        """Hand-computed deviation for a 1×1 Jacobian with two timepoints."""
+        # centroid = 3.0; each deviation = |J - 3| / 3 = 1/3
+        jacobian_arr = np.array([[[2.0]], [[4.0]]])
+        timepoints = np.array([0.0, 1.0])
+        jc = JacobianCollection(jacobian_arr, timepoints)
+        result = jc._calculateDeviation()
+        expected = np.array([1.0 / 3.0, 1.0 / 3.0])
+        np.testing.assert_array_almost_equal(result, expected)
+
+    def test_zero_centroid_entry_produces_no_nan_or_inf(self) -> None:
+        """Entries whose centroid is 0 contribute 0 to the deviation (no inf/nan)."""
+        # Off-diagonal entries are always 0 → centroid off-diagonal = 0
+        jacobian_arr = np.zeros((3, 2, 2))
+        jacobian_arr[:, 0, 0] = np.array([1.0, 2.0, 3.0])
+        timepoints = np.array([0.0, 1.0, 2.0])
+        jc = JacobianCollection(jacobian_arr, timepoints)
+        result = jc._calculateDeviation()
+        self.assertFalse(np.any(np.isnan(result)))
+        self.assertFalse(np.any(np.isinf(result)))
+
+    def test_all_zero_jacobians_give_zero_deviation(self) -> None:
+        """All-zero Jacobians → centroid zero → deviation is 0 everywhere."""
+        jacobian_arr = np.zeros((3, 2, 2))
+        timepoints = np.array([0.0, 1.0, 2.0])
+        jc = JacobianCollection(jacobian_arr, timepoints)
+        result = jc._calculateDeviation()
+        np.testing.assert_array_equal(result, np.zeros(3))
+
+    def test_single_timepoint_gives_zero_deviation(self) -> None:
+        """With one timepoint the centroid equals the Jacobian, so deviation is 0."""
+        jacobian_arr = np.array([[[1.0, 2.0], [3.0, 4.0]]])
+        timepoints = np.array([0.0])
+        jc = JacobianCollection(jacobian_arr, timepoints)
+        result = jc._calculateDeviation()
+        np.testing.assert_array_almost_equal(result, np.zeros(1))
+
+    def test_nonnegative(self) -> None:
+        """Deviation is always non-negative."""
+        jc = _make_collection()
+        result = jc._calculateDeviation()
+        self.assertTrue(np.all(result >= 0.0))
+
+
+class TestPlot(unittest.TestCase):
+    """Tests for JacobianCollection.plot."""
+
+    def setUp(self) -> None:
+        maker = JacobianCollectionMaker(
+            ANTIMONY_MODEL, start_time=0.0, end_time=5.0, num_points=11
+        )
+        self.collection = maker.makeCollection()
+        self.roadrunner_maker = maker.roadrunner_maker
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def test_runs_without_error(self) -> None:
+        """plot runs without raising for a simple Antimony model."""
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+
+    def test_creates_two_axes(self) -> None:
+        """plot creates a figure with exactly two subplots."""
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+        self.assertEqual(len(plt.gcf().axes), 2)
+
+    def test_first_axis_title(self) -> None:
+        """First subplot title describes the Jacobian deviation."""
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+        self.assertEqual(
+            plt.gcf().axes[0].get_title(),
+            "Normalized Distance of Jacobian to Centroid",
+        )
+
+    def test_second_axis_title(self) -> None:
+        """Second subplot title describes the species timecourse."""
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+        self.assertEqual(plt.gcf().axes[1].get_title(), "Species Timecourse")
+
+    def test_first_axis_has_one_line(self) -> None:
+        """First subplot contains exactly one line (the deviation curve)."""
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+        self.assertEqual(len(plt.gcf().axes[0].lines), 1)
+
+    def test_second_axis_line_count_matches_species(self) -> None:
+        """Second subplot has one line per floating species."""
+        n_species = len(self.roadrunner_maker.roadrunner.getFloatingSpeciesIds())
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+        self.assertEqual(len(plt.gcf().axes[1].lines), n_species)
+
+    def test_second_axis_legend_contains_species_ids(self) -> None:
+        """Second subplot legend labels match the floating species IDs."""
+        with patch("matplotlib.pyplot.show"):
+            self.collection.plot(self.roadrunner_maker)
+        legend = plt.gcf().axes[1].get_legend()
+        self.assertIsNotNone(legend)
+        if legend is not None:
+            legend_texts = [t.get_text() for t in legend.get_texts()]
+            self.assertIn("S1", legend_texts)
+            self.assertIn("S2", legend_texts)
+
+    def test_biomodel_4(self) -> None:
+        """plot runs without error for BioModel BIOMD0000000004."""
+        with open(BIOMD4_PATH) as f:
+            sbml_str = f.read()
+        maker = JacobianCollectionMaker(sbml_str, start_time=0.0, end_time=200, num_points=2000)
+        collection = maker.makeCollection()
+        with patch("matplotlib.pyplot.show"):
+            collection.plot(maker.roadrunner_maker)
 
 
 if __name__ == "__main__":
