@@ -22,8 +22,8 @@ S2 -> ; k2*S2
 k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
-BIOMD4_PATH = os.path.join(
-    cn.BIOMODELS_DIR, "BIOMD0000000004", "BIOMD0000000004_url.xml"
+BIOMD_PATH = os.path.join(
+    cn.BIOMODELS_DIR, "BIOMD0000000038", "BIOMD0000000038_url.xml"
 )
 
 
@@ -46,7 +46,7 @@ class TestJacobianCollectionInit(unittest.TestCase):
     def test_stores_timepoints(self) -> None:
         """timepoints attribute is stored as-is."""
         jc = _make_collection()
-        self.assertEqual(len(jc.timepoints), 5)
+        self.assertEqual(len(jc.timepoint_arr), 5)
 
 
 class TestGetTimes(unittest.TestCase):
@@ -249,11 +249,11 @@ class TestPlot(unittest.TestCase):
             self.assertIn("S1", legend_texts)
             self.assertIn("S2", legend_texts)
 
-    def test_biomodel_4(self) -> None:
-        """plot runs without error for BioModel BIOMD0000000004."""
-        with open(BIOMD4_PATH) as f:
+    def test_biomodel_38(self) -> None:
+        """plot runs without error for BioModel BIOMD0000000038."""
+        with open(BIOMD_PATH) as f:
             sbml_str = f.read()
-        maker = JacobianCollectionMaker(sbml_str, start_time=0.0, end_time=200, num_points=2000)
+        maker = JacobianCollectionMaker(sbml_str, start_time=0.0, end_time=0.002, num_points=600)
         collection = maker.makeCollection()
         with patch("matplotlib.pyplot.show"):
             collection.plot(maker.roadrunner_maker)

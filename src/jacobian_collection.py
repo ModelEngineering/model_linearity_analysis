@@ -5,7 +5,7 @@ from roadrunner_maker import RoadRunnerMaker  # type: ignore
 import collections
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
-from typing import Optional, Set
+from typing import Optional, Set, Tuple
 
 
 PlotInfo = collections.namedtuple("PlotInfo",
@@ -14,22 +14,23 @@ PlotInfo = collections.namedtuple("PlotInfo",
 class JacobianCollection(object):
     """A collection of Jacobian matrices over one or more simulation timepoints."""
 
-    def __init__(self, jacobian_arr: np.ndarray, timepoints: np.ndarray) -> None:
+    def __init__(self, jacobian_arr: np.ndarray,
+            timepoint_arr: np.ndarray) -> None:
         """
         Parameters
         ----------
         jacobian_arr : np.ndarray
             Array of shape (num_point, n_species, n_species) containing Jacobian matrices.
-        timepoints : np.ndarray
+        timepoint_arr : np.ndarray
             Array of timepoints corresponding to each Jacobian matrix in jacobian_arr.
         """
-        sort_indices = np.argsort(timepoints)
-        self.timepoints = timepoints[sort_indices]
+        sort_indices = np.argsort(timepoint_arr)
+        self.timepoint_arr = timepoint_arr[sort_indices]
         self.jacobian_arr = jacobian_arr[sort_indices]
 
     def getTimes(self) -> Set[float]:
         """Return the unique set of timepoints in this collection."""
-        return set(self.timepoints)
+        return set(self.timepoint_arr)
 
     @property
     def max_cv(self) -> float:
@@ -65,7 +66,9 @@ class JacobianCollection(object):
     def plot(self, roadrunner_maker: RoadRunnerMaker,
             top_ax: Optional[plt.Axes] = None,   # type: ignore
             bottom_ax: Optional[plt.Axes] = None, # type: ignore
-            fig: Optional[plt.Figure] = None  # type: ignore
+            fig: Optional[plt.Figure] = None,  # type: ignore
+            is_legend: bool = True,
+            ylim: Tuple[float, float] = (0.0, 1.0),
             ) -> PlotInfo:  
         """
         Constructs a figure with two plots with time on the x-axis: (1) the Frobenius-norm distance of each Jacobian from the centroid, and
@@ -90,11 +93,11 @@ class JacobianCollection(object):
         rr.reset()
         species_ids = rr.getFloatingSpeciesIds()
         rows = []
-        for i, t in enumerate(self.timepoints):
+        for i, t in enumerate(self.timepoint_arr):
             if i == 0:
-                rr.simulate(self.timepoints[0], t + 1e-10, 2)
+                rr.simulate(self.timepoint_arr[0], t + 1e-10, 2)
             else:
-                rr.simulate(self.timepoints[i - 1], t, 2)
+                rr.simulate(self.timepoint_arr[i - 1], t, 2)
             rows.append(list(rr.getFloatingSpeciesConcentrations()))
         species_data = np.array(rows)
 
@@ -107,17 +110,19 @@ class JacobianCollection(object):
             ax1 = top_ax
             ax2 = bottom_ax
 
-        ax1.plot(times, deviation_arr)
+        ax1.plot(times, deviation_arr, marker="o")
         ax1.set_xlabel("Time")
         ax1.set_ylabel("Normalized distance")
         ax1.set_title("Normalized Distance of Jacobian to Centroid")
+        ax1.set_ylim(ylim)
 
         for i, species_id in enumerate(species_ids):
-            ax2.plot(self.timepoints, species_data[:, i], label=species_id)
+            ax2.plot(self.timepoint_arr, species_data[:, i], label=species_id)
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Concentration")
         ax2.set_title("Species Timecourse")
-        ax2.legend()
+        if is_legend:
+            ax2.legend()
 
         fig.tight_layout()
         plt.show()

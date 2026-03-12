@@ -105,17 +105,17 @@ class TestJacobianCollectionMakerMakeCollection(unittest.TestCase):
     def test_timepoints_length(self) -> None:
         """Timepoints array length matches num_points."""
         collection = self.maker.makeCollection()
-        self.assertEqual(len(collection.timepoints), 11)
+        self.assertEqual(len(collection.timepoint_arr), 11)
 
     def test_timepoints_start(self) -> None:
         """First timepoint matches start_time."""
         collection = self.maker.makeCollection()
-        self.assertAlmostEqual(collection.timepoints[0], 0.0, places=5)
+        self.assertAlmostEqual(collection.timepoint_arr[0], 0.0, places=5)
 
     def test_timepoints_end(self) -> None:
         """Last timepoint matches end_time."""
         collection = self.maker.makeCollection()
-        self.assertAlmostEqual(collection.timepoints[-1], 5.0, places=5)
+        self.assertAlmostEqual(collection.timepoint_arr[-1], 5.0, places=5)
 
     def test_jacobian_values_are_finite(self) -> None:
         """All Jacobian entries are finite (no NaN or Inf)."""

@@ -477,7 +477,7 @@ class TestWithBioModels(unittest.TestCase):
     def test_init_biomd1_timepoints(self) -> None:
         """JacobianCollection timepoints length equals num_point."""
         analyzer = LinearAnalyzer(_load_sbml(BIOMD1_SBML), num_point=10)
-        self.assertEqual(len(analyzer._jacobian_collection.timepoints), 10)
+        self.assertEqual(len(analyzer._jacobian_collection.timepoint_arr), 10)
 
     def test_partition_jacobians_biomd3(self) -> None:
         """partitionJacobians works on a real SBML model."""
