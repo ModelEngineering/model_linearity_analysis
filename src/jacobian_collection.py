@@ -1,6 +1,6 @@
 '''Container of a collection of Jacobian matrices and their timepoints and utilities.'''
 import src.constants as cn
-from roadrunner_maker import RoadRunnerMaker  # type: ignore
+from src.l_roadrunner import LRoadrunner  # type: ignore
 
 import collections
 import matplotlib.pyplot as plt  # type: ignore
@@ -14,19 +14,34 @@ PlotInfo = collections.namedtuple("PlotInfo",
 class JacobianCollection(object):
     """A collection of Jacobian matrices over one or more simulation timepoints."""
 
-    def __init__(self, jacobian_arr: np.ndarray,
-            timepoint_arr: np.ndarray) -> None:
+    def __init__(self, l_roadrunner: LRoadrunner,
+            ) -> None:
         """
         Parameters
         ----------
-        jacobian_arr : np.ndarray
-            Array of shape (num_point, n_species, n_species) containing Jacobian matrices.
-        timepoint_arr : np.ndarray
-            Array of timepoints corresponding to each Jacobian matrix in jacobian_arr.
+        l_roadrunner : LRoadrunner
+            An LRoadrunner instance used to simulate the model and collect Jacobians.
+            Jacobians and timepoints are obtained by calling makeJacobians() on this object.
         """
-        sort_indices = np.argsort(timepoint_arr)
-        self.timepoint_arr = timepoint_arr[sort_indices]
-        self.jacobian_arr = jacobian_arr[sort_indices]
+        self._l_roadrunner = l_roadrunner
+        self.jacobian_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
+        self._sortArrays()
+
+    def _sortArrays(self) -> None:
+        """Sort the jacobian_arr and timepoint_arr by timepoint."""
+        sort_indices = np.argsort(self.timepoint_arr)
+        self.timepoint_arr = self.timepoint_arr[sort_indices]
+        self.jacobian_arr = self.jacobian_arr[sort_indices]
+    
+    @classmethod
+    def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray):
+        """Create a JacobianCollection from explicit arrays."""
+        """There is no self._l_roadrunner in this case, so we cannot call makeJacobians()."""
+        jc = cls.__new__(cls)
+        jc.jacobian_arr = jacobian_arr
+        jc.timepoint_arr = timepoint_arr
+        jc._sortArrays()
+        return jc
 
     def getTimes(self) -> Set[float]:
         """Return the unique set of timepoints in this collection."""
@@ -63,13 +78,13 @@ class JacobianCollection(object):
         result = np.sqrt(np.sum(diff_arr**2, axis=(1,2)))
         return result
 
-    def plot(self, roadrunner_maker: RoadRunnerMaker,
+    def plot(self,
             top_ax: Optional[plt.Axes] = None,   # type: ignore
             bottom_ax: Optional[plt.Axes] = None, # type: ignore
             fig: Optional[plt.Figure] = None,  # type: ignore
             is_legend: bool = True,
             ylim: Tuple[float, float] = (0.0, 1.0),
-            ) -> PlotInfo:  
+            ) -> PlotInfo:
         """
         Constructs a figure with two plots with time on the x-axis: (1) the Frobenius-norm distance of each Jacobian from the centroid, and
         (2) the timecourse of simulation species concentrations.
@@ -79,8 +94,6 @@ class JacobianCollection(object):
 
         Parameters
         ----------
-        roadrunner_maker : RoadRunnerMaker
-            A RoadRunnerMaker instance containing the model to simulate for the second plot.
         top_ax : Optional[plt.Axes]
             An optional matplotlib Axes object to use for the top plot. If None, a new figure and axes will be created.
         bottom_ax : Optional[plt.Axes]
@@ -89,17 +102,11 @@ class JacobianCollection(object):
             An optional matplotlib Figure object to use. If None, a new figure will be created.
         """
 
-        rr = roadrunner_maker.roadrunner
-        rr.reset()
-        species_ids = rr.getFloatingSpeciesIds()
-        rows = []
-        for i, t in enumerate(self.timepoint_arr):
-            if i == 0:
-                rr.simulate(self.timepoint_arr[0], t + 1e-10, 2)
-            else:
-                rr.simulate(self.timepoint_arr[i - 1], t, 2)
-            rows.append(list(rr.getFloatingSpeciesConcentrations()))
-        species_data = np.array(rows)
+        if hasattr(self, '_l_roadrunner'):
+            species_ids = self._l_roadrunner.roadrunner.getFloatingSpeciesIds()
+            species_data = self._l_roadrunner.simulate()
+        else:
+            raise ValueError("Cannot plot species timecourse without an LRoadrunner instance.") 
 
         times = np.array(sorted(self.getTimes()))
         deviation_arr = self._calculateDeviation()

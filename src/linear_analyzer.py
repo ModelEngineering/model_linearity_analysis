@@ -3,7 +3,6 @@ Module for analyzing linearity of SBML and Antimony models via Jacobian analysis
 """
 import src.constants as cn
 from jacobian_collection import JacobianCollection # type: ignore
-from jacobian_collection_maker import JacobianCollectionMaker  # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 
 import collections
@@ -16,6 +15,8 @@ import numpy as np # type: ignore
 import tellurium as te # type: ignore
 from sklearn.cluster import KMeans # type: ignore
 
+from src.l_roadrunner import LRoadrunner # type: ignore
+
 OUTPUT_DATA_FILE = os.path.join(cn.DATA_DIR, "model_linearity_analysis_data.csv")
 ClusterResult = collections.namedtuple("ClusterResult", ["clusters", "max_cv"])
 
@@ -27,7 +28,7 @@ class LinearAnalyzer:
         self,
         model: str,
         start: float = 0,
-        end: float = 10,
+        end: Optional[float] = None,
         num_point: int = 100,
     ) -> None:
         """
@@ -48,8 +49,8 @@ class LinearAnalyzer:
         self.start = start
         self.end = end
         self.num_point = num_point
-        self._jacobian_collection = JacobianCollectionMaker(model, 
-                start_time=start, end_time=end, num_points=num_point).makeCollection()
+        self._linearity_roadrunner = LRoadrunner(model, start_time=start, end_time=end, num_points=num_point)
+        self._jacobian_collection = JacobianCollection(self._linearity_roadrunner)
 
     # FIXME: Return type should be ClusteredJacobianCollection, but this causes circular imports. Refactor to resolve.
     def partitionJacobians(
@@ -133,6 +134,7 @@ class LinearAnalyzer:
             n_cluster exceeds the number of timepoints.
         """
         jacobian_arr = self._jacobian_collection.jacobian_arr
+        timepoint_arr = self._jacobian_collection.timepoint_arr
         n_point = jacobian_arr.shape[0]
 
         if n_cluster > n_point:
@@ -144,8 +146,8 @@ class LinearAnalyzer:
         cost = np.zeros((n_point, n_point))
         for i in range(n_point):
             for j in range(i, n_point):
-                jacobian_collection = JacobianCollection(jacobian_arr[i : j + 1],
-                        self._jacobian_collection.timepoint_arr[i : j + 1])
+                jacobian_collection = JacobianCollection.fromArrays(jacobian_arr[i : j + 1],
+                        timepoint_arr[i : j + 1])
                 cost[i][j] = jacobian_collection.max_cv
 
         # DP: dp[k][i] = min possible max-segment-CV when partitioning
@@ -174,7 +176,7 @@ class LinearAnalyzer:
         clusters = [jacobian_arr[start:end] for start, end in boundaries]
         timepoint_arr = self._jacobian_collection.timepoint_arr
         timespans = [timepoint_arr[start:end] for start, end in boundaries]
-        jacobian_collections = [JacobianCollection(cluster, timespan)
+        jacobian_collections = [JacobianCollection.fromArrays(cluster, timespan)
                 for cluster, timespan in zip(clusters, timespans)] 
         clustered_jacobian_collection = ClusteredJacobianCollection(jacobian_collections)
         #

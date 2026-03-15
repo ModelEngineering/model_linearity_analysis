@@ -1,9 +1,22 @@
 """
-Process all BioModels SBML files and write Jacobian CV results to a CSV.
+Partition Jacobians for all BioModels SBML files and write results to a CSV.
+
+Walks a directory of BioModel subdirectories, simulates each SBML model,
+partitions the simulation timeline into clusters, computes Jacobian CVs per
+partition, and writes the results to a NaN-padded CSV.
 
 Usage:
     source activate.sh
     python scripts/analyze_biomodels.py [--directory DIR] [--output FILE]
+                                        [--n_cluster N] [--sequential]
+
+Arguments:
+    --directory   Directory containing BioModel subdirectories
+                  (default: cn.BIOMODELS_DIR)
+    --output      Path for the output CSV file. If omitted, the filename is
+                  derived from --n_cluster and --sequential.
+    --n_cluster   Number of partitions for k-means clustering (default: 5).
+    --sequential  Use contiguous (sequential) partitioning instead of k-means.
 """
 import src.constants as cn  # noqa: E402
 
@@ -37,7 +50,14 @@ NO_PATH = "no_path"
 
 
 def main() -> None:
-    """Parse arguments and run processBioModelsCVs over the BioModels directory."""
+    """
+    Parse CLI arguments and run LinearAnalyzer.partitionBiomodelsJacobians.
+
+    Resolves the output path (deriving a filename from n_cluster and
+    partitioning mode when --output is not provided), prints a summary of
+    the run configuration, delegates to partitionBiomodelsJacobians, and
+    reports the number of successfully processed models.
+    """
     parser = argparse.ArgumentParser(
         description="Compute Jacobian CV for all BioModel SBML files."
     )
