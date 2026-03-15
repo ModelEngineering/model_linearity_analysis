@@ -24,8 +24,11 @@ class JacobianCollection(object):
             Jacobians and timepoints are obtained by calling makeJacobians() on this object.
         """
         self._l_roadrunner = l_roadrunner
-        self.jacobian_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
-        self._sortArrays()
+        try:
+            self.jacobian_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
+            self._sortArrays()
+        except Exception as e:
+            raise ValueError(f"Failed to create JacobianCollection for {l_roadrunner.specification[0:200]}") from e
 
     def _sortArrays(self) -> None:
         """Sort the jacobian_arr and timepoint_arr by timepoint."""

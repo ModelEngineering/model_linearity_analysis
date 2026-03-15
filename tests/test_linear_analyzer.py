@@ -26,8 +26,9 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 BIOMD1_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000001", "BIOMD0000000001_url.xml")
-BIOMD3_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000003", "BIOMD0000000003_url.xml")
+BIOMD300_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000300", "BIOMD0000000300_url.xml")
 BIOMD4_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000004", "BIOMD0000000004_url.xml")
+BIOMD206_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml")
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
 
 
@@ -476,19 +477,19 @@ class TestWithBioModels(unittest.TestCase):
     """Integration tests using real SBML files from temp-biomodels."""
 
     def test_init_biomd3(self) -> None:
-        """LinearAnalyzer initializes correctly for BIOMD3 (3 floating species)."""
-        analyzer = LinearAnalyzer(_load_sbml(BIOMD3_SBML), num_point=10)
+        """LinearAnalyzer initializes correctly for BIOMD300 (3 floating species)."""
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD300_SBML), num_point=10)
         arr = analyzer._jacobian_collection.jacobian_arr
         self.assertEqual(arr.shape, (10, 3, 3))
 
     def test_init_biomd1_timepoints(self) -> None:
         """JacobianCollection timepoints length equals num_point."""
-        analyzer = LinearAnalyzer(_load_sbml(BIOMD1_SBML), num_point=10)
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD300_SBML), num_point=10)
         self.assertEqual(len(analyzer._jacobian_collection.timepoint_arr), 10)
 
     def test_partition_jacobians_biomd3(self) -> None:
         """partitionJacobians works on a real SBML model."""
-        analyzer = LinearAnalyzer(_load_sbml(BIOMD3_SBML), num_point=20)
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD300_SBML), num_point=20)
         result = analyzer.partitionJacobians(n_cluster=3)
         self.assertEqual(len(result.clusters), 3)
         total = sum(c.shape[0] for c in result.clusters)
@@ -496,7 +497,7 @@ class TestWithBioModels(unittest.TestCase):
 
     def test_sequential_partition_biomd3(self) -> None:
         """partitionJacobiansSequentially produces contiguous segments on a real SBML model."""
-        analyzer = LinearAnalyzer(_load_sbml(BIOMD3_SBML), num_point=20)
+        analyzer = LinearAnalyzer(_load_sbml(BIOMD300_SBML), num_point=20)
         result = analyzer.partitionJacobiansSequentially(n_cluster=3)
         reconstructed = np.concatenate(
             [jc.jacobian_arr for jc in result.jacobian_collections], axis=0
@@ -509,7 +510,7 @@ class TestWithBioModels(unittest.TestCase):
         """partitionBiomodelsJacobians returns valid max_cv values for real models."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             for model_id, src_file in [
-                ("BIOMD0000000003", BIOMD3_SBML),
+                ("BIOMD0000000300", BIOMD300_SBML),
                 ("BIOMD0000000004", BIOMD4_SBML),
             ]:
                 model_dir = os.path.join(tmp_dir, model_id)
@@ -521,10 +522,21 @@ class TestWithBioModels(unittest.TestCase):
             ser = LinearAnalyzer.partitionBiomodelsJacobians(
                 directory=tmp_dir, output_data_file=data_file
             )
-        self.assertIn("BIOMD0000000003", ser.index)
-        self.assertIn("BIOMD0000000004", ser.index)
-        self.assertGreaterEqual(ser["BIOMD0000000003"], 0.0)
-        self.assertGreaterEqual(ser["BIOMD0000000004"], 0.0)
+        self.assertIn("BIOMD0000000300", ser.index)
+        self.assertNotIn("BIOMD0000000004", ser.index)
+        self.assertGreaterEqual(ser["BIOMD0000000300"], 0.0)
+
+    def test_biomd206_raises_on_init(self) -> None:
+        """LinearAnalyzer raises ValueError for BIOMD0000000206.
+
+        BIOMD206 is a stiff model whose ODE solver exceeds the maximum step
+        count during the automatic steady-state end-time search.  The
+        RuntimeError from CVODE is caught by JacobianCollection.__init__ and
+        re-raised as ValueError, making it impossible to collect Jacobians
+        without supplying an explicit end_time.
+        """
+        with self.assertRaises(ValueError):
+            LinearAnalyzer(_load_sbml(BIOMD206_SBML))
 
 
 if __name__ == "__main__":

@@ -37,17 +37,18 @@ class LRoadrunner(object):
         num_points : int
             Number of output timepoints.
         """
+        self.specification = roadrunner_specification
         self.start_time = start_time
         self.num_points = num_points
         self._end_time = end_time
-        self._roadrunner = self._loadRoadRunner(roadrunner_specification)
+        self._roadrunner = self._loadRoadrunner(roadrunner_specification)
 
     @property
     def roadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         self._roadrunner.reset()
         return self._roadrunner
 
-    def _loadRoadRunner(self, roadrunner_specification) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
+    def _loadRoadrunner(self, roadrunner_specification) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         """
         Return a RoadRunner instance from a model string or an existing instance.
 
@@ -140,9 +141,11 @@ class LRoadrunner(object):
 
         def _isAtSteadyState(end_time: float) -> bool:
             rr.reset()
-            rr.simulate(self.start_time, end_time, 2)
-            final_arr = np.array(rr.getFloatingSpeciesConcentrations())
-            normalized_arr = final_arr / ss_arr
+            final_arr = rr.simulate(self.start_time, end_time, 2)[:, 1:]  # Exclude time column
+            is_both_zero = all(np.isclose(ss_arr, 0.0)) and all(np.isclose(final_arr[1], 0.0))
+            if is_both_zero:
+                return True
+            normalized_arr = final_arr[1] / ss_arr
             divergence = np.max(np.abs(normalized_arr - 1))
             return bool(divergence < threshold)
 
@@ -222,7 +225,7 @@ class LRoadrunner(object):
         """
         if len(self.roadrunner.getFloatingSpeciesIds()) == 0:
             raise ValueError("Model has no floating species; cannot compute Jacobian.")
-        result_arr = self.roadrunner.simulate(self.start_time, self._end_time, self.num_points)
+        result_arr = self.roadrunner.simulate(self.start_time, self.end_time, self.num_points)
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
 
         self._roadrunner.reset()

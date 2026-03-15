@@ -1,4 +1,4 @@
-Refactor using jacobian.py to reduce code in linear_analyzer.py
+Check analyze_biomodels.py since it should fail for non-stable systems (e.g., 206)
 JacobianCluster has visualization for clusters that show max mean-normalized distance from cluster mean for each timepoint
 BioModels path is a constant
 Create JacobianCluster. Knows Jacobians and their timepoints.

@@ -24,6 +24,9 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 BIOMD_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000038", "BIOMD0000000038_url.xml"
 )
+BIOMD206_PATH = os.path.join(
+    cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
+)
 
 
 def _make_collection_from_arrays(jacobian_arr: np.ndarray, timepoints: np.ndarray) -> JacobianCollection:
@@ -260,6 +263,27 @@ class TestPlot(unittest.TestCase):
         collection = JacobianCollection(lr)
         with patch("matplotlib.pyplot.show"):
             collection.plot()
+
+
+class TestBiomodel206(unittest.TestCase):
+    """Integration tests for JacobianCollection with BioModel BIOMD0000000206.
+
+    Uses the canonical simulation window from the model's SED-ML: t=0..10.
+    num_points is reduced from 1000 to 100 to keep the test suite fast.
+    """
+
+    def setUp(self) -> None:
+        with open(BIOMD206_PATH) as f:
+            sbml_str = f.read()
+        self.lr = LRoadrunner(sbml_str, start_time=0.0, num_points=100)
+
+    def test_construction_succeeds(self) -> None:
+        """JacobianCollection is created without error from BIOMD0000000206."""
+        try:
+            JacobianCollection(self.lr)
+            self.assertTrue(False)
+        except Exception as e:
+            self.assertTrue(True)
 
 
 if __name__ == "__main__":

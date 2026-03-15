@@ -49,8 +49,8 @@ class LinearAnalyzer:
         self.start = start
         self.end = end
         self.num_point = num_point
-        self._linearity_roadrunner = LRoadrunner(model, start_time=start, end_time=end, num_points=num_point)
-        self._jacobian_collection = JacobianCollection(self._linearity_roadrunner)
+        self._l_roadrunner = LRoadrunner(model, start_time=start, end_time=end, num_points=num_point)
+        self._jacobian_collection = JacobianCollection(self._l_roadrunner)
 
     # FIXME: Return type should be ClusteredJacobianCollection, but this causes circular imports. Refactor to resolve.
     def partitionJacobians(
