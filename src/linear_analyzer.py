@@ -30,6 +30,7 @@ class LinearAnalyzer:
         start: float = 0,
         end: Optional[float] = None,
         num_point: int = 100,
+        sedml_str: Optional[str] = None,
     ) -> None:
         """
         Initialize a LinearAnalyzer with a model and simulation parameters.
@@ -44,12 +45,16 @@ class LinearAnalyzer:
             Simulation end time (default: 10).
         num_point : int
             Number of simulation timepoints (default: 100).
+        sedml_str : str, optional
+            SED-ML string for simulation setup (default: None).
         """
         self.model = model
         self.start = start
         self.end = end
         self.num_point = num_point
-        self._l_roadrunner = LRoadrunner(model, start_time=start, end_time=end, num_points=num_point)
+        self.sedml_str = sedml_str
+        self._l_roadrunner = LRoadrunner(model, start_time=start,
+                end_time=end, num_points=num_point)
         self._jacobian_collection = JacobianCollection(self._l_roadrunner)
 
     # FIXME: Return type should be ClusteredJacobianCollection, but this causes circular imports. Refactor to resolve.
@@ -181,6 +186,15 @@ class LinearAnalyzer:
         clustered_jacobian_collection = ClusteredJacobianCollection(jacobian_collections)
         #
         return clustered_jacobian_collection
+    
+    @classmethod
+    def _getSedml(cls, directory: str) -> Optional[str]:
+        """Search for a SED-ML file in the given directory and return its contents as a string."""
+        sedml_files = glob.glob(os.path.join(directory, "*.sedml"))
+        if not sedml_files:
+            return None
+        with open(sedml_files[0], "r") as f:
+            return f.read()
 
     @classmethod
     def makeBioModelAnalyzers(
@@ -222,7 +236,9 @@ class LinearAnalyzer:
             try:
                 with open(sbml_file, "r") as f:
                     sbml_str = f.read()
-                analyzer = cls(sbml_str)
+                biomodel_dir = os.path.join(cn.BIOMODELS_DIR, model_dir)
+                sedml_str = cls._getSedml(biomodel_dir)
+                analyzer = cls(sbml_str, sedml_str=sedml_str)
                 results.append((model_dir, analyzer))
             except Exception as e:
                 print(f"Warning: skipping {model_dir}: {e}")
@@ -309,7 +325,9 @@ class LinearAnalyzer:
             try:
                 with open(sbml_file, "r") as f:
                     sbml_str = f.read()
-                analyzer = cls(sbml_str)
+                biomodel_dir = os.path.join(cn.BIOMODELS_DIR, model_dir)
+                sedml_str = cls._getSedml(biomodel_dir)
+                analyzer = cls(sbml_str, sedml_str=sedml_str)
                 if is_sequential_partition:
                     cluster_result = analyzer.partitionJacobiansSequentially(n_cluster=n_cluster)
                 else:

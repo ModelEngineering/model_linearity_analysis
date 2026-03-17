@@ -14,7 +14,10 @@ Usage::
 import src.constants as cn  # type: ignore
 import tellurium as te  # type: ignore
 import numpy as np  # type: ignore
+import regex as re # type: ignore
 from typing import Optional, Tuple
+
+DEFAULT_END_TIME = 10.0
 
 
 class LRoadrunner(object):
@@ -24,6 +27,7 @@ class LRoadrunner(object):
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = None,
             num_points: int = cn.NUM_POINTS,
+            sedml_str: Optional[str] = None,
             ) -> None:
         """
         Parameters
@@ -36,11 +40,14 @@ class LRoadrunner(object):
             Simulation end time or calculate the first time at which the model reaches steady state if None.
         num_points : int
             Number of output timepoints.
+        sedml_str : str, optional
+            SED-ML string for simulation setup (default: None).
         """
         self.specification = roadrunner_specification
         self.start_time = start_time
         self.num_points = num_points
         self._end_time = end_time
+        self._sedml_str = sedml_str
         self._roadrunner = self._loadRoadrunner(roadrunner_specification)
 
     @property
@@ -125,6 +132,15 @@ class LRoadrunner(object):
         """
         if self._end_time is not None:
             return self._end_time
+        # See if there is a custom end time specified in the SED-ML string. This allows us to use a shorter end time for models that take a long time to reach steady state, which can speed up the analysis.
+        if self._sedml_str:
+            end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"',
+                    self._sedml_str)
+            if end_time_match:
+                end_time = float(end_time_match.group(1))
+                if not np.isclose(end_time, DEFAULT_END_TIME):
+                    self._end_time = end_time
+                    return self._end_time
         #
         threshold = 0.01 # In units of the steady state concentrations
 

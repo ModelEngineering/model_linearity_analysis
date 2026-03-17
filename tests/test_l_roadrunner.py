@@ -9,7 +9,24 @@ import tellurium as te  # type: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import src.constants as cn
-from l_roadrunner import LRoadrunner  # type: ignore
+from l_roadrunner import LRoadrunner, DEFAULT_END_TIME  # type: ignore
+
+BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
+HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
+
+# BIOMD11: outputEndTime="10" in SED-ML — matches DEFAULT_END_TIME, so auto-detection runs.
+BIOMD11_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000011", "BIOMD0000000011_url.xml")
+BIOMD11_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000011", "BIOMD0000000011_url.sedml")
+
+# BIOMD477: outputEndTime="25" in SED-ML — non-default, so used directly.
+BIOMD477_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "BIOMD0000000477_url.xml")
+BIOMD477_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "MODEL1308080000_figure5.sedml")
+
+
+def _read(path: str) -> str:
+    """Return the text contents of *path*."""
+    with open(path) as fh:
+        return fh.read()
 
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
@@ -264,6 +281,53 @@ k1 = 0.1; S1 = 10; S2 = 0
         rr = LRoadrunner(boundary_model, end_time=10.0)
         with self.assertRaises(ValueError):
             rr.makeJacobians()
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestEndTimeSedml(unittest.TestCase):
+    """Tests for LRoadrunner.end_time when a SED-ML string is supplied."""
+
+    def test_non_default_sedml_end_time_used_directly(self) -> None:
+        """end_time returns the SED-ML outputEndTime when it differs from DEFAULT_END_TIME.
+
+        BIOMD477's SED-ML specifies outputEndTime="25", which is not the
+        default (10), so end_time should return 25.0 without running
+        the auto-detection algorithm.
+        """
+        rr = LRoadrunner(_read(BIOMD477_SBML), sedml_str=_read(BIOMD477_SEDML))
+        self.assertAlmostEqual(rr.end_time, 25.0)
+
+    def test_non_default_sedml_end_time_caches_value(self) -> None:
+        """end_time is cached after being read from SED-ML."""
+        rr = LRoadrunner(_read(BIOMD477_SBML), sedml_str=_read(BIOMD477_SEDML))
+        _ = rr.end_time
+        self.assertAlmostEqual(rr._end_time, 25.0)
+
+    def test_default_sedml_end_time_falls_through_to_auto_detect(self) -> None:
+        """end_time runs auto-detection when SED-ML outputEndTime equals DEFAULT_END_TIME.
+
+        BIOMD11's SED-ML specifies outputEndTime="10", which equals DEFAULT_END_TIME,
+        so the SED-ML value is ignored and the steady-state search runs instead.
+        The result is a positive float that need not equal 10.
+        """
+        rr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
+        result = rr.end_time
+        self.assertIsInstance(result, float)
+        self.assertGreater(result, 0.0)
+
+    def test_default_sedml_end_time_reaches_steady_state(self) -> None:
+        """Auto-detected end_time (from default SED-ML) puts BIOMD11 within 1% of steady state."""
+        threshold = 0.01
+        rr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
+        end_time = rr.end_time
+        rr_raw = rr.roadrunner
+        rr_raw.steadyState()
+        ss_arr = np.array([max(v, 1e-8) for v in rr_raw.getFloatingSpeciesConcentrations()])
+        rr_raw.reset()
+        rr_raw.simulate(0.0, end_time, 2)
+        final_arr = np.array(rr_raw.getFloatingSpeciesConcentrations())
+        divergence = np.max(np.abs(final_arr / ss_arr - 1))
+        self.assertLess(divergence, threshold)
 
 
 if __name__ == "__main__":
