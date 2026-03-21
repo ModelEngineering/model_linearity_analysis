@@ -1,5 +1,6 @@
 # Tasks
 
+1. Test processBioModels
 1. Finding an end time reflective of the system dynamics is challenging. Only about 15% of models have a steady state. Need another criteria. Check for perodicities and use the longest period.
    1. See if there is a human crafted end time in the SEDML. Doesn't end at 10. Doesn't have:    ``<uniformTimeCourse id="auto_ten_seconds" initialTime="0" outputStartTime="0" outputEndTime="10" numberOfSteps="1000">``
    2. Try steady state from initial conditions in simulation.

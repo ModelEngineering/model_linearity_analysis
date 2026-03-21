@@ -12,3 +12,8 @@ BIOMODELS_DIR = os.path.join(REPO_DIR, "temp-biomodels", "final")
 START_TIME = 0.0
 END_TIME = 10.0
 NUM_POINTS = 10*int(END_TIME - START_TIME) + 1
+
+# Columns
+COL_MAXCV = "max_cv"
+COL_ENDTIME = "end_time"
+COL_MODEL = "model"

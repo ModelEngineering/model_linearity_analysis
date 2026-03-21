@@ -18,6 +18,7 @@ import regex as re # type: ignore
 from typing import Optional, Tuple
 
 DEFAULT_END_TIME = 10.0
+DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
 
 
 class LRoadrunner(object):
@@ -138,14 +139,22 @@ class LRoadrunner(object):
                     self._sedml_str)
             if end_time_match:
                 end_time = float(end_time_match.group(1))
-                if not np.isclose(end_time, DEFAULT_END_TIME):
+                if not DEFAULT_END_TIME_STR in self._sedml_str and end_time > 0:
                     self._end_time = end_time
                     return self._end_time
         #
         threshold = 0.01 # In units of the steady state concentrations
 
         rr = self.roadrunner
+        rr.simulate(self.start_time, 5000, 2) # Get the simulation warm
         try:
+            option_dct = {"allow_approx": True,
+                    "approx_tolerance": 1e-3,
+                    "relative_tolerance": 1e-3,
+                    "maximum_iterations": 1000}
+            solver = rr.getSteadyStateSolver()
+            for k, v in option_dct.items():
+                solver.setValue(k, v)
             rr.steadyState()
         except RuntimeError as e:
             raise ValueError(

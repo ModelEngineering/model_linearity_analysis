@@ -53,9 +53,9 @@ class LinearAnalyzer:
         self.end = end
         self.num_point = num_point
         self.sedml_str = sedml_str
-        self._l_roadrunner = LRoadrunner(model, start_time=start,
+        self.l_roadrunner = LRoadrunner(model, start_time=start,
                 end_time=end, num_points=num_point)
-        self._jacobian_collection = JacobianCollection(self._l_roadrunner)
+        self._jacobian_collection = JacobianCollection(self.l_roadrunner)
 
     # FIXME: Return type should be ClusteredJacobianCollection, but this causes circular imports. Refactor to resolve.
     def partitionJacobians(
@@ -252,7 +252,7 @@ class LinearAnalyzer:
         excluded_models: Optional[List[str]] = None,
         n_cluster: int = 3,
         is_sequential_partition: bool = False,
-    ) -> pd.Series:
+    ) -> pd.DataFrame:
         """
         For each model in BioModels, partition its Jacobians into n_cluster clusters and save 
         the max CV of the clusters to a CSV.
@@ -274,33 +274,36 @@ class LinearAnalyzer:
 
         Returns
         -------
-        pd.Series
-            Series containing the max_CV of the clusters
+        pd.DataFrame
+            DataFrame containing 
+                index: model identifiers (subdirectory names)
+                max_cv: max CV of the Jacobian clusters for each model.
+                end_time: end time used for each model's simulation.
         """
         if excluded_models is None:
             excluded_models = []
 
         # Load existing CSV once to identify already-processed models
-        existing_ser = pd.Series(dtype=float)
+        existing_df = pd.DataFrame()
         if os.path.isfile(output_data_file) and os.path.getsize(output_data_file) > 0:
             try:
-                df = pd.read_csv(output_data_file, header=None,
+                existing_df = pd.read_csv(output_data_file, header=None,
                     names=['value'], index_col=0)
-                existing_ser = df['value']
-            except pd.errors.EmptyDataError:
+            except:
                 pass
-        processed_model_ids = set(existing_ser.index.astype(str)) if not existing_ser.empty else set()
+        processed_model_ids = set(existing_df.index.astype(str)) if not existing_df.empty else set()
         ##
-        def _write_csv(result_dct: Dict[str, float]) -> pd.Series:
+        def _write_csv(result_dct: Dict[str, float]) -> pd.DataFrame:
             """Write the given results to the output CSV, appending to existing data."""
-            ser = pd.Series(result_dct)
-            write_ser = pd.concat([existing_ser, ser[~ser.index.isin(existing_ser.index)]])
-            write_ser.to_csv(output_data_file, index=True)
-            return ser
+            df = pd.DataFrame(result_dct)
+            df = pd.concat([existing_df, df], ignore_index=False) if not existing_df.empty else df
+            df.set_index(cn.COL_MODEL, inplace=True)
+            df.to_csv(output_data_file, header=True, index=True)
+            return df
         ##
         # Iterate over models and append results to CSV after each model is processed
-        result_dct: Dict[str, float] = {}
-        ser = pd.Series(dtype=float)
+        result_dct: dict = {cn.COL_MODEL: [], cn.COL_MAXCV: [], cn.COL_ENDTIME: []}
+        result_df = pd.DataFrame(result_dct)
         for model_dir in sorted(os.listdir(directory)):
             model_dir = model_dir.strip()
             print(model_dir)
@@ -328,14 +331,17 @@ class LinearAnalyzer:
                 biomodel_dir = os.path.join(cn.BIOMODELS_DIR, model_dir)
                 sedml_str = cls._getSedml(biomodel_dir)
                 analyzer = cls(sbml_str, sedml_str=sedml_str)
+                end_time = analyzer.l_roadrunner.end_time
                 if is_sequential_partition:
                     cluster_result = analyzer.partitionJacobiansSequentially(n_cluster=n_cluster)
                 else:
                     cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
                 max_cv = cluster_result.max_cv
-                result_dct[model_dir] = max_cv
-                ser = _write_csv(result_dct)
+                result_dct[cn.COL_MODEL].append(model_dir)
+                result_dct[cn.COL_MAXCV].append(max_cv)
+                result_dct[cn.COL_ENDTIME].append(end_time)
+                result_df = _write_csv(result_dct)
             except Exception as e:
                 print(f"Warning: skipping {model_dir}: {e}")
         #
-        return ser
+        return result_df

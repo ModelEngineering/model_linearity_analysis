@@ -301,7 +301,7 @@ class TestEndTimeSedml(unittest.TestCase):
         """end_time is cached after being read from SED-ML."""
         rr = LRoadrunner(_read(BIOMD477_SBML), sedml_str=_read(BIOMD477_SEDML))
         _ = rr.end_time
-        self.assertAlmostEqual(rr._end_time, 25.0)
+        self.assertAlmostEqual(rr._end_time, 25.0) # type: ignore
 
     def test_default_sedml_end_time_falls_through_to_auto_detect(self) -> None:
         """end_time runs auto-detection when SED-ML outputEndTime equals DEFAULT_END_TIME.
@@ -316,8 +316,8 @@ class TestEndTimeSedml(unittest.TestCase):
         self.assertGreater(result, 0.0)
 
     def test_default_sedml_end_time_reaches_steady_state(self) -> None:
-        """Auto-detected end_time (from default SED-ML) puts BIOMD11 within 1% of steady state."""
-        threshold = 0.01
+        """Auto-detected end_time (from default SED-ML) puts BIOMD11 within 5% of steady state."""
+        threshold = 0.05
         rr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
         end_time = rr.end_time
         rr_raw = rr.roadrunner

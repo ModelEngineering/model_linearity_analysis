@@ -38,6 +38,7 @@ EXCLUDED_MODELS = [
     "BIOMD0000000472",  # >2000 reactions
     "BIOMD0000000473",  # >2000reactions
     "BIOMD0000000574",
+    "BIOMD0000000678",
 ]
 
 import src.constants as cn  # noqa: E402
