@@ -157,10 +157,14 @@ class LRoadrunner(object):
                 solver.setValue(k, v)
             rr.steadyState()
         except RuntimeError as e:
-            raise ValueError(
-                "Could not find a steady state for this model. "
-                "This may be because the model is invalid or unbounded."
-            ) from e
+            self._end_time = self._getEndtimeFromTime0Jacobian()
+            if self._end_time is not None:
+                return self._end_time
+            else:
+                raise ValueError(
+                    "Could not find a steady state for this model. "
+                    "This may be because the model is invalid or unbounded."
+                ) from e
         ss_arr = np.array(rr.getFloatingSpeciesConcentrations())
         ss_arr = np.array([max(v, 1e-8) for v in ss_arr])  # Avoid division by zero in _isAtSteadyState.
 
@@ -263,3 +267,58 @@ class LRoadrunner(object):
             jacobians.append(np.array(self._roadrunner.getFullJacobian()).copy())
 
         return np.array(jacobians), times_arr
+
+    def _getEndtimeFromTime0Jacobian(self) -> Optional[float]:
+        """
+        Estimate a simulation end time from the Jacobian evaluated at t=0.
+
+        The end time is estimated as the reciprocal of the smallest-magnitude
+        non-zero eigenvalue of the Jacobian at t=0, but only when the rank of
+        the left null space of the stoichiometry matrix is greater than or equal
+        to the number of near-zero eigenvalues of the Jacobian.  This condition
+        ensures the zero eigenvalues are attributable to conservation laws rather
+        than dynamic degeneracies, so the smallest non-zero eigenvalue reliably
+        sets the dominant timescale.
+
+        Returns
+        -------
+        Optional[float]
+            Estimated end time (1 / |λ_min|), or None if:
+            - the condition is not satisfied, or
+            - all eigenvalues are near-zero (no finite end time can be derived).
+
+        Notes
+        -----
+        Zero eigenvalues are identified by |λ| < 1e-10.
+        """
+        ZERO_TOL = 1e-10
+
+        # (a) Jacobian at t=0: reset then step an infinitesimal amount forward.
+        rr = self._roadrunner
+        rr.reset()
+        rr.simulate(self.start_time, self.start_time + 1e-10, 2)
+        jacobian_arr = np.array(rr.getFullJacobian())
+
+        # (b) Rank of the left null space of the stoichiometry matrix.
+        #     Left null space dimension = n_species - rank(N).
+        stoich_arr = np.array(rr.getFullStoichiometryMatrix())
+        n_species = stoich_arr.shape[0]
+        stoich_rank = np.linalg.matrix_rank(stoich_arr)
+        left_null_rank = n_species - stoich_rank
+
+        # Eigenvalues of the Jacobian (may be complex).
+        eigenvalues = np.linalg.eigvals(jacobian_arr)
+        magnitudes = np.abs(eigenvalues)
+        num_zero_eigs = int(np.sum(magnitudes < ZERO_TOL))
+
+        # (c) Condition: conservation-law count covers all zero eigenvalues.
+        if left_null_rank < num_zero_eigs:
+            return None
+
+        # (i)/(ii) Smallest non-zero magnitude → end time.
+        nonzero_magnitudes = magnitudes[magnitudes >= ZERO_TOL]
+        if nonzero_magnitudes.size == 0:
+            return None
+
+        min_magnitude = float(np.min(nonzero_magnitudes))
+        return 1.0 / min_magnitude

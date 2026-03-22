@@ -283,6 +283,84 @@ k1 = 0.1; S1 = 10; S2 = 0
             rr.makeJacobians()
 
 
+class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
+    """Tests for LRoadrunner._getEndtimeFromTime0Jacobian."""
+
+    def setUp(self) -> None:
+        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0, num_points=10)
+
+    def test_returns_float_for_normal_model(self) -> None:
+        """Returns a float for a model with non-zero eigenvalues."""
+        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        self.assertIsInstance(result, float)
+
+    def test_returns_positive_value(self) -> None:
+        """Returned end time is strictly positive."""
+        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        self.assertGreater(result, 0.0)
+
+    def test_antimony_model_end_time(self) -> None:
+        """ANTIMONY_MODEL: smallest |eigenvalue| = k1 = 0.1, so end_time ≈ 10.0.
+
+        Jacobian at t=0 is [[-k1, 0], [k1, -k2]] = [[-0.1, 0], [0.1, -0.2]].
+        Eigenvalues of a lower-triangular matrix are the diagonal entries: -0.1, -0.2.
+        Smallest magnitude is 0.1 → end_time = 1/0.1 = 10.0.
+        """
+        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        self.assertAlmostEqual(result, 10.0, places=4)
+
+    def test_production_model_end_time(self) -> None:
+        """PRODUCTION_MODEL: single eigenvalue -k_out = -0.1, so end_time ≈ 10.0."""
+        result = self.production_lrr._getEndtimeFromTime0Jacobian()
+        self.assertAlmostEqual(result, 10.0, places=4)
+
+    def test_end_time_is_reciprocal_of_min_eigenvalue_magnitude(self) -> None:
+        """end_time equals 1 / min|eigenvalue| of the t=0 Jacobian."""
+        rr = self.antimony_lrr._roadrunner
+        rr.reset()
+        rr.simulate(self.antimony_lrr.start_time, self.antimony_lrr.start_time + 1e-10, 2)
+        eigenvalues = np.linalg.eigvals(np.array(rr.getFullJacobian()))
+        magnitudes = np.abs(eigenvalues)
+        expected = 1.0 / float(np.min(magnitudes[magnitudes >= 1e-10]))
+        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        self.assertAlmostEqual(result, expected, places=6)
+
+    def test_returns_none_when_condition_not_met(self) -> None:
+        """Returns None when left_null_rank < number of zero eigenvalues.
+
+        Patch the Jacobian to have one zero eigenvalue while the stoichiometry
+        has full rank (left_null_rank = 0).  0 < 1, so the condition fails.
+        """
+        import unittest.mock as mock
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        zero_jacobian = np.array([[0.0, 0.0], [0.0, -0.2]])
+        with mock.patch.object(lrr._roadrunner, "getFullJacobian", return_value=zero_jacobian):
+            result = lrr._getEndtimeFromTime0Jacobian()
+        self.assertIsNone(result)
+
+    def test_returns_none_when_all_eigenvalues_zero(self) -> None:
+        """Returns None when every eigenvalue is near-zero (no finite end time exists).
+
+        Patch stoichiometry to give left_null_rank = 2 and Jacobian to the zero
+        matrix (2 zero eigenvalues).  Condition 2 >= 2 is met, but there are no
+        non-zero eigenvalues to take the reciprocal of.
+        """
+        import unittest.mock as mock
+        rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        zero_jacobian = np.zeros((2, 2))
+        rank_0_stoich = np.zeros((2, 2))
+        with mock.patch.object(rr._roadrunner, "getFullJacobian", return_value=zero_jacobian), \
+                mock.patch.object(rr._roadrunner, "getFullStoichiometryMatrix", return_value=rank_0_stoich):
+                result = rr._getEndtimeFromTime0Jacobian()
+        self.assertIsNone(result)
+
+    def test_result_is_finite(self) -> None:
+        """Returned end time is finite (not inf or nan)."""
+        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        self.assertTrue(np.isfinite(result))
+
+
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestEndTimeSedml(unittest.TestCase):
     """Tests for LRoadrunner.end_time when a SED-ML string is supplied."""
@@ -299,9 +377,9 @@ class TestEndTimeSedml(unittest.TestCase):
 
     def test_non_default_sedml_end_time_caches_value(self) -> None:
         """end_time is cached after being read from SED-ML."""
-        rr = LRoadrunner(_read(BIOMD477_SBML), sedml_str=_read(BIOMD477_SEDML))
-        _ = rr.end_time
-        self.assertAlmostEqual(rr._end_time, 25.0) # type: ignore
+        lrr = LRoadrunner(_read(BIOMD477_SBML), sedml_str=_read(BIOMD477_SEDML))
+        _ = lrr.end_time
+        self.assertAlmostEqual(lrr._end_time, 25.0) # type: ignore
 
     def test_default_sedml_end_time_falls_through_to_auto_detect(self) -> None:
         """end_time runs auto-detection when SED-ML outputEndTime equals DEFAULT_END_TIME.
@@ -310,17 +388,17 @@ class TestEndTimeSedml(unittest.TestCase):
         so the SED-ML value is ignored and the steady-state search runs instead.
         The result is a positive float that need not equal 10.
         """
-        rr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
-        result = rr.end_time
+        lrr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
+        result = lrr.end_time
         self.assertIsInstance(result, float)
         self.assertGreater(result, 0.0)
 
     def test_default_sedml_end_time_reaches_steady_state(self) -> None:
         """Auto-detected end_time (from default SED-ML) puts BIOMD11 within 5% of steady state."""
         threshold = 0.05
-        rr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
-        end_time = rr.end_time
-        rr_raw = rr.roadrunner
+        lrr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
+        end_time = lrr.end_time
+        rr_raw = lrr.roadrunner
         rr_raw.steadyState()
         ss_arr = np.array([max(v, 1e-8) for v in rr_raw.getFloatingSpeciesConcentrations()])
         rr_raw.reset()
