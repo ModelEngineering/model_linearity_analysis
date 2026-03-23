@@ -57,7 +57,6 @@ class LinearAnalyzer:
         self._jacobian_collection = JacobianCollection(self.l_roadrunner)
         self.model = model
 
-    # FIXME: Return type should be ClusteredJacobianCollection, but this causes circular imports. Refactor to resolve.
     def partitionJacobians(
         self, n_cluster: int, max_iter: int = 300
     ) -> ClusterResult:
@@ -287,10 +286,9 @@ class LinearAnalyzer:
         if os.path.isfile(output_data_file) and os.path.getsize(output_data_file) > 0:
             try:
                 existing_df = pd.read_csv(output_data_file)
-                existing_df.set_index(cn.COL_MODEL, inplace=True)
             except:
                 pass
-        processed_model_ids = set(existing_df.index.astype(str)) if not existing_df.empty else set()
+        processed_model_ids = set(existing_df[cn.COL_MODEL]) if not existing_df.empty else set()
         ##
         def _write_csv(result_dct: Dict[str, float]) -> pd.DataFrame:
             """Write the given results to the output CSV, appending to existing data."""
