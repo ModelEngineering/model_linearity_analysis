@@ -64,14 +64,14 @@ class TestGetTimes(unittest.TestCase):
     def test_returns_set(self) -> None:
         """getTimes returns a set."""
         jc = _make_collection()
-        self.assertIsInstance(jc.getTimes(), set)
+        self.assertIsInstance(jc.getTimes(), np.ndarray)
 
     def test_unique_timepoints(self) -> None:
         """getTimes returns the unique set of timepoints."""
         timepoints = np.array([0.0, 1.0, 1.0, 2.0])
         jacobian_arr = np.zeros((4, 2, 2))
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
-        self.assertEqual(jc.getTimes(), {0.0, 1.0, 2.0})
+        self.assertTrue(np.array_equal(jc.getTimes(), np.array([0.0, 1.0, 2.0])))
 
     def test_all_unique_timepoints(self) -> None:
         """getTimes returns all timepoints when none are duplicated."""
@@ -239,7 +239,7 @@ class TestPlot(unittest.TestCase):
 
     def test_second_axis_line_count_matches_species(self) -> None:
         """Second subplot has one line per floating species."""
-        n_species = len(self.collection._l_roadrunner.roadrunner.getFloatingSpeciesIds())
+        n_species = len(self.collection._l_roadrunner.getRoadrunner().getFloatingSpeciesIds())
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         self.assertEqual(len(plt.gcf().axes[1].lines), n_species)

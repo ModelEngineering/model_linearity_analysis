@@ -46,9 +46,9 @@ class JacobianCollection(object):
         jc._sortArrays()
         return jc
 
-    def getTimes(self) -> Set[float]:
-        """Return the unique set of timepoints in this collection."""
-        return set(self.timepoint_arr)
+    def getTimes(self) -> np.ndarray:
+        """Return the sorted unique timepoints in this collection."""
+        return np.unique(self.timepoint_arr)
 
     @property
     def max_cv(self) -> float:
@@ -108,11 +108,14 @@ class JacobianCollection(object):
         if hasattr(self, '_l_roadrunner'):
             roadrunner = self._l_roadrunner.getRoadrunner()
             species_ids = roadrunner.getFloatingSpeciesIds()
-            species_data = roadrunner.simulate()
+            data_arr = self._l_roadrunner.simulate(is_with_timepoints=True)
+            species_data = data_arr[:, 1:]  # Exclude time column
+            species_times = data_arr[:, 0]  # Extract time column
         else:
             raise ValueError("Cannot plot species timecourse without an LRoadrunner instance.") 
-
-        times = np.array(sorted(self.getTimes()))
+        jacobian_times = self.getTimes()
+        if len(jacobian_times) == 1:
+                import pdb; pdb.set_trace()
         deviation_arr = self._calculateDeviation()
 
         if top_ax is None or bottom_ax is None or fig is None:
@@ -121,14 +124,14 @@ class JacobianCollection(object):
             ax1 = top_ax
             ax2 = bottom_ax
 
-        ax1.plot(times, deviation_arr, marker="o")
+        ax1.plot(jacobian_times, deviation_arr, marker="o")
         ax1.set_xlabel("Time")
         ax1.set_ylabel("Normalized distance")
         ax1.set_title("Normalized Distance of Jacobian to Centroid")
         ax1.set_ylim(ylim)
 
         for i, species_id in enumerate(species_ids):
-            ax2.plot(self.timepoint_arr, species_data[:, i], label=species_id)
+            ax2.plot(species_times, species_data[:, i], label=species_id)
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Concentration")
         ax2.set_title("Species Timecourse")

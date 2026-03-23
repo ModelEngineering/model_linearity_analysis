@@ -23,7 +23,7 @@ BIOMD477_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "BIOMD0000000477
 BIOMD477_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "MODEL1308080000_figure5.sedml")
 
 # BIOMD241: rate-rule-only model (no reactions) with events that block steadyState().
-# end_time falls back to _getEndtimeFromTime0Jacobian.
+# end_time falls back to _calculateEndtimeJacobian.
 # Smallest |eigenvalue| at t=0 ≈ 0.176355, so end_time ≈ 5.67.
 BIOMD241_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000241", "BIOMD0000000241_url.xml")
 BIOMD241_EXPECTED_END_TIME = 1.0 / 0.176355  # ≈ 5.67
@@ -269,8 +269,8 @@ k1 = 0.1; S1 = 10; S2 = 0
             rr.makeJacobians()
 
 
-class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
-    """Tests for LRoadrunner._getEndtimeFromTime0Jacobian."""
+class TestGetEndtimeFromJacobian(unittest.TestCase):
+    """Tests for LRoadrunner._calculateEndtimeJacobian."""
 
     def setUp(self) -> None:
         self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
@@ -278,12 +278,12 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
 
     def test_returns_float_for_normal_model(self) -> None:
         """Returns a float for a model with non-zero eigenvalues."""
-        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        result = self.antimony_lrr._calculateEndtimeJacobian()
         self.assertIsInstance(result, float)
 
     def test_returns_positive_value(self) -> None:
         """Returned end time is strictly positive."""
-        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        result = self.antimony_lrr._calculateEndtimeJacobian()
         self.assertGreater(result, 0.0)
 
     def test_antimony_model_end_time(self) -> None:
@@ -293,12 +293,12 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
         Eigenvalues of a lower-triangular matrix are the diagonal entries: -0.1, -0.2.
         Smallest magnitude is 0.1 → end_time = 1/0.1 = 10.0.
         """
-        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        result = self.antimony_lrr._calculateEndtimeJacobian()
         self.assertAlmostEqual(result, 10.0, places=4)
 
     def test_production_model_end_time(self) -> None:
         """PRODUCTION_MODEL: single eigenvalue -k_out = -0.1, so end_time ≈ 10.0."""
-        result = self.production_lrr._getEndtimeFromTime0Jacobian()
+        result = self.production_lrr._calculateEndtimeJacobian()
         self.assertAlmostEqual(result, 10.0, places=4)
 
     def test_end_time_is_reciprocal_of_min_eigenvalue_magnitude(self) -> None:
@@ -309,13 +309,13 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
         eigenvalues = np.linalg.eigvals(np.array(rr.getFullJacobian()))
         magnitudes = np.abs(eigenvalues)
         expected = 1.0 / float(np.min(magnitudes[magnitudes >= 1e-10]))
-        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        result = self.antimony_lrr._calculateEndtimeJacobian()
         self.assertAlmostEqual(result, expected, places=6)
 
     def test_returns_none_when_condition_not_met(self) -> None:
         """Returns None when left_null_rank < number of zero eigenvalues.
 
-        The fresh RoadRunner created inside _getEndtimeFromTime0Jacobian is
+        The fresh RoadRunner created inside _calculateEndtimeJacobian is
         controlled via _loadModel.  Jacobian has one zero eigenvalue; full-rank
         stoichiometry gives left_null_rank = 0.  0 < 1, so the condition fails.
         """
@@ -326,7 +326,7 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
         # Full-rank 2×2 stoichiometry → left_null_rank = 0
         fresh.getFullStoichiometryMatrix.return_value = np.array([[-1.0, 0.0], [1.0, -1.0]])
         with mock.patch.object(lrr, "_loadModel", return_value=fresh):
-            result = lrr._getEndtimeFromTime0Jacobian()
+            result = lrr._calculateEndtimeJacobian()
         self.assertIsNone(result)
 
     def test_returns_none_when_all_eigenvalues_zero(self) -> None:
@@ -342,12 +342,12 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
         fresh.getFullJacobian.return_value = np.zeros((2, 2))
         fresh.getFullStoichiometryMatrix.return_value = np.zeros((2, 2))
         with mock.patch.object(lrr, "_loadModel", return_value=fresh):
-            result = lrr._getEndtimeFromTime0Jacobian()
+            result = lrr._calculateEndtimeJacobian()
         self.assertIsNone(result)
 
     def test_result_is_finite(self) -> None:
         """Returned end time is finite (not inf or nan)."""
-        result = self.antimony_lrr._getEndtimeFromTime0Jacobian()
+        result = self.antimony_lrr._calculateEndtimeJacobian()
         self.assertTrue(np.isfinite(result))
 
 
@@ -402,7 +402,7 @@ class TestEndTimeSedml(unittest.TestCase):
 class TestEndTimeBiomd241(unittest.TestCase):
     """end_time tests for BIOMD241, a rate-rule-only model whose steadyState()
     raises RuntimeError due to events, forcing the fallback to
-    _getEndtimeFromTime0Jacobian.
+    _calculateEndtimeJacobian.
     """
 
     def setUp(self) -> None:

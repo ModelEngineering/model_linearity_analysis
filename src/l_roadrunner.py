@@ -53,6 +53,7 @@ class LRoadrunner(object):
         self.num_points = num_points
         self._end_time = end_time
         self._sedml_str = sedml_str
+        self._end_time_source: Optional[str] = None
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         return self._loadRoadrunner(self.specification)
@@ -98,9 +99,50 @@ class LRoadrunner(object):
         if "<?xml" in stripped or "<sbml" in stripped:
             return te.loadSBMLModel(model)
         return te.loada(model)
-
+    
     @property
     def end_time(self) -> float:
+        """
+        Get the simulation end time, calculating it if not already set.
+
+        If an end time was provided at initialization, that value is returned.
+        Otherwise, the end time is calculated using the following methods in order of precedence:
+        1. Extracting from the SED-ML string (if provided and valid).
+        2. Finding the first simulation end time at which the model reaches steady state.
+        3. Estimating from the Jacobian at t=0 (1 / |λ_min|), but only when the rank of the left null space of the stoichiometry matrix is greater than or equal to the number of near-zero eigenvalues of the Jacobian.
+        4. Defaulting to 10.0 seconds.
+
+        Returns
+        -------
+        float
+            The simulation end time.
+        """
+        # Check if end time was has been calculated or provided
+        if self._end_time is not None:
+            return self._end_time
+        #
+        # Try to calculate from SED-ML string, if provided.
+        self._end_time = self._calculateEndtimeSBML()
+        if self._end_time is not None:
+            self._end_time_source = cn.ENDTIME_SOURCE_SEDML
+            return self._end_time
+        # Try to calculate from steady state simulation.
+        self._end_time = self._calculateEndtimeSteadystate()
+        if self._end_time is not None:
+            self._end_time_source = cn.ENDTIME_SOURCE_STEADYSTATE
+            return self._end_time
+        # Try to calculate from Jacobian at t=0.
+        self._end_time = self._calculateEndtimeJacobian()
+        if self._end_time is not None:
+            self._end_time_source = cn.ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE
+            return self._end_time
+        # Could not find end_time
+        raise ValueError(
+            "Could not determine an appropriate end time for this model. "
+            "This may be because the model is invalid or unbounded."
+        )
+    
+    def _calculateEndtimeSteadystate(self) -> Optional[float]:
         """
         Find the first simulation end time at which the model reaches steady state.
 
@@ -126,26 +168,9 @@ class LRoadrunner(object):
         -------
         float
             The first simulation end time at which the model is at steady state.
-
-        Raises
-        ------
-        ValueError
-            If no steady state is found within a simulation time of 1e9.
         """
-        if self._end_time is not None:
-            return self._end_time
-        # See if there is a custom end time specified in the SED-ML string. This allows us to use a shorter end time for models that take a long time to reach steady state, which can speed up the analysis.
-        if self._sedml_str:
-            end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"',
-                    self._sedml_str)
-            if end_time_match:
-                end_time = float(end_time_match.group(1))
-                if not DEFAULT_END_TIME_STR in self._sedml_str and end_time > 0:
-                    self._end_time = end_time
-                    return self._end_time
+        THRESHOLD = 0.01 # In units of the steady state concentrations
         #
-        threshold = 0.01 # In units of the steady state concentrations
-
         rr = self.getRoadrunner()
         rr.simulate(self.start_time, 5000, 2) # Get the simulation warm
         try:
@@ -158,17 +183,10 @@ class LRoadrunner(object):
                 solver.setValue(k, v)
             rr.steadyState()
         except RuntimeError as e:
-            self._end_time = self._getEndtimeFromTime0Jacobian()
-            if self._end_time is not None:
-                return self._end_time
-            else:
-                raise ValueError(
-                    "Could not find a steady state for this model. "
-                    "This may be because the model is invalid or unbounded."
-                ) from e
+            return None
         ss_arr = np.array(rr.getFloatingSpeciesConcentrations())
         ss_arr = np.array([max(v, 1e-8) for v in ss_arr])  # Avoid division by zero in _isAtSteadyState.
-
+        # Helper that determines if at steady state
         def _isAtSteadyState(end_time: float) -> bool:
             rr.reset()
             final_arr = rr.simulate(self.start_time, end_time, 2)[:, 1:]  # Exclude time column
@@ -177,17 +195,15 @@ class LRoadrunner(object):
                 return True
             normalized_arr = final_arr[1] / ss_arr
             divergence = np.max(np.abs(normalized_arr - 1))
-            return bool(divergence < threshold)
-
+            return bool(divergence < THRESHOLD)
+        #
         # Phase 1: find an end_time where the model is at steady state.
         end_time = 1.0
         while not _isAtSteadyState(end_time):
             end_time *= 2
             if end_time > 1e9:
-                raise ValueError(
-                    "Could not find a steady state within a reasonable simulation time."
-                )
-
+                return None
+        #
         # Phase 2: find the first time the model enters steady state.
         # This is done by binary reduction in the time intervals
         MIN_TIME = 1e-8
@@ -202,10 +218,35 @@ class LRoadrunner(object):
                 end_time = test_time
             else:
                 ceiling = test_time
-            if 1 - floor/ceiling < threshold:
+            if 1 - floor/ceiling < THRESHOLD:
                 break
         #
         self._end_time = end_time
+        return self._end_time
+    
+    def _calculateEndtimeSBML(self) -> Optional[float]:
+        """
+        Estimate an end time from the model's SBML string, if possible.
+
+        This method looks for a SED-ML uniformTimeCourse task with an outputEndTime attribute, which is a common way to specify simulation end times in SBML files. If such a specification is found and valid, it is used as the end time.
+
+        Returns
+        -------
+        Optional[float]
+            The end time specified in the SBML string, or None if no valid specification is found.
+        """
+        if not self._sedml_str:
+            return None
+        #
+        end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"', self._sedml_str)
+        if end_time_match:
+            end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"',
+                    self._sedml_str)
+            if end_time_match:
+                end_time = float(end_time_match.group(1))
+                if not DEFAULT_END_TIME_STR in self._sedml_str and end_time > 0:
+                    self._end_time = end_time
+        #
         return self._end_time
     
     def getSteadyState(self) -> np.ndarray:
@@ -222,7 +263,7 @@ class LRoadrunner(object):
         rr.steadyState()
         return np.array(rr.getFloatingSpeciesConcentrations())
     
-    def simulate(self) -> np.ndarray:
+    def simulate(self, is_with_timepoints: bool=False) -> np.ndarray:
         """
         Simulate the model for the timepoints defined by start_time, end_time, and num_points.
         Resets before simulating.
@@ -232,8 +273,11 @@ class LRoadrunner(object):
         np.ndarray
             2-D array of shape (num_points, num_floating_species) containing the floating species concentrations at each timepoint.
         """
+        idx = 1
+        if is_with_timepoints:
+            idx = 0
         result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_points)
-        return np.array(result_arr[:, 1:])  # Exclude time column
+        return np.array(result_arr[:, idx:])  # Exclude or include time column
     
     def makeJacobians(self)->Tuple[np.ndarray, np.ndarray]:
         """
@@ -269,7 +313,7 @@ class LRoadrunner(object):
 
         return np.array(jacobians), times_arr
 
-    def _getEndtimeFromTime0Jacobian(self) -> Optional[float]:
+    def _calculateEndtimeJacobian(self) -> Optional[float]:
         """
         Estimate a simulation end time from the Jacobian evaluated at t=0.
 
