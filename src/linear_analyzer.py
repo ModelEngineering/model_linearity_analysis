@@ -48,7 +48,6 @@ class LinearAnalyzer:
         sedml_str : str, optional
             SED-ML string for simulation setup (default: None).
         """
-        self.model = model
         self.start = start
         self.end = end
         self.num_point = num_point
@@ -56,6 +55,7 @@ class LinearAnalyzer:
         self.l_roadrunner = LRoadrunner(model, start_time=start,
                 end_time=end, num_points=num_point)
         self._jacobian_collection = JacobianCollection(self.l_roadrunner)
+        self.model = model
 
     # FIXME: Return type should be ClusteredJacobianCollection, but this causes circular imports. Refactor to resolve.
     def partitionJacobians(
@@ -282,13 +282,12 @@ class LinearAnalyzer:
         """
         if excluded_models is None:
             excluded_models = []
-
         # Load existing CSV once to identify already-processed models
         existing_df = pd.DataFrame()
         if os.path.isfile(output_data_file) and os.path.getsize(output_data_file) > 0:
             try:
-                existing_df = pd.read_csv(output_data_file, header=None,
-                    names=['value'], index_col=0)
+                existing_df = pd.read_csv(output_data_file)
+                existing_df.set_index(cn.COL_MODEL, inplace=True)
             except:
                 pass
         processed_model_ids = set(existing_df.index.astype(str)) if not existing_df.empty else set()
@@ -303,7 +302,6 @@ class LinearAnalyzer:
         ##
         # Iterate over models and append results to CSV after each model is processed
         result_dct: dict = {cn.COL_MODEL: [], cn.COL_MAXCV: [], cn.COL_ENDTIME: []}
-        result_df = pd.DataFrame(result_dct)
         for model_dir in sorted(os.listdir(directory)):
             model_dir = model_dir.strip()
             print(model_dir)
@@ -344,4 +342,5 @@ class LinearAnalyzer:
             except Exception as e:
                 print(f"Warning: skipping {model_dir}: {e}")
         #
+        result_df = _write_csv(result_dct)
         return result_df

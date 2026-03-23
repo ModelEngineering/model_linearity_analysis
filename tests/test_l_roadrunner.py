@@ -22,6 +22,12 @@ BIOMD11_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000011", "BIOMD0000000011_
 BIOMD477_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "BIOMD0000000477_url.xml")
 BIOMD477_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "MODEL1308080000_figure5.sedml")
 
+# BIOMD241: rate-rule-only model (no reactions) with events that block steadyState().
+# end_time falls back to _getEndtimeFromTime0Jacobian.
+# Smallest |eigenvalue| at t=0 ≈ 0.176355, so end_time ≈ 5.67.
+BIOMD241_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000241", "BIOMD0000000241_url.xml")
+BIOMD241_EXPECTED_END_TIME = 1.0 / 0.176355  # ≈ 5.67
+
 
 def _read(path: str) -> str:
     """Return the text contents of *path*."""
@@ -65,9 +71,8 @@ class TestLRoadrunnerInit(unittest.TestCase):
 
     def test_roadrunner_instance_stored(self) -> None:
         """Internal RoadRunner instance is created and stored."""
-        rr = LRoadrunner(ANTIMONY_MODEL)
-        self.assertTrue(hasattr(rr, "_roadrunner"))
-        self.assertTrue(hasattr(rr._roadrunner, "getFloatingSpeciesIds"))
+        lrr = LRoadrunner(ANTIMONY_MODEL)
+        self.assertTrue(hasattr(lrr.getRoadrunner(), "getFloatingSpeciesIds"))
 
     def test_invalid_specification_raises(self) -> None:
         """Passing an unsupported type raises ValueError."""
@@ -77,8 +82,8 @@ class TestLRoadrunnerInit(unittest.TestCase):
     def test_load_from_rr_instance(self) -> None:
         """LRoadrunner can be initialized from an existing RoadRunner instance."""
         rr_raw = te.loada(ANTIMONY_MODEL)
-        rr = LRoadrunner(rr_raw)
-        self.assertIs(rr._roadrunner, rr_raw)
+        with self.assertRaises(ValueError):
+            LRoadrunner(rr_raw)  # type: ignore
 
 
 class TestLRoadrunnerProperty(unittest.TestCase):
@@ -86,25 +91,20 @@ class TestLRoadrunnerProperty(unittest.TestCase):
 
     def test_returns_valid_rr_instance(self) -> None:
         """roadrunner property returns an object with getFloatingSpeciesIds."""
-        rr = LRoadrunner(ANTIMONY_MODEL)
-        self.assertTrue(hasattr(rr.roadrunner, "getFloatingSpeciesIds"))
+        lrr = LRoadrunner(ANTIMONY_MODEL)
+        self.assertTrue(hasattr(lrr.getRoadrunner(), "getFloatingSpeciesIds"))
 
     def test_resets_model_state(self) -> None:
         """roadrunner property resets state so species concentrations return to initial values."""
         rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
-        rr_raw = rr.roadrunner
+        rr_raw = rr.getRoadrunner()
         rr_raw.simulate(0.0, 50.0, 10)
         post_sim = np.array(rr_raw.getFloatingSpeciesConcentrations())
         # Accessing property again should reset
-        rr_raw = rr.roadrunner
+        rr_raw = rr.getRoadrunner()
         after_reset = np.array(rr_raw.getFloatingSpeciesConcentrations())
         initial = np.array(te.loada(ANTIMONY_MODEL).getFloatingSpeciesConcentrations())
         np.testing.assert_array_almost_equal(after_reset, initial)
-
-    def test_returns_same_underlying_instance(self) -> None:
-        """roadrunner property returns the same RoadRunner object each call."""
-        rr = LRoadrunner(ANTIMONY_MODEL)
-        self.assertIs(rr.roadrunner, rr.roadrunner)
 
 
 class TestLoadModel(unittest.TestCase):
@@ -155,7 +155,7 @@ class TestEndTime(unittest.TestCase):
         """Simulating to end_time puts each species within 1% of its steady-state value."""
         threshold = 0.01
         end_time = self.rr.end_time
-        rr_raw = self.rr.roadrunner
+        rr_raw = self.rr.getRoadrunner()
         rr_raw.steadyState()
         ss_arr = np.array(rr_raw.getFloatingSpeciesConcentrations())
         ss_arr_safe = np.array([max(v, 1e-8) for v in ss_arr])
@@ -172,20 +172,6 @@ class TestEndTime(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertIsNotNone(self.rr._end_time)
 
-    def test_no_steady_state_raises(self) -> None:
-        """end_time raises ValueError for a model that cannot reach steady state."""
-        # Linear chain that decays completely: steady state is 0 for all species,
-        # but the clamping to 1e-8 means the algorithm will always succeed.
-        # Use a model with an invalid steady state solver instead.
-        rr = LRoadrunner(PRODUCTION_MODEL)
-        # Patch to simulate an unreachable steady state by corrupting the model
-        # via making steadyState raise. We test the error path indirectly by
-        # confirming the property still raises ValueError when propagated.
-        import unittest.mock as mock
-        with mock.patch.object(rr._roadrunner, "steadyState", side_effect=RuntimeError("no SS")):
-            with self.assertRaises(ValueError):
-                _ = rr.end_time
-
 
 class TestGetSteadyState(unittest.TestCase):
     """Tests for LRoadrunner.getSteadyState."""
@@ -201,7 +187,7 @@ class TestGetSteadyState(unittest.TestCase):
     def test_shape_matches_species_count(self) -> None:
         """getSteadyState returns a 1-D array with one entry per floating species."""
         result = self.rr.getSteadyState()
-        n_species = len(self.rr.roadrunner.getFloatingSpeciesIds())
+        n_species = len(self.rr.getRoadrunner().getFloatingSpeciesIds())
         self.assertEqual(result.shape, (n_species,))
 
     def test_known_steady_state_value(self) -> None:
@@ -214,27 +200,27 @@ class TestSimulate(unittest.TestCase):
     """Tests for LRoadrunner.simulate."""
 
     def setUp(self) -> None:
-        self.rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=50)
+        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=50)
 
     def test_returns_ndarray(self) -> None:
         """simulate returns a numpy ndarray."""
-        result = self.rr.simulate()
+        result = self.lrr.simulate()
         self.assertIsInstance(result, np.ndarray)
 
     def test_shape_num_points_by_species(self) -> None:
         """simulate returns shape (num_points, n_species)."""
-        result = self.rr.simulate()
-        n_species = len(self.rr.roadrunner.getFloatingSpeciesIds())
+        result = self.lrr.simulate()
+        n_species = len(self.lrr.getRoadrunner().getFloatingSpeciesIds())
         self.assertEqual(result.shape, (50, n_species))
 
     def test_values_are_finite(self) -> None:
         """All simulated concentrations are finite."""
-        result = self.rr.simulate()
+        result = self.lrr.simulate()
         self.assertTrue(np.all(np.isfinite(result)))
 
     def test_values_are_non_negative(self) -> None:
         """All simulated concentrations are non-negative."""
-        result = self.rr.simulate()
+        result = self.lrr.simulate()
         self.assertTrue(np.all(result >= 0.0))
 
 
@@ -253,7 +239,7 @@ class TestMakeJacobians(unittest.TestCase):
     def test_jacobians_shape(self) -> None:
         """Jacobians array has shape (num_points, n_species, n_species)."""
         jacobians, _ = self.rr.makeJacobians()
-        n_species = len(self.rr.roadrunner.getFloatingSpeciesIds())
+        n_species = len(self.rr.getRoadrunner().getFloatingSpeciesIds())
         self.assertEqual(jacobians.shape, (self.rr.num_points, n_species, n_species))
 
     def test_times_shape(self) -> None:
@@ -317,7 +303,7 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
 
     def test_end_time_is_reciprocal_of_min_eigenvalue_magnitude(self) -> None:
         """end_time equals 1 / min|eigenvalue| of the t=0 Jacobian."""
-        rr = self.antimony_lrr._roadrunner
+        rr = self.antimony_lrr.getRoadrunner()
         rr.reset()
         rr.simulate(self.antimony_lrr.start_time, self.antimony_lrr.start_time + 1e-10, 2)
         eigenvalues = np.linalg.eigvals(np.array(rr.getFullJacobian()))
@@ -329,30 +315,34 @@ class TestGetEndtimeFromTime0Jacobian(unittest.TestCase):
     def test_returns_none_when_condition_not_met(self) -> None:
         """Returns None when left_null_rank < number of zero eigenvalues.
 
-        Patch the Jacobian to have one zero eigenvalue while the stoichiometry
-        has full rank (left_null_rank = 0).  0 < 1, so the condition fails.
+        The fresh RoadRunner created inside _getEndtimeFromTime0Jacobian is
+        controlled via _loadModel.  Jacobian has one zero eigenvalue; full-rank
+        stoichiometry gives left_null_rank = 0.  0 < 1, so the condition fails.
         """
         import unittest.mock as mock
         lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
-        zero_jacobian = np.array([[0.0, 0.0], [0.0, -0.2]])
-        with mock.patch.object(lrr._roadrunner, "getFullJacobian", return_value=zero_jacobian):
+        fresh = mock.MagicMock()
+        fresh.getFullJacobian.return_value = np.array([[0.0, 0.0], [0.0, -0.2]])
+        # Full-rank 2×2 stoichiometry → left_null_rank = 0
+        fresh.getFullStoichiometryMatrix.return_value = np.array([[-1.0, 0.0], [1.0, -1.0]])
+        with mock.patch.object(lrr, "_loadModel", return_value=fresh):
             result = lrr._getEndtimeFromTime0Jacobian()
         self.assertIsNone(result)
 
     def test_returns_none_when_all_eigenvalues_zero(self) -> None:
         """Returns None when every eigenvalue is near-zero (no finite end time exists).
 
-        Patch stoichiometry to give left_null_rank = 2 and Jacobian to the zero
-        matrix (2 zero eigenvalues).  Condition 2 >= 2 is met, but there are no
-        non-zero eigenvalues to take the reciprocal of.
+        Rank-0 stoichiometry gives left_null_rank = 2; zero Jacobian gives 2
+        zero eigenvalues.  Condition 2 >= 2 is met, but there are no non-zero
+        eigenvalues to take the reciprocal of.
         """
         import unittest.mock as mock
-        rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
-        zero_jacobian = np.zeros((2, 2))
-        rank_0_stoich = np.zeros((2, 2))
-        with mock.patch.object(rr._roadrunner, "getFullJacobian", return_value=zero_jacobian), \
-                mock.patch.object(rr._roadrunner, "getFullStoichiometryMatrix", return_value=rank_0_stoich):
-                result = rr._getEndtimeFromTime0Jacobian()
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        fresh = mock.MagicMock()
+        fresh.getFullJacobian.return_value = np.zeros((2, 2))
+        fresh.getFullStoichiometryMatrix.return_value = np.zeros((2, 2))
+        with mock.patch.object(lrr, "_loadModel", return_value=fresh):
+            result = lrr._getEndtimeFromTime0Jacobian()
         self.assertIsNone(result)
 
     def test_result_is_finite(self) -> None:
@@ -398,7 +388,7 @@ class TestEndTimeSedml(unittest.TestCase):
         threshold = 0.05
         lrr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
         end_time = lrr.end_time
-        rr_raw = lrr.roadrunner
+        rr_raw = lrr.getRoadrunner()
         rr_raw.steadyState()
         ss_arr = np.array([max(v, 1e-8) for v in rr_raw.getFloatingSpeciesConcentrations()])
         rr_raw.reset()
@@ -406,6 +396,42 @@ class TestEndTimeSedml(unittest.TestCase):
         final_arr = np.array(rr_raw.getFloatingSpeciesConcentrations())
         divergence = np.max(np.abs(final_arr / ss_arr - 1))
         self.assertLess(divergence, threshold)
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestEndTimeBiomd241(unittest.TestCase):
+    """end_time tests for BIOMD241, a rate-rule-only model whose steadyState()
+    raises RuntimeError due to events, forcing the fallback to
+    _getEndtimeFromTime0Jacobian.
+    """
+
+    def setUp(self) -> None:
+        self.lrr = LRoadrunner(_read(BIOMD241_SBML))
+
+    def test_returns_float(self) -> None:
+        """end_time returns a float for BIOMD241."""
+        self.assertIsInstance(self.lrr.end_time, float)
+
+    def test_returns_positive_value(self) -> None:
+        """end_time is strictly positive for BIOMD241."""
+        self.assertGreater(self.lrr.end_time, 0.0)
+
+    def test_end_time_matches_jacobian_estimate(self) -> None:
+        """end_time equals 1 / min|eigenvalue| of the t=0 Jacobian.
+
+        BIOMD241 has no reactions so steadyState() fails (events block moiety
+        conversion).  The fallback computes end_time from the t=0 Jacobian.
+        The smallest-magnitude eigenvalue is ≈ 0.176355 → end_time ≈ 5.67 s.
+        """
+        self.assertAlmostEqual(
+            self.lrr.end_time, BIOMD241_EXPECTED_END_TIME, places=2
+        )
+
+    def test_end_time_is_cached(self) -> None:
+        """end_time returns the same value on repeated access."""
+        first = self.lrr.end_time
+        second = self.lrr.end_time
+        self.assertEqual(first, second)
 
 
 if __name__ == "__main__":

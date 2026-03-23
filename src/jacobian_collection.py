@@ -106,8 +106,9 @@ class JacobianCollection(object):
         """
 
         if hasattr(self, '_l_roadrunner'):
-            species_ids = self._l_roadrunner.roadrunner.getFloatingSpeciesIds()
-            species_data = self._l_roadrunner.simulate()
+            roadrunner = self._l_roadrunner.getRoadrunner()
+            species_ids = roadrunner.getFloatingSpeciesIds()
+            species_data = roadrunner.simulate()
         else:
             raise ValueError("Cannot plot species timecourse without an LRoadrunner instance.") 
 

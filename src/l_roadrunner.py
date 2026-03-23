@@ -24,7 +24,7 @@ DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
 class LRoadrunner(object):
     """Creates and manages the lifecycle of a RoadRunner simulation instance."""
 
-    def __init__(self, roadrunner_specification,
+    def __init__(self, roadrunner_specification: str,
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = None,
             num_points: int = cn.NUM_POINTS,
@@ -44,17 +44,18 @@ class LRoadrunner(object):
         sedml_str : str, optional
             SED-ML string for simulation setup (default: None).
         """
+        if not isinstance(roadrunner_specification, str):
+            raise ValueError("roadrunner_specification must be a string containing an SBML or Antimony model.")
         self.specification = roadrunner_specification
+        # Verify the specification can be loaded as a model, to fail fast if the model is invalid. The loaded model is not stored, so this does not affect the state of the object or its getRoadrunner() method.
+        self._loadModel(roadrunner_specification)
         self.start_time = start_time
         self.num_points = num_points
         self._end_time = end_time
         self._sedml_str = sedml_str
-        self._roadrunner = self._loadRoadrunner(roadrunner_specification)
 
-    @property
-    def roadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
-        self._roadrunner.reset()
-        return self._roadrunner
+    def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
+        return self._loadRoadrunner(self.specification)
 
     def _loadRoadrunner(self, roadrunner_specification) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         """
@@ -145,7 +146,7 @@ class LRoadrunner(object):
         #
         threshold = 0.01 # In units of the steady state concentrations
 
-        rr = self.roadrunner
+        rr = self.getRoadrunner()
         rr.simulate(self.start_time, 5000, 2) # Get the simulation warm
         try:
             option_dct = {"allow_approx": True,
@@ -216,7 +217,7 @@ class LRoadrunner(object):
         np.ndarray
             1-D array of steady-state floating species concentrations.
         """
-        rr = self.roadrunner
+        rr = self.getRoadrunner()
         rr.reset()
         rr.steadyState()
         return np.array(rr.getFloatingSpeciesConcentrations())
@@ -231,7 +232,7 @@ class LRoadrunner(object):
         np.ndarray
             2-D array of shape (num_points, num_floating_species) containing the floating species concentrations at each timepoint.
         """
-        result_arr = self.roadrunner.simulate(self.start_time, self.end_time, self.num_points)
+        result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_points)
         return np.array(result_arr[:, 1:])  # Exclude time column
     
     def makeJacobians(self)->Tuple[np.ndarray, np.ndarray]:
@@ -252,19 +253,19 @@ class LRoadrunner(object):
         ValueError
             If the model has no floating species after reset.
         """
-        if len(self.roadrunner.getFloatingSpeciesIds()) == 0:
+        rr = self.getRoadrunner()
+        if len(rr.getFloatingSpeciesIds()) == 0:
             raise ValueError("Model has no floating species; cannot compute Jacobian.")
-        result_arr = self.roadrunner.simulate(self.start_time, self.end_time, self.num_points)
+        result_arr = rr.simulate(self.start_time, self.end_time, self.num_points)
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
-
-        self._roadrunner.reset()
+        #    
         jacobians = []
         for i, t in enumerate(times_arr):
             if i == 0:
-                self._roadrunner.simulate(self.start_time, t + 1e-10, 2)
+                rr.simulate(self.start_time, t + 1e-10, 2)
             else:
-                self._roadrunner.simulate(times_arr[i - 1], t, 2)
-            jacobians.append(np.array(self._roadrunner.getFullJacobian()).copy())
+                rr.simulate(times_arr[i - 1], t, 2)
+            jacobians.append(np.array(rr.getFullJacobian()).copy())
 
         return np.array(jacobians), times_arr
 
@@ -293,18 +294,26 @@ class LRoadrunner(object):
         """
         ZERO_TOL = 1e-10
 
-        # (a) Jacobian at t=0: reset then step an infinitesimal amount forward.
-        rr = self._roadrunner
-        rr.reset()
-        rr.simulate(self.start_time, self.start_time + 1e-10, 2)
-        jacobian_arr = np.array(rr.getFullJacobian())
+        # (a) Jacobian at t=0.
+        # Use a freshly loaded instance to avoid state corruption left by a
+        # failed steadyState() call (which can cause getFullJacobian to segfault
+        # even after reset()).
+        fresh_rr = self._loadModel(self.specification)
+        fresh_rr.reset()
+        fresh_rr.simulate(self.start_time, self.start_time + 1e-10, 2)
+        jacobian_arr = np.array(fresh_rr.getFullJacobian())
 
         # (b) Rank of the left null space of the stoichiometry matrix.
         #     Left null space dimension = n_species - rank(N).
-        stoich_arr = np.array(rr.getFullStoichiometryMatrix())
-        n_species = stoich_arr.shape[0]
-        stoich_rank = np.linalg.matrix_rank(stoich_arr)
-        left_null_rank = n_species - stoich_rank
+        #     Rate-rule-only models have no stoichiometry matrix; treat them as
+        #     having no conservation laws (left_null_rank = 0).
+        try:
+            stoich_arr = np.array(fresh_rr.getFullStoichiometryMatrix()).copy()
+            n_species = stoich_arr.shape[0]
+            stoich_rank = np.linalg.matrix_rank(stoich_arr)
+            left_null_rank = n_species - stoich_rank
+        except RuntimeError:
+            left_null_rank = 0
 
         # Eigenvalues of the Jacobian (may be complex).
         eigenvalues = np.linalg.eigvals(jacobian_arr)
