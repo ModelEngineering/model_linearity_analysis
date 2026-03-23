@@ -15,10 +15,12 @@ import src.constants as cn  # type: ignore
 import tellurium as te  # type: ignore
 import numpy as np  # type: ignore
 import regex as re # type: ignore
+from scipy.optimize import minimize_scalar  # type: ignore
 from typing import Optional, Tuple
 
 DEFAULT_END_TIME = 10.0
 DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
+SBML_DEFAULT_END_TIME = 10.0
 
 
 class LRoadrunner(object):
@@ -53,7 +55,7 @@ class LRoadrunner(object):
         self.num_points = num_points
         self._end_time = end_time
         self._sedml_str = sedml_str
-        self._end_time_source: Optional[str] = None
+        self.end_time_source: Optional[str] = None
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         return self._loadRoadrunner(self.specification)
@@ -124,17 +126,22 @@ class LRoadrunner(object):
         # Try to calculate from SED-ML string, if provided.
         self._end_time = self._calculateEndtimeSBML()
         if self._end_time is not None:
-            self._end_time_source = cn.ENDTIME_SOURCE_SEDML
+            self.end_time_source = cn.ENDTIME_SOURCE_SEDML
             return self._end_time
         # Try to calculate from steady state simulation.
         self._end_time = self._calculateEndtimeSteadystate()
         if self._end_time is not None:
-            self._end_time_source = cn.ENDTIME_SOURCE_STEADYSTATE
+            self.end_time_source = cn.ENDTIME_SOURCE_STEADYSTATE
             return self._end_time
         # Try to calculate from Jacobian at t=0.
         self._end_time = self._calculateEndtimeJacobian()
         if self._end_time is not None:
-            self._end_time_source = cn.ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE
+            self.end_time_source = cn.ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE
+            return self._end_time
+        # Try to calculate by maximising median CV over the time course.
+        self._end_time = self._calculateEndtimeCV()
+        if self._end_time is not None:
+            self.end_time_source = cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
             return self._end_time
         # Could not find end_time
         raise ValueError(
@@ -172,7 +179,6 @@ class LRoadrunner(object):
         THRESHOLD = 0.01 # In units of the steady state concentrations
         #
         rr = self.getRoadrunner()
-        rr.simulate(self.start_time, 5000, 2) # Get the simulation warm
         try:
             option_dct = {"allow_approx": True,
                     "approx_tolerance": 1e-3,
@@ -189,7 +195,10 @@ class LRoadrunner(object):
         # Helper that determines if at steady state
         def _isAtSteadyState(end_time: float) -> bool:
             rr.reset()
-            final_arr = rr.simulate(self.start_time, end_time, 2)[:, 1:]  # Exclude time column
+            try:
+                final_arr = rr.simulate(self.start_time, end_time, 2)[:, 1:]  # Exclude time column
+            except Exception:
+                return False
             is_both_zero = all(np.isclose(ss_arr, 0.0)) and all(np.isclose(final_arr[1], 0.0))
             if is_both_zero:
                 return True
@@ -236,7 +245,7 @@ class LRoadrunner(object):
             The end time specified in the SBML string, or None if no valid specification is found.
         """
         if not self._sedml_str:
-            return None
+            return self._end_time
         #
         end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"', self._sedml_str)
         if end_time_match:
@@ -246,6 +255,15 @@ class LRoadrunner(object):
                 end_time = float(end_time_match.group(1))
                 if not DEFAULT_END_TIME_STR in self._sedml_str and end_time > 0:
                     self._end_time = end_time
+                if not np.isclose(end_time, DEFAULT_END_TIME):
+                    self._end_time = end_time
+        # Validate the end time by simulating to it and checking for errors.
+        if self._end_time is not None:
+            try:
+                rr = self.getRoadrunner()
+                rr.simulate(self.start_time, self._end_time, 2)
+            except Exception:
+                self._end_time = None
         #
         return self._end_time
     
@@ -276,7 +294,11 @@ class LRoadrunner(object):
         idx = 1
         if is_with_timepoints:
             idx = 0
-        result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_points)
+        try:
+            result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_points)
+        except Exception as e:
+            print(f"Error occurred while simulating: {e}")
+            return np.array([]).reshape(0, 0)
         return np.array(result_arr[:, idx:])  # Exclude or include time column
     
     def makeJacobians(self)->Tuple[np.ndarray, np.ndarray]:
@@ -375,3 +397,62 @@ class LRoadrunner(object):
 
         min_magnitude = float(np.min(nonzero_magnitudes))
         return 1.0 / min_magnitude
+
+    def _calculateEndtimeCV(self) -> Optional[float]:
+        """
+        Estimate a simulation end time by maximising the median coefficient of
+        variation (CV) of the floating species concentrations over the time course.
+
+        For a given candidate end time T the model is simulated from
+        ``start_time`` to T and CV = std / |mean| is computed for each
+        floating species across the output timepoints.  The median CV across
+        all species is used as the objective.  The end time that maximises
+        this objective (found via bounded scalar minimisation in log10-time
+        space over the range [1e-3, 1e6]) is returned.
+
+        The rationale is that very short end times capture little dynamics
+        (low CV), very long end times show full convergence to steady state
+        (low CV), and the optimal window maximises the observable variation.
+        The method also works for oscillatory models, whose CV stays elevated
+        once a full cycle has been captured.
+
+        Returns
+        -------
+        Optional[float]
+            End time (in model time units) that maximises the median species
+            CV, or ``None`` if the model has no floating species, cannot be
+            simulated, or all species maintain a zero mean concentration.
+        """
+        LOG_LOWER = -5.0   # 10^-3 = 0.001 s
+        LOG_UPPER =  6.0   # 10^6  = 1 000 000 s
+
+        rr = self._loadModel(self.specification)
+        if len(rr.getFloatingSpeciesIds()) == 0:
+            return None
+
+        def _negativeMedianCV(log_end_time: float) -> float:
+            end_time = 10.0 ** log_end_time
+            try:
+                rr.reset()
+                try:
+                    result_arr = np.array(rr.simulate(self.start_time, end_time, self.num_points))
+                except Exception:
+                    return 0.0
+                data_arr = result_arr[:, 1:]  # Exclude time column
+                cvs = []
+                for col in range(data_arr.shape[1]):
+                    col_data = data_arr[:, col]
+                    mean_val = float(np.mean(np.abs(col_data)))
+                    if mean_val < 1e-10:
+                        continue
+                    cvs.append(float(np.std(col_data) / mean_val))
+                if not cvs:
+                    return 0.0
+                return -float(np.median(cvs))
+            except Exception:
+                return 0.0
+
+        opt = minimize_scalar(_negativeMedianCV, bounds=(LOG_LOWER, LOG_UPPER), method="bounded")
+        if opt.fun < 0:  # A genuine maximum was found
+            return float(10.0 ** opt.x)
+        return None

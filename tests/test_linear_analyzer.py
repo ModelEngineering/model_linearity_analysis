@@ -654,11 +654,6 @@ class TestWithBioModels(unittest.TestCase):
         self.assertEqual(len(result.clusters), 3)
         self.assertEqual(sum(c.shape[0] for c in result.clusters), 20)
 
-    @unittest.skip(
-        "BIOMD241 causes a segfault in partitionJacobiansSequentially — "
-        "likely a RoadRunner crash during the DP cost-matrix computation. "
-        "Cannot be caught by Python exception handling."
-    )
     def test_sequential_partition_biomd241(self) -> None:
         """partitionJacobiansSequentially produces contiguous segments on BIOMD241."""
         analyzer = LinearAnalyzer(_load_sbml(BIOMD241_SBML), num_point=20)

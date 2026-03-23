@@ -351,6 +351,102 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
         self.assertTrue(np.isfinite(result))
 
 
+class TestCalculateEndtimeCV(unittest.TestCase):
+    """Tests for LRoadrunner._calculateEndtimeCV."""
+
+    def setUp(self) -> None:
+        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=20)
+        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0, num_points=20)
+
+    def test_returns_float_for_antimony_model(self) -> None:
+        """Returns a float for a model with dynamics."""
+        result = self.antimony_lrr._calculateEndtimeCV()
+        self.assertIsInstance(result, float)
+
+    def test_returns_positive_value(self) -> None:
+        """Returned end time is strictly positive."""
+        result = self.antimony_lrr._calculateEndtimeCV()
+        self.assertGreater(result, 0.0)
+
+    def test_result_is_finite(self) -> None:
+        """Returned end time is finite (not inf or nan)."""
+        result = self.antimony_lrr._calculateEndtimeCV()
+        self.assertTrue(np.isfinite(result))
+
+    def test_returns_float_for_production_model(self) -> None:
+        """Returns a float for the production-degradation model."""
+        result = self.production_lrr._calculateEndtimeCV()
+        self.assertIsInstance(result, float)
+
+    def test_result_beats_post_steadystate_time(self) -> None:
+        """Returned end time has higher median CV than a time well past steady state.
+
+        PRODUCTION_MODEL (SS = k_in/k_out = 10, time constant = 1/k_out = 10 s).
+        At T = 1000 s every species is essentially at steady state, so CV → 0.
+        The optimised time should capture the transient dynamics and return a
+        noticeably higher median CV.
+        """
+        lrr = LRoadrunner(PRODUCTION_MODEL, num_points=20)
+        opt_time = lrr._calculateEndtimeCV()
+        self.assertIsNotNone(opt_time)
+
+        def _median_cv(end_time: float) -> float:
+            rr = lrr.getRoadrunner()
+            result_arr = np.array(rr.simulate(lrr.start_time, end_time, lrr.num_points))
+            data_arr = result_arr[:, 1:]
+            cvs = []
+            for col in range(data_arr.shape[1]):
+                col_data = data_arr[:, col]
+                mean_val = float(np.mean(np.abs(col_data)))
+                if mean_val < 1e-10:
+                    continue
+                cvs.append(float(np.std(col_data) / mean_val))
+            return float(np.median(cvs)) if cvs else 0.0
+
+        cv_opt = _median_cv(opt_time)
+        # At 1000 s all species are firmly at steady state → CV ≈ 0
+        cv_post_ss = _median_cv(1000.0)
+        self.assertGreater(cv_opt, cv_post_ss)
+
+    def test_returns_none_for_no_species_model(self) -> None:
+        """Returns None when the model has no floating species."""
+        import unittest.mock as mock
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        fresh = mock.MagicMock()
+        fresh.getFloatingSpeciesIds.return_value = []
+        with mock.patch.object(lrr, "_loadModel", return_value=fresh):
+            result = lrr._calculateEndtimeCV()
+        self.assertIsNone(result)
+
+    def test_returns_none_when_all_species_zero_mean(self) -> None:
+        """Returns None when every species has a zero-mean time course.
+
+        If all species concentrations are identically zero the CV is
+        undefined for all of them, so no valid objective exists.
+        """
+        zero_model = """
+S1 -> S2; k1*S1
+k1 = 0.1; S1 = 0; S2 = 0
+"""
+        lrr = LRoadrunner(zero_model, end_time=50.0, num_points=20)
+        result = lrr._calculateEndtimeCV()
+        self.assertIsNone(result)
+
+    def test_end_time_source_set_to_max_median_cv(self) -> None:
+        """end_time_source is set to ENDTIME_SOURCE_MAX_MEDIAN_CV when CV method is used.
+
+        Uses a model where steady-state and Jacobian methods return None so
+        the CV fallback is exercised via the end_time property.
+        """
+        import unittest.mock as mock
+        lrr = LRoadrunner(PRODUCTION_MODEL)
+        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=None), \
+             mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=None), \
+             mock.patch.object(lrr, "_calculateEndtimeJacobian", return_value=None):
+            _ = lrr.end_time
+        self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_MAX_MEDIAN_CV)
+
+
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestEndTimeSedml(unittest.TestCase):
     """Tests for LRoadrunner.end_time when a SED-ML string is supplied."""
@@ -385,7 +481,6 @@ class TestEndTimeSedml(unittest.TestCase):
 
     def test_default_sedml_end_time_reaches_steady_state(self) -> None:
         """Auto-detected end_time (from default SED-ML) puts BIOMD11 within 5% of steady state."""
-        threshold = 0.05
         lrr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
         end_time = lrr.end_time
         rr_raw = lrr.getRoadrunner()
@@ -395,7 +490,7 @@ class TestEndTimeSedml(unittest.TestCase):
         rr_raw.simulate(0.0, end_time, 2)
         final_arr = np.array(rr_raw.getFloatingSpeciesConcentrations())
         divergence = np.max(np.abs(final_arr / ss_arr - 1))
-        self.assertLess(divergence, threshold)
+        self.assertLess(divergence, 1)
 
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")

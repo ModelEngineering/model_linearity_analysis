@@ -299,7 +299,7 @@ class LinearAnalyzer:
             return df
         ##
         # Iterate over models and append results to CSV after each model is processed
-        result_dct: dict = {cn.COL_MODEL: [], cn.COL_MAXCV: [], cn.COL_ENDTIME: []}
+        result_dct: dict = {c: [] for c in cn.COL_NAMES}
         for model_dir in sorted(os.listdir(directory)):
             model_dir = model_dir.strip()
             print(model_dir)
@@ -336,6 +336,7 @@ class LinearAnalyzer:
                 result_dct[cn.COL_MODEL].append(model_dir)
                 result_dct[cn.COL_MAXCV].append(max_cv)
                 result_dct[cn.COL_ENDTIME].append(end_time)
+                result_dct[cn.COL_ENDTIME_SOURCE].append( analyzer.l_roadrunner.end_time_source)
                 result_df = _write_csv(result_dct)
             except Exception as e:
                 print(f"Warning: skipping {model_dir}: {e}")
