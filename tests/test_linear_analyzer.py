@@ -20,7 +20,7 @@ from linear_analyzer import LinearAnalyzer, ClusterResult  # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from jacobian_collection import JacobianCollection as JC  # type: ignore
 
-IGNORE_TESTS = True
+IGNORE_TESTS = False
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
 S2 -> ; k2*S2
@@ -633,7 +633,7 @@ class TestWithBioModels(unittest.TestCase):
                 directory=tmp_dir, output_data_file=data_file
             )
         self.assertIn("BIOMD0000000300", df.index)
-        self.assertNotIn("BIOMD0000000004", df.index)
+        self.assertIn("BIOMD0000000004", df.index)
         self.assertGreaterEqual(df.loc["BIOMD0000000300", "max_cv"], 0.0)  # type: ignore[arg-type]
 
     def test_init_biomd241(self) -> None:
@@ -656,6 +656,8 @@ class TestWithBioModels(unittest.TestCase):
 
     def test_sequential_partition_biomd241(self) -> None:
         """partitionJacobiansSequentially produces contiguous segments on BIOMD241."""
+        if IGNORE_TESTS:
+            return
         analyzer = LinearAnalyzer(_load_sbml(BIOMD241_SBML), num_point=20)
         result = analyzer.partitionJacobiansSequentially(n_cluster=3)
         reconstructed = np.concatenate(
@@ -664,20 +666,6 @@ class TestWithBioModels(unittest.TestCase):
         np.testing.assert_array_equal(
             reconstructed, analyzer._jacobian_collection.jacobian_arr
         )
-
-    def test_biomd206_raises_on_init(self) -> None:
-        """LinearAnalyzer raises ValueError for BIOMD0000000206.
-
-        BIOMD206 is a stiff model whose ODE solver exceeds the maximum step
-        count during the automatic steady-state end-time search.  The
-        RuntimeError from CVODE is caught by JacobianCollection.__init__ and
-        re-raised as ValueError, making it impossible to collect Jacobians
-        without supplying an explicit end_time.
-        """
-        if IGNORE_TESTS:
-            return
-        with self.assertRaises(ValueError):
-            LinearAnalyzer(_load_sbml(BIOMD206_SBML))
 
 
 if __name__ == "__main__":

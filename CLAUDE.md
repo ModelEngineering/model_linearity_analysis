@@ -58,3 +58,7 @@ Per `docs/specification.md`:
   - `_dct` for dicts, `_arr` for arrays, `_df` for DataFrames, `_ser` for Series
   - Lists end in `s` (no suffix), e.g. `results`, `jacobians`
 - All functions have docstrings and type-annotated signatures
+- Use unittest not pytest.
+- All tests should be preceeded by the following guard and the top of tests should have IGNORE_TESTS = False.
+  - if IGNORE_TEST
+    - return
