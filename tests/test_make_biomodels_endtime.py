@@ -4,11 +4,10 @@ Tests use the real BioModels directory at cn.BIOMODELS_DIR without mocks.
 CSV output is written to a temp directory so the production data file is never touched.
 '''
 import src.constants as cn
-from scripts.make_biomodels_endtime import findFilesWithExtension, main # type: ignore
+from scripts.make_biomodels_endtime import main # type: ignore
 
 import os
 import pandas as pd  # type: ignore
-import sys
 import shutil
 import tempfile
 import unittest
@@ -28,61 +27,11 @@ def _all_models_except(excluded: str) -> list:
 def _make_prepopulated_csv(path: str, model_names: list) -> None:
     '''Write a CSV at *path* containing fake rows for each name in *model_names*.'''
     df = pd.DataFrame({
-        cn.COL_MODEL: model_names,
+        cn.COL_MODEL_NAME: model_names,
         cn.COL_ENDTIME_SOURCE: [cn.ENDTIME_SOURCE_SEDML] * len(model_names),
         cn.COL_ENDTIME: [10.0] * len(model_names),
     })
     df.to_csv(path, index=False)
-
-
-@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
-class TestFindFilesWithExtension(unittest.TestCase):
-    '''Tests for findFilesWithExtension using real BioModel directories.'''
-
-    def test_returns_list(self) -> None:
-        '''Returns a list for a known model directory.'''
-        if IGNORE_TESTS:
-            return
-        result = findFilesWithExtension(TEST_MODEL, ".xml")
-        self.assertIsInstance(result, list)
-
-    def test_finds_xml_files(self) -> None:
-        '''Returns a non-empty list when XML files exist.'''
-        if IGNORE_TESTS:
-            return
-        result = findFilesWithExtension(TEST_MODEL, ".xml")
-        self.assertGreater(len(result), 0)
-
-    def test_returned_items_end_with_extension(self) -> None:
-        '''Every returned path ends with the requested extension.'''
-        if IGNORE_TESTS:
-            return
-        result = findFilesWithExtension(TEST_MODEL, ".xml")
-        for path in result:
-            self.assertTrue(path.endswith(".xml"), msg=f"Unexpected path: {path}")
-
-    def test_returned_items_are_strings(self) -> None:
-        '''Every returned path is a string.'''
-        if IGNORE_TESTS:
-            return
-        result = findFilesWithExtension(TEST_MODEL, ".xml")
-        for path in result:
-            self.assertIsInstance(path, str)
-
-    def test_nonexistent_extension_returns_empty(self) -> None:
-        '''Returns an empty list when no files match the extension.'''
-        if IGNORE_TESTS:
-            return
-        result = findFilesWithExtension(TEST_MODEL, ".zzz_nonexistent")
-        self.assertEqual(result, [])
-
-    def test_manifest_xml_excluded_when_filtering_sedml(self) -> None:
-        '''Filtering for .sedml does not accidentally return .xml files.'''
-        if IGNORE_TESTS:
-            return
-        result = findFilesWithExtension(TEST_MODEL, ".sedml")
-        for path in result:
-            self.assertTrue(path.endswith(".sedml"), msg=f"Unexpected path: {path}")
 
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
@@ -105,7 +54,7 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self._prepopulate_all_except_test_model()
-        result = main(self.output_path)
+        result = main(self.output_path, is_report=IGNORE_TESTS)
         self.assertIsInstance(result, pd.DataFrame)
 
     def test_csv_file_is_written(self) -> None:
@@ -113,7 +62,7 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self._prepopulate_all_except_test_model()
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         self.assertTrue(os.path.exists(self.output_path))
 
     def test_csv_has_required_columns(self) -> None:
@@ -121,9 +70,9 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self._prepopulate_all_except_test_model()
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        for col in [cn.COL_MODEL, cn.COL_ENDTIME_SOURCE, cn.COL_ENDTIME]:
+        for col in [cn.COL_MODEL_NAME, cn.COL_ENDTIME_SOURCE, cn.COL_ENDTIME]:
             self.assertIn(col, written_df.columns)
 
     def test_test_model_appears_in_csv(self) -> None:
@@ -131,18 +80,18 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self._prepopulate_all_except_test_model()
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        self.assertIn(TEST_MODEL, written_df[cn.COL_MODEL].tolist())
+        self.assertIn(TEST_MODEL, written_df[cn.COL_MODEL_NAME].tolist())
 
     def test_end_time_is_positive(self) -> None:
         '''The end_time recorded for TEST_MODEL is strictly positive.'''
         if IGNORE_TESTS:
             return
         self._prepopulate_all_except_test_model()
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        row = written_df[written_df[cn.COL_MODEL] == TEST_MODEL].iloc[0]
+        row = written_df[written_df[cn.COL_MODEL_NAME] == TEST_MODEL].iloc[0]
         self.assertGreater(row[cn.COL_ENDTIME], 0.0)
 
     def test_end_time_is_finite(self) -> None:
@@ -150,9 +99,9 @@ class TestMain(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self._prepopulate_all_except_test_model()
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        row = written_df[written_df[cn.COL_MODEL] == TEST_MODEL].iloc[0]
+        row = written_df[written_df[cn.COL_MODEL_NAME] == TEST_MODEL].iloc[0]
         import math
         self.assertTrue(math.isfinite(row[cn.COL_ENDTIME]))
 
@@ -167,9 +116,9 @@ class TestMain(unittest.TestCase):
             cn.ENDTIME_SOURCE_MAX_MEDIAN_CV,
         }
         self._prepopulate_all_except_test_model()
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        row = written_df[written_df[cn.COL_MODEL] == TEST_MODEL].iloc[0]
+        row = written_df[written_df[cn.COL_MODEL_NAME] == TEST_MODEL].iloc[0]
         self.assertIn(row[cn.COL_ENDTIME_SOURCE], valid_sources)
 
     def test_previously_processed_models_preserved_in_csv(self) -> None:
@@ -178,16 +127,16 @@ class TestMain(unittest.TestCase):
             return
         sentinel_model = "BIOMD_SENTINEL"
         existing_df = pd.DataFrame({
-            cn.COL_MODEL: [sentinel_model],
+            cn.COL_MODEL_NAME: [sentinel_model],
             cn.COL_ENDTIME_SOURCE: [cn.ENDTIME_SOURCE_SEDML],
             cn.COL_ENDTIME: [5.0],
         })
         # Pre-populate with sentinel plus all real models except TEST_MODEL.
         all_except = _all_models_except(TEST_MODEL)
         _make_prepopulated_csv(self.output_path, [sentinel_model] + all_except)
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        self.assertIn(sentinel_model, written_df[cn.COL_MODEL].tolist())
+        self.assertIn(sentinel_model, written_df[cn.COL_MODEL_NAME].tolist())
 
     def test_already_processed_model_not_duplicated(self) -> None:
         '''A model already in the CSV appears exactly once after main() runs.'''
@@ -195,9 +144,9 @@ class TestMain(unittest.TestCase):
             return
         all_models = os.listdir(cn.BIOMODELS_DIR)
         _make_prepopulated_csv(self.output_path, all_models)
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         written_df = pd.read_csv(self.output_path)
-        counts = written_df[cn.COL_MODEL].value_counts()
+        counts = written_df[cn.COL_MODEL_NAME].value_counts()
         for count in counts:
             self.assertEqual(count, 1)
 
@@ -208,7 +157,7 @@ class TestMain(unittest.TestCase):
         all_models = os.listdir(cn.BIOMODELS_DIR)
         _make_prepopulated_csv(self.output_path, all_models)
         mtime_before = os.path.getmtime(self.output_path)
-        main(self.output_path)
+        main(self.output_path, is_report=IGNORE_TESTS)
         mtime_after = os.path.getmtime(self.output_path)
         self.assertEqual(mtime_before, mtime_after)
 

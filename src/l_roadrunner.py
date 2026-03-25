@@ -12,10 +12,13 @@ Usage::
     jacobians = roadrunner.makeJacobians()
 """
 import src.constants as cn  # type: ignore
-import tellurium as te  # type: ignore
+
 import numpy as np  # type: ignore
+import os
+import pandas as pd  # type: ignore
 import regex as re # type: ignore
 from scipy.optimize import minimize_scalar  # type: ignore
+import tellurium as te  # type: ignore
 from typing import Optional, Tuple
 
 DEFAULT_END_TIME = 10.0
@@ -25,6 +28,38 @@ SBML_DEFAULT_END_TIME = 10.0
 
 class LRoadrunner(object):
     """Creates and manages the lifecycle of a RoadRunner simulation instance."""
+
+    @classmethod
+    def _getBiomodelsEndtimes(cls, endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict:
+        """
+        Load a mapping of BioModels IDs to end times from a CSV file.
+
+        The CSV file should have two columns: "biomodel_id" and "end_time", where "biomodel_id" contains the BioModels ID (e.g., "BIOMD0000000001") and "end_time" contains the corresponding end time as a float.
+
+        Parameters
+        ----------
+        endtimes_csv_path : str
+            Path to the CSV file containing BioModels end times.
+
+        Returns
+        -------
+        dict
+            A dictionary mapping BioModels IDs (str) to end times (float).
+        """
+        if not os.path.exists(endtimes_csv_path):
+            #print(f"Warning: End times CSV file not found at {endtimes_csv_path}. Returning empty end times mapping.")
+            result_dct : dict = {}
+        else:
+            df = pd.read_csv(endtimes_csv_path)
+            if not cn.COL_MODEL_NAME in df.columns or not cn.COL_ENDTIME in df.columns:
+                #print(f"Warning: End times CSV file at {endtimes_csv_path} is missing required columns. Returning empty end times mapping.")
+                result_dct = {}
+                result_dct = {}
+            else:
+                result_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME]))
+        return result_dct
+
+    endtime_dct: dict = _getBiomodelsEndtimes.__func__(None)  # type: ignore
 
     def __init__(self, roadrunner_specification: str,
             start_time: float = cn.START_TIME,
@@ -56,6 +91,22 @@ class LRoadrunner(object):
         self._end_time = end_time
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
+
+    def getBiomodelEndtime(self, biomodel_id: str) -> Optional[float]:
+        """
+        Get the end time for a given BioModels ID from the pre-calculated end times mapping.
+
+        Parameters
+        ----------
+        biomodel_id : str
+            The BioModels ID (e.g., "BIOMD0000000001") for which to retrieve the end time.
+
+        Returns
+        -------
+        Optional[float]
+            The end time associated with the given BioModels ID, or None if the ID is not found in the mapping.
+        """
+        return self.endtime_dct.get(biomodel_id)
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         return self._loadRoadrunner(self.specification)

@@ -243,6 +243,7 @@ class LinearAnalyzer:
                 print(f"Warning: skipping {model_dir}: {e}")
         return results
 
+    # TODO: (1) Use BiomodelsIterator; (2) Get endtime for model from CSV (or calculate if not present) and pass to LinearAnalyzer constructor instead of using default end time; (3) Write results to CSV after each model is processed instead of keeping in memory until the end.
     @classmethod
     def partitionBiomodelsJacobians(
         cls,
@@ -288,13 +289,13 @@ class LinearAnalyzer:
                 existing_df = pd.read_csv(output_data_file)
             except:
                 pass
-        processed_model_ids = set(existing_df[cn.COL_MODEL]) if not existing_df.empty else set()
+        processed_model_ids = set(existing_df[cn.COL_MODEL_NAME]) if not existing_df.empty else set()
         ##
         def _write_csv(result_dct: Dict[str, float]) -> pd.DataFrame:
             """Write the given results to the output CSV, appending to existing data."""
             df = pd.DataFrame(result_dct)
             df = pd.concat([existing_df, df], ignore_index=False) if not existing_df.empty else df
-            df.set_index(cn.COL_MODEL, inplace=True)
+            df.set_index(cn.COL_MODEL_NAME, inplace=True)
             df.to_csv(output_data_file, header=True, index=True)
             return df
         ##
@@ -333,7 +334,7 @@ class LinearAnalyzer:
                 else:
                     cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
                 max_cv = cluster_result.max_cv
-                result_dct[cn.COL_MODEL].append(model_dir)
+                result_dct[cn.COL_MODEL_NAME].append(model_dir)
                 result_dct[cn.COL_MAXCV].append(max_cv)
                 result_dct[cn.COL_ENDTIME].append(end_time)
                 result_dct[cn.COL_ENDTIME_SOURCE].append( analyzer.l_roadrunner.end_time_source)

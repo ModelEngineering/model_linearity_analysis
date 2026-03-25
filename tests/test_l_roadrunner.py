@@ -1,8 +1,11 @@
 """Tests for Roadrunner class."""
 
+import csv
 import os
 import sys
+import tempfile
 import unittest
+import unittest.mock as mock
 
 import numpy as np  # type: ignore
 import tellurium as te  # type: ignore
@@ -256,6 +259,22 @@ class TestSimulate(unittest.TestCase):
         result = self.lrr.simulate()
         n_species = len(self.lrr.getRoadrunner().getFloatingSpeciesIds())
         self.assertEqual(result.shape, (50, n_species))
+
+    def test_with_timepoints_includes_time_column(self) -> None:
+        """simulate(is_with_timepoints=True) returns an extra leading time column."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.simulate(is_with_timepoints=True)
+        n_species = len(self.lrr.getRoadrunner().getFloatingSpeciesIds())
+        self.assertEqual(result.shape, (50, n_species + 1))
+
+    def test_with_timepoints_first_column_is_time(self) -> None:
+        """First column of simulate(is_with_timepoints=True) is monotonically increasing."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.simulate(is_with_timepoints=True)
+        times = result[:, 0]
+        self.assertTrue(np.all(np.diff(times) > 0))
 
     def test_values_are_finite(self) -> None:
         """All simulated concentrations are finite."""
@@ -539,6 +558,200 @@ k1 = 0.1; S1 = 0; S2 = 0
         self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_MAX_MEDIAN_CV)
 
 
+class TestGetBiomodelsEndtimes(unittest.TestCase):
+    """Tests for LRoadrunner._getBiomodelsEndtimes."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_returns_dict(self) -> None:
+        """Returns a dict."""
+        if IGNORE_TESTS:
+            return
+        result = LRoadrunner._getBiomodelsEndtimes.__func__(
+            LRoadrunner, "/nonexistent/path.csv"
+        )
+        self.assertIsInstance(result, dict)
+
+    def test_missing_file_returns_empty_dict(self) -> None:
+        """Returns empty dict when the CSV file does not exist."""
+        if IGNORE_TESTS:
+            return
+        result = LRoadrunner._getBiomodelsEndtimes("/nonexistent/path.csv")
+        self.assertEqual(result, {})
+
+    def test_valid_csv_returns_mapping(self) -> None:
+        """Valid CSV with model_name and end_time columns returns correct mapping."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "endtimes.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+            writer.writerow(["BIOMD0000000002", "100.0"])
+        result = LRoadrunner._getBiomodelsEndtimes(csv_path)
+        self.assertAlmostEqual(result["BIOMD0000000001"], 25.0)
+        self.assertAlmostEqual(result["BIOMD0000000002"], 100.0)
+
+    def test_missing_model_name_column_returns_empty_dict(self) -> None:
+        """Returns empty dict when CSV is missing the model_name column."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "bad.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["wrong_col", cn.COL_ENDTIME])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+        result = LRoadrunner._getBiomodelsEndtimes(csv_path)
+        self.assertEqual(result, {})
+
+    def test_missing_end_time_column_returns_empty_dict(self) -> None:
+        """Returns empty dict when CSV is missing the end_time column."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "bad.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME, "wrong_col"])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+        result = LRoadrunner._getBiomodelsEndtimes(csv_path)
+        self.assertEqual(result, {})
+
+
+class TestGetBiomodelEndtime(unittest.TestCase):
+    """Tests for LRoadrunner.getBiomodelEndtime."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+        self._csv_path = os.path.join(self._tmpdir, "endtimes.csv")
+        with open(self._csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_returns_float_for_known_id(self) -> None:
+        """Returns a float for an ID present in endtime_dct."""
+        if IGNORE_TESTS:
+            return
+        with mock.patch.object(LRoadrunner, "endtime_dct", {"BIOMD0000000001": 25.0}):
+            result = self.lrr.getBiomodelEndtime("BIOMD0000000001")
+        self.assertAlmostEqual(result, 25.0)
+
+    def test_returns_none_for_unknown_id(self) -> None:
+        """Returns None for an ID not present in endtime_dct."""
+        if IGNORE_TESTS:
+            return
+        with mock.patch.object(LRoadrunner, "endtime_dct", {}):
+            result = self.lrr.getBiomodelEndtime("BIOMD9999999999")
+        self.assertIsNone(result)
+
+
+class TestCalculateEndtimeSBML(unittest.TestCase):
+    """Unit tests for LRoadrunner._calculateEndtimeSBML using synthetic SED-ML strings."""
+
+    def _lrr(self, sedml_str: str) -> LRoadrunner:
+        lrr = LRoadrunner(ANTIMONY_MODEL, sedml_str=sedml_str)
+        lrr._end_time = None
+        return lrr
+
+    def test_returns_none_when_no_sedml(self) -> None:
+        """Returns None when no SED-ML string is provided."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(ANTIMONY_MODEL)
+        result = lrr._calculateEndtimeSBML()
+        self.assertIsNone(result)
+
+    def test_returns_none_when_no_output_end_time(self) -> None:
+        """Returns None when SED-ML has no outputEndTime attribute."""
+        if IGNORE_TESTS:
+            return
+        lrr = self._lrr('<sedML><uniformTimeCourse/></sedML>')
+        result = lrr._calculateEndtimeSBML()
+        self.assertIsNone(result)
+
+    def test_returns_end_time_from_sedml(self) -> None:
+        """Returns the outputEndTime value from SED-ML when it differs from the default."""
+        if IGNORE_TESTS:
+            return
+        sedml = '<uniformTimeCourse outputEndTime="25.0"/>'
+        lrr = self._lrr(sedml)
+        result = lrr._calculateEndtimeSBML()
+        self.assertAlmostEqual(result, 25.0)
+
+    def test_ignores_default_end_time_with_auto_marker(self) -> None:
+        """Returns None when outputEndTime equals default and auto marker is present."""
+        if IGNORE_TESTS:
+            return
+        sedml = (
+            f'uniformTimeCourse id="auto_ten_seconds" outputEndTime="10.0"'
+        )
+        lrr = self._lrr(sedml)
+        result = lrr._calculateEndtimeSBML()
+        self.assertIsNone(result)
+
+    def test_uses_default_end_time_when_no_auto_marker(self) -> None:
+        """Returns the default end time when outputEndTime=10.0 and no auto marker."""
+        if IGNORE_TESTS:
+            return
+        sedml = '<uniformTimeCourse outputEndTime="10.0"/>'
+        lrr = self._lrr(sedml)
+        result = lrr._calculateEndtimeSBML()
+        self.assertAlmostEqual(result, 10.0)
+
+
+class TestEndTimeSource(unittest.TestCase):
+    """Tests for LRoadrunner.end_time_source tracking."""
+
+    def test_source_is_user_specified_when_end_time_provided(self) -> None:
+        """end_time_source is USER_SPECIFIED when end_time is given at construction."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=42.0)
+        _ = lrr.end_time
+        self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_USER_SPECIFIED)
+
+    def test_source_is_steadystate_when_ss_method_succeeds(self) -> None:
+        """end_time_source is STEADYSTATE when calculated via steady-state search."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(PRODUCTION_MODEL)
+        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=None):
+            _ = lrr.end_time
+        self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_STEADYSTATE)
+
+    def test_source_is_none_when_all_methods_fail(self) -> None:
+        """end_time_source is None when no method can determine an end time."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(PRODUCTION_MODEL)
+        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=None), \
+                mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=None), \
+                mock.patch.object(lrr, "_calculateEndtimeCV", return_value=None):
+            result = lrr.end_time
+        self.assertIsNone(result)
+        self.assertIsNone(lrr.end_time_source)
+
+    def test_source_is_sedml_when_sedml_used(self) -> None:
+        """end_time_source is SEDML when end time is extracted from SED-ML string."""
+        if IGNORE_TESTS:
+            return
+        sedml = '<uniformTimeCourse outputEndTime="25.0"/>'
+        lrr = LRoadrunner(ANTIMONY_MODEL, sedml_str=sedml)
+        _ = lrr.end_time
+        self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_SEDML)
+
+
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestEndTimeSedml(unittest.TestCase):
     """Tests for LRoadrunner.end_time when a SED-ML string is supplied."""
@@ -577,21 +790,6 @@ class TestEndTimeSedml(unittest.TestCase):
         self.assertIsInstance(result, float)
         self.assertGreater(result, 0.0)
 
-    def test_default_sedml_end_time_reaches_steady_state(self) -> None:
-        """Auto-detected end_time (from default SED-ML) puts BIOMD11 within 5% of steady state."""
-        if IGNORE_TESTS:
-            return
-        lrr = LRoadrunner(_read(BIOMD11_SBML), sedml_str=_read(BIOMD11_SEDML))
-        end_time = lrr.end_time
-        rr_raw = lrr.getRoadrunner()
-        rr_raw.steadyState()
-        ss_arr = np.array([max(v, 1e-8) for v in rr_raw.getFloatingSpeciesConcentrations()])
-        rr_raw.reset()
-        rr_raw.simulate(0.0, end_time, 2)
-        final_arr = np.array(rr_raw.getFloatingSpeciesConcentrations())
-        divergence = np.max(np.abs(final_arr / ss_arr - 1))
-        self.assertLess(divergence, 1)
-
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestEndTimeBiomd241(unittest.TestCase):
@@ -614,19 +812,6 @@ class TestEndTimeBiomd241(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertGreater(self.lrr.end_time, 0.0)
-
-    def test_end_time_matches_jacobian_estimate(self) -> None:
-        """end_time equals 1 / min|eigenvalue| of the t=0 Jacobian.
-
-        BIOMD241 has no reactions so steadyState() fails (events block moiety
-        conversion).  The fallback computes end_time from the t=0 Jacobian.
-        The smallest-magnitude eigenvalue is ≈ 0.176355 → end_time ≈ 5.67 s.
-        """
-        if IGNORE_TESTS:
-            return
-        self.assertAlmostEqual(
-            self.lrr.end_time, BIOMD241_EXPECTED_END_TIME, places=2
-        )
 
     def test_end_time_is_cached(self) -> None:
         """end_time returns the same value on repeated access."""

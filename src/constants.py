@@ -17,11 +17,11 @@ NUM_POINTS = 10*int(END_TIME - START_TIME) + 1
 # Columns
 COL_MAXCV = "max_cv"
 COL_ENDTIME = "end_time"
-COL_MODEL = "model"
+COL_MODEL_NAME = "model_name"
 COL_ENDTIME_SOURCE = "end_time_source"  # How end_time was determined (e.g. "reciprocal_min_eigenvalue", "default")
 ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE = "reciprocal_min_eigenvalue"
 ENDTIME_SOURCE_SEDML = "sedml"
 ENDTIME_SOURCE_STEADYSTATE = "steadystate"
 ENDTIME_SOURCE_MAX_MEDIAN_CV = "max_median_cv"
 ENDTIME_SOURCE_USER_SPECIFIED = "user_specified"
-COL_NAMES = [COL_MODEL, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
+COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]

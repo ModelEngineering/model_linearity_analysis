@@ -1,0 +1,495 @@
+"""
+Tests for BiomodelsItem and BiomodelsIterator.
+"""
+import csv
+import os
+import tempfile
+import unittest
+from typing import List
+
+import pandas as pd # type: ignore
+import src.constants as cn
+from biomodels_iterator import BiomodelsItem, BiomodelsIterator  # type: ignore
+
+IGNORE_TESTS = False
+HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
+TEST_MODEL = "BIOMD0000000001"
+
+
+def _make_model_dir(parent: str, model_name: str, xml_files: List[str],
+                    sedml_files: List[str], add_manifest: bool = True) -> str:
+    """Create a fake model directory under *parent* and return its path."""
+    model_dir = os.path.join(parent, model_name)
+    os.makedirs(model_dir, exist_ok=True)
+    for fname in xml_files:
+        open(os.path.join(model_dir, fname), "w").close()
+    for fname in sedml_files:
+        open(os.path.join(model_dir, fname), "w").close()
+    if add_manifest:
+        open(os.path.join(model_dir, "manifest.xml"), "w").close()
+    return model_dir
+
+
+class TestBiomodelsItem(unittest.TestCase):
+    """Tests for BiomodelsItem."""
+
+    def test_attributes_stored(self) -> None:
+        """Constructor stores model_name, sbml_paths, and sedml_paths."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem(
+            model_name="BIOMD0000000001",
+            sbml_paths=["/a/b.xml"],
+            sedml_paths=["/a/b.sedml"],
+        )
+        self.assertEqual(item.model_name, "BIOMD0000000001")
+        self.assertEqual(item.sbml_paths, ["/a/b.xml"])
+        self.assertEqual(item.sedml_paths, ["/a/b.sedml"])
+
+    def test_empty_paths(self) -> None:
+        """Constructor accepts empty path lists."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem(model_name="BIOMD0000000002", sbml_paths=[], sedml_paths=[])
+        self.assertEqual(item.sbml_paths, [])
+        self.assertEqual(item.sedml_paths, [])
+
+    def test_repr_contains_model_name(self) -> None:
+        """repr includes the model name."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem(model_name="BIOMD0000000003", sbml_paths=[], sedml_paths=[])
+        self.assertIn("BIOMD0000000003", repr(item))
+
+    def test_repr_contains_paths(self) -> None:
+        """repr includes sbml_paths and sedml_paths."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem(
+            model_name="BIOMD0000000004",
+            sbml_paths=["/x.xml"],
+            sedml_paths=["/x.sedml"],
+        )
+        self.assertIn("/x.xml", repr(item))
+        self.assertIn("/x.sedml", repr(item))
+
+    def test_existing_df_stored(self) -> None:
+        """Constructor stores existing_df when provided."""
+        if IGNORE_TESTS:
+            return
+        df = pd.DataFrame({cn.COL_MODEL_NAME: ["BIOMD0000000001"]})
+        item = BiomodelsItem(
+            model_name="BIOMD0000000001",
+            sbml_paths=[],
+            sedml_paths=[],
+            existing_df=df,
+        )
+        self.assertIsNotNone(item.existing_df)
+        self.assertEqual(len(item.existing_df), 1)
+
+    def test_existing_df_defaults_to_none(self) -> None:
+        """existing_df defaults to None when not provided."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem(model_name="BIOMD0000000001", sbml_paths=[], sedml_paths=[])
+        self.assertEqual(len(item.existing_df), 0)
+
+
+class TestGetProcessedModelsFromCSV(unittest.TestCase):
+    """Tests for BiomodelsIterator._getProcessedModelsFromCSV."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _iterator(self, csv_path: str) -> BiomodelsIterator:
+        return BiomodelsIterator(biomodels_dir=self._tmpdir, existing_csv_path=csv_path,
+                                 is_report=False)
+
+    def test_no_path_returns_empty(self) -> None:
+        """No existing_csv_path returns empty DataFrame and empty list."""
+        if IGNORE_TESTS:
+            return
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False)
+        df, models = it._getProcessedModelsFromCSV()
+        self.assertTrue(df.empty)
+        self.assertEqual(models, [])
+
+    def test_nonexistent_path_returns_empty(self) -> None:
+        """Non-existent file path returns empty DataFrame and empty list."""
+        if IGNORE_TESTS:
+            return
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir,
+                               existing_csv_path="/nonexistent/path.csv", is_report=False)
+        df, models = it._getProcessedModelsFromCSV()
+        self.assertTrue(df.empty)
+        self.assertEqual(models, [])
+
+    def test_valid_csv_returns_model_names(self) -> None:
+        """Valid CSV with model_name column returns the expected model names."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "existing.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME])
+            writer.writerow(["BIOMD0000000001"])
+            writer.writerow(["BIOMD0000000002"])
+        it = self._iterator(csv_path)
+        _, models = it._getProcessedModelsFromCSV()
+        self.assertIn("BIOMD0000000001", models)
+        self.assertIn("BIOMD0000000002", models)
+
+    def test_valid_csv_returns_dataframe(self) -> None:
+        """Valid CSV returns a non-empty DataFrame."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "existing.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME])
+            writer.writerow(["BIOMD0000000001"])
+        it = self._iterator(csv_path)
+        df, _ = it._getProcessedModelsFromCSV()
+        self.assertFalse(df.empty)
+        self.assertIn(cn.COL_MODEL_NAME, df.columns)
+
+    def test_missing_column_raises_value_error(self) -> None:
+        """CSV missing the model_name column raises ValueError on construction."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "bad.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["wrong_column"])
+            writer.writerow(["BIOMD0000000001"])
+        with self.assertRaises(ValueError):
+            BiomodelsIterator(biomodels_dir=self._tmpdir,
+                              existing_csv_path=csv_path, is_report=False)
+
+
+class TestFindFilesWithExtension(unittest.TestCase):
+    """Tests for BiomodelsIterator._findFilesWithExtension using a temp directory."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _iterator(self) -> BiomodelsIterator:
+        return BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=IGNORE_TESTS)
+
+    def test_returns_list(self) -> None:
+        """Returns a list for a directory with matching files."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=["model.xml"], sedml_files=[])
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        self.assertIsInstance(result, list)
+
+    def test_finds_xml_files(self) -> None:
+        """Returns non-empty list when XML files exist (excluding manifest.xml)."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=["model.xml"], sedml_files=[])
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        self.assertEqual(len(result), 1)
+
+    def test_excludes_manifest_xml(self) -> None:
+        """manifest.xml is excluded even though it has the .xml extension."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=[], sedml_files=[], add_manifest=True)
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        self.assertEqual(result, [])
+
+    def test_excludes_manifest_xml_when_other_xml_present(self) -> None:
+        """manifest.xml is excluded even when other .xml files are present."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=["model.xml"], sedml_files=[], add_manifest=True)
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        self.assertFalse(any("manifest.xml" in p for p in result))
+
+    def test_returns_absolute_paths(self) -> None:
+        """Returned paths are absolute."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=["model.xml"], sedml_files=[])
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        for path in result:
+            self.assertTrue(os.path.isabs(path))
+
+    def test_returns_sorted_paths(self) -> None:
+        """Returned paths are in sorted order."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=["b.xml", "a.xml", "c.xml"], sedml_files=[])
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        self.assertEqual(result, sorted(result))
+
+    def test_returns_empty_for_no_match(self) -> None:
+        """Returns empty list when no files match the extension."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=[], sedml_files=["model.sedml"])
+        result = self._iterator()._findFilesWithExtension(model_dir, ".xml")
+        self.assertEqual(result, [])
+
+    def test_finds_sedml_files(self) -> None:
+        """Finds .sedml files when requested."""
+        if IGNORE_TESTS:
+            return
+        model_dir = _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                                    xml_files=[], sedml_files=["model.sedml"])
+        result = self._iterator()._findFilesWithExtension(model_dir, ".sedml")
+        self.assertEqual(len(result), 1)
+        self.assertTrue(result[0].endswith(".sedml"))
+
+
+class TestBiomodelsIteratorIter(unittest.TestCase):
+    """Tests for BiomodelsIterator.__iter__ using a temp directory."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _iterator(self) -> BiomodelsIterator:
+        return BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=IGNORE_TESTS)
+
+    def test_yields_biomodels_items(self) -> None:
+        """Iterating yields BiomodelsItem instances."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["BIOMD0000000001_url.xml"], sedml_files=[])
+        items = list(self._iterator())
+        self.assertTrue(all(isinstance(item, BiomodelsItem) for item in items))
+
+    def test_yields_one_item_per_biomd_dir(self) -> None:
+        """One BiomodelsItem is yielded per BIOMD directory."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["BIOMD0000000001_url.xml"], sedml_files=[])
+        _make_model_dir(self._tmpdir, "BIOMD0000000002",
+                        xml_files=["BIOMD0000000002_url.xml"], sedml_files=[])
+        items = list(self._iterator())
+        self.assertEqual(len(items), 2)
+
+    def test_skips_non_biomd_directories(self) -> None:
+        """Directories whose name does not contain 'BIOMD' are skipped."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        _make_model_dir(self._tmpdir, "other_dir",
+                        xml_files=["model.xml"], sedml_files=[])
+        items = list(self._iterator())
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].model_name, "BIOMD0000000001")
+
+    def test_items_sorted_by_model_name(self) -> None:
+        """Yielded items are in sorted order by model name."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000003",
+                        xml_files=["model.xml"], sedml_files=[])
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        _make_model_dir(self._tmpdir, "BIOMD0000000002",
+                        xml_files=["model.xml"], sedml_files=[])
+        items = list(self._iterator())
+        names = [item.model_name for item in items]
+        self.assertEqual(names, sorted(names))
+
+    def test_item_model_name_matches_directory(self) -> None:
+        """BiomodelsItem.model_name matches the directory name."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        items = list(self._iterator())
+        self.assertEqual(items[0].model_name, "BIOMD0000000001")
+
+    def test_item_sbml_paths_populated(self) -> None:
+        """BiomodelsItem.sbml_paths contains the expected XML file."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["BIOMD0000000001_url.xml"], sedml_files=[])
+        items = list(self._iterator())
+        self.assertEqual(len(items[0].sbml_paths), 1)
+        self.assertTrue(items[0].sbml_paths[0].endswith("BIOMD0000000001_url.xml"))
+
+    def test_item_sedml_paths_populated(self) -> None:
+        """BiomodelsItem.sedml_paths contains the expected SED-ML file."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=[], sedml_files=["model.sedml"])
+        items = list(self._iterator())
+        self.assertEqual(len(items[0].sedml_paths), 1)
+        self.assertTrue(items[0].sedml_paths[0].endswith("model.sedml"))
+
+    def test_empty_directory_yields_no_items(self) -> None:
+        """An empty biomodels_dir yields no items."""
+        if IGNORE_TESTS:
+            return
+        items = list(self._iterator())
+        self.assertEqual(items, [])
+
+    def test_manifest_excluded_from_sbml_paths(self) -> None:
+        """manifest.xml is not included in sbml_paths."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[], add_manifest=True)
+        items = list(self._iterator())
+        self.assertFalse(any("manifest.xml" in p for p in items[0].sbml_paths))
+
+    def test_skips_excluded_models(self) -> None:
+        """Models listed in excluded_models are not yielded."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        _make_model_dir(self._tmpdir, "BIOMD0000000002",
+                        xml_files=["model.xml"], sedml_files=[])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir,
+                               excluded_models=["BIOMD0000000001"], is_report=False)
+        items = list(it)
+        names = [item.model_name for item in items]
+        self.assertNotIn("BIOMD0000000001", names)
+        self.assertIn("BIOMD0000000002", names)
+
+    def test_skips_models_from_existing_csv(self) -> None:
+        """Models listed in existing_csv_path are not yielded."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        _make_model_dir(self._tmpdir, "BIOMD0000000002",
+                        xml_files=["model.xml"], sedml_files=[])
+        csv_path = os.path.join(self._tmpdir, "existing.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME])
+            writer.writerow(["BIOMD0000000001"])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir,
+                               existing_csv_path=csv_path, is_report=False)
+        items = list(it)
+        names = [item.model_name for item in items]
+        self.assertNotIn("BIOMD0000000001", names)
+        self.assertIn("BIOMD0000000002", names)
+
+    def test_item_existing_df_set_from_csv(self) -> None:
+        """BiomodelsItem.existing_df is populated from existing_csv_path."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000002",
+                        xml_files=["model.xml"], sedml_files=[])
+        csv_path = os.path.join(self._tmpdir, "existing.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME])
+            writer.writerow(["BIOMD0000000001"])
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir,
+                               existing_csv_path=csv_path, is_report=False)
+        items = list(it)
+        self.assertEqual(len(items), 1)
+        self.assertFalse(items[0].existing_df.empty)
+        self.assertIn(cn.COL_MODEL_NAME, items[0].existing_df.columns)
+
+    def test_item_existing_df_none_without_csv(self) -> None:
+        """BiomodelsItem.existing_df is an empty DataFrame when no CSV is provided."""
+        if IGNORE_TESTS:
+            return
+        _make_model_dir(self._tmpdir, "BIOMD0000000001",
+                        xml_files=["model.xml"], sedml_files=[])
+        items = list(self._iterator())
+        self.assertTrue(items[0].existing_df.empty)
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestBiomodelsIteratorReal(unittest.TestCase):
+    """Integration tests for BiomodelsIterator using the real BioModels directory."""
+
+    def setUp(self) -> None:
+        self._iterator = BiomodelsIterator(is_report=IGNORE_TESTS)
+
+    def test_yields_biomodels_items(self) -> None:
+        """All yielded objects are BiomodelsItem instances."""
+        if IGNORE_TESTS:
+            return
+        items = list(self._iterator)
+        self.assertTrue(all(isinstance(item, BiomodelsItem) for item in items))
+
+    def test_yields_many_models(self) -> None:
+        """At least one model is yielded from the real directory."""
+        if IGNORE_TESTS:
+            return
+        items = list(self._iterator)
+        self.assertGreater(len(items), 0)
+
+    def test_known_model_present(self) -> None:
+        """BIOMD0000000001 appears in the results."""
+        if IGNORE_TESTS:
+            return
+        names = {item.model_name for item in self._iterator}
+        self.assertIn(TEST_MODEL, names)
+
+    def test_known_model_has_sbml_paths(self) -> None:
+        """BIOMD0000000001 has at least one SBML file path."""
+        if IGNORE_TESTS:
+            return
+        for item in self._iterator:
+            if item.model_name == TEST_MODEL:
+                self.assertGreater(len(item.sbml_paths), 0)
+                return
+        self.fail(f"{TEST_MODEL} not found in iterator results")
+
+    def test_sbml_paths_are_existing_files(self) -> None:
+        """All sbml_paths for BIOMD0000000001 point to existing files."""
+        if IGNORE_TESTS:
+            return
+        for item in self._iterator:
+            if item.model_name == TEST_MODEL:
+                for path in item.sbml_paths:
+                    self.assertTrue(os.path.isfile(path), f"Not a file: {path}")
+                return
+        self.fail(f"{TEST_MODEL} not found in iterator results")
+
+    def test_manifest_excluded_from_real_sbml_paths(self) -> None:
+        """manifest.xml is not included in sbml_paths for any model."""
+        if IGNORE_TESTS:
+            return
+        for item in self._iterator:
+            for path in item.sbml_paths:
+                self.assertNotEqual(os.path.basename(path), "manifest.xml")
+
+    def test_items_sorted_by_model_name(self) -> None:
+        """All yielded items are in sorted order by model name."""
+        if IGNORE_TESTS:
+            return
+        names = [item.model_name for item in self._iterator]
+        self.assertEqual(names, sorted(names))
+
+
+if __name__ == "__main__":
+    unittest.main()
