@@ -103,7 +103,7 @@ class LRoadrunner(object):
         return te.loada(model)
     
     @property
-    def end_time(self) -> float:
+    def end_time(self) -> Optional[float]:
         """
         Get the simulation end time, calculating it if not already set.
 
@@ -121,6 +121,7 @@ class LRoadrunner(object):
         """
         # Check if end time was has been calculated or provided
         if self._end_time is not None:
+            self.end_time_source = cn.ENDTIME_SOURCE_USER_SPECIFIED
             return self._end_time
         #
         # Try to calculate from SED-ML string, if provided.
@@ -134,21 +135,26 @@ class LRoadrunner(object):
             self.end_time_source = cn.ENDTIME_SOURCE_STEADYSTATE
             return self._end_time
         # Try to calculate from Jacobian at t=0.
-        self._end_time = self._calculateEndtimeJacobian()
+        """ self._end_time = self._calculateEndtimeJacobian()
         if self._end_time is not None:
             self.end_time_source = cn.ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE
             return self._end_time
-        # Try to calculate by maximising median CV over the time course.
+        # Dummy return
+        self._end_time = -1
+        return self._end_time """
+        # Try to calculate by maximizing median CV over the time course.
         self._end_time = self._calculateEndtimeCV()
         if self._end_time is not None:
             self.end_time_source = cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
             return self._end_time
         # Could not find end_time
-        raise ValueError(
+        print(
             "Could not determine an appropriate end time for this model. "
             "This may be because the model is invalid or unbounded."
         )
-    
+        self.end_time_source = None
+        return None
+
     def _calculateEndtimeSteadystate(self) -> Optional[float]:
         """
         Find the first simulation end time at which the model reaches steady state.
@@ -192,7 +198,12 @@ class LRoadrunner(object):
             return None
         ss_arr = np.array(rr.getFloatingSpeciesConcentrations())
         ss_arr = np.array([max(v, 1e-8) for v in ss_arr])  # Avoid division by zero in _isAtSteadyState.
+        if len(ss_arr) == 0:
+            return None
+        if np.any(np.isnan(ss_arr)) or np.any(np.isinf(ss_arr)):
+            return None
         # Helper that determines if at steady state
+        rr = self.getRoadrunner()  # Use a fresh instance to avoid state corruption left by a failed steadyState() call (which can cause simulate to segfault even after reset()).
         def _isAtSteadyState(end_time: float) -> bool:
             rr.reset()
             try:
@@ -202,7 +213,11 @@ class LRoadrunner(object):
             is_both_zero = all(np.isclose(ss_arr, 0.0)) and all(np.isclose(final_arr[1], 0.0))
             if is_both_zero:
                 return True
-            normalized_arr = final_arr[1] / ss_arr
+            try:
+                normalized_arr = final_arr[1] / ss_arr
+            except Exception as e:
+                print(f"Exception occurred while normalizing concentrations: {e}")
+                return False
             divergence = np.max(np.abs(normalized_arr - 1))
             return bool(divergence < THRESHOLD)
         #
@@ -233,6 +248,10 @@ class LRoadrunner(object):
         self._end_time = end_time
         return self._end_time
     
+    def _msg(self, text: str) -> None:
+        #print(text)
+        pass
+    
     def _calculateEndtimeSBML(self) -> Optional[float]:
         """
         Estimate an end time from the model's SBML string, if possible.
@@ -245,6 +264,7 @@ class LRoadrunner(object):
             The end time specified in the SBML string, or None if no valid specification is found.
         """
         if not self._sedml_str:
+            self._msg("No SED-ML string provided, skipping SED-ML end time extraction.")
             return self._end_time
         #
         end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"', self._sedml_str)
@@ -255,15 +275,21 @@ class LRoadrunner(object):
                 end_time = float(end_time_match.group(1))
                 if not DEFAULT_END_TIME_STR in self._sedml_str and end_time > 0:
                     self._end_time = end_time
-                if not np.isclose(end_time, DEFAULT_END_TIME):
+                elif end_time != SBML_DEFAULT_END_TIME:
                     self._end_time = end_time
-        # Validate the end time by simulating to it and checking for errors.
+                else:
+                    self._msg("Default end time specification found in SED-ML string, ignoring SED-ML end time.")
+            else:
+                self._msg("No valid outputEndTime attribute found in SED-ML string.")
+        else:
+            self._msg("No outputEndTime attribute found in SED-ML string.")
+        """ # Validate the end time by simulating to it and checking for errors.
         if self._end_time is not None:
             try:
                 rr = self.getRoadrunner()
                 rr.simulate(self.start_time, self._end_time, 2)
             except Exception:
-                self._end_time = None
+                self._end_time = None """
         #
         return self._end_time
     

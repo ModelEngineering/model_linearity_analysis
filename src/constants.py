@@ -7,6 +7,7 @@ PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(PROJECT_DIR, "data")
 REPO_DIR = os.path.dirname(PROJECT_DIR)
 BIOMODELS_DIR = os.path.join(REPO_DIR, "temp-biomodels", "final")
+CALCULATED_ENTIMES_PATH = os.path.join(DATA_DIR, "biomodels_endtime.csv")
 
 # Constants
 START_TIME = 0.0
@@ -22,4 +23,5 @@ ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE = "reciprocal_min_eigenvalue"
 ENDTIME_SOURCE_SEDML = "sedml"
 ENDTIME_SOURCE_STEADYSTATE = "steadystate"
 ENDTIME_SOURCE_MAX_MEDIAN_CV = "max_median_cv"
+ENDTIME_SOURCE_USER_SPECIFIED = "user_specified"
 COL_NAMES = [COL_MODEL, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
