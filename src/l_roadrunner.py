@@ -26,7 +26,7 @@ DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
 SBML_DEFAULT_END_TIME = 10.0
 
 
-def _getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict:
+def getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict:
     """
     Load a mapping of BioModels IDs to end times from a CSV file.
 
@@ -57,7 +57,7 @@ def _getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> 
 class LRoadrunner(object):
     """Creates and manages the lifecycle of a RoadRunner simulation instance."""
     # Class variable to store the mapping of BioModels IDs to end times, loaded once when the class is defined.
-    endtime_dct: dict = _getBiomodelsEndtimes()  # type: ignore
+    endtime_dct: dict = getBiomodelsEndtimes()  # type: ignore
 
     def __init__(self, roadrunner_specification: str,
             start_time: float = cn.START_TIME,
@@ -89,23 +89,6 @@ class LRoadrunner(object):
         self._end_time: float = end_time if end_time is not None else np.nan
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
-
-    @classmethod
-    def getBiomodelEndtime(cls, biomodel_id: str) -> Optional[float]:
-        """
-        Get the end time for a given BioModels ID from the pre-calculated end times mapping.
-
-        Parameters
-        ----------
-        biomodel_id : str
-            The BioModels ID (e.g., "BIOMD0000000001") for which to retrieve the end time.
-
-        Returns
-        -------
-        Optional[float]
-            The end time associated with the given BioModels ID, or None if the ID is not found in the mapping.
-        """
-        return cls.endtime_dct.get(biomodel_id)
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         return self._loadRoadrunner(self.specification)

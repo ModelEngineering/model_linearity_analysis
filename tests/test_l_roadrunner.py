@@ -1,6 +1,6 @@
 """Tests for Roadrunner class."""
 import src.constants as cn  # type: ignore
-from src.l_roadrunner import LRoadrunner, _getBiomodelsEndtimes  # type: ignore
+from src.l_roadrunner import LRoadrunner, getBiomodelsEndtimes  # type: ignore
 
 import csv
 import os
@@ -560,7 +560,7 @@ k1 = 0.1; S1 = 0; S2 = 0
 
 
 class TestGetBiomodelsEndtimes(unittest.TestCase):
-    """Tests for _getBiomodelsEndtimes."""
+    """Tests for getBiomodelsEndtimes."""
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.mkdtemp()
@@ -573,7 +573,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
         """Returns a dict."""
         if IGNORE_TESTS:
             return
-        result = _getBiomodelsEndtimes(
+        result = getBiomodelsEndtimes(
             "/nonexistent/path.csv"
         )
         self.assertIsInstance(result, dict)
@@ -582,7 +582,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
         """Returns empty dict when the CSV file does not exist."""
         if IGNORE_TESTS:
             return
-        result = _getBiomodelsEndtimes("/nonexistent/path.csv")
+        result = getBiomodelsEndtimes("/nonexistent/path.csv")
         self.assertEqual(result, {})
 
     def test_valid_csv_returns_mapping(self) -> None:
@@ -595,7 +595,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
             writer.writerow(["BIOMD0000000001", "25.0"])
             writer.writerow(["BIOMD0000000002", "100.0"])
-        result = _getBiomodelsEndtimes(csv_path)
+        result = getBiomodelsEndtimes(csv_path)
         self.assertAlmostEqual(result["BIOMD0000000001"], 25.0)
         self.assertAlmostEqual(result["BIOMD0000000002"], 100.0)
 
@@ -608,7 +608,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow(["wrong_col", cn.COL_ENDTIME])
             writer.writerow(["BIOMD0000000001", "25.0"])
-        result = _getBiomodelsEndtimes(csv_path)
+        result = getBiomodelsEndtimes(csv_path)
         self.assertEqual(result, {})
 
     def test_missing_end_time_column_returns_empty_dict(self) -> None:
@@ -620,41 +620,8 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow([cn.COL_MODEL_NAME, "wrong_col"])
             writer.writerow(["BIOMD0000000001", "25.0"])
-        result = _getBiomodelsEndtimes(csv_path)
+        result = getBiomodelsEndtimes(csv_path)
         self.assertEqual(result, {})
-
-
-class TestGetBiomodelEndtime(unittest.TestCase):
-    """Tests for LRoadrunner.getBiomodelEndtime."""
-
-    def setUp(self) -> None:
-        self._tmpdir = tempfile.mkdtemp()
-        self._csv_path = os.path.join(self._tmpdir, "endtimes.csv")
-        with open(self._csv_path, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
-            writer.writerow(["BIOMD0000000001", "25.0"])
-        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
-
-    def tearDown(self) -> None:
-        import shutil
-        shutil.rmtree(self._tmpdir, ignore_errors=True)
-
-    def test_returns_float_for_known_id(self) -> None:
-        """Returns a float for an ID present in endtime_dct."""
-        if IGNORE_TESTS:
-            return
-        with mock.patch.object(LRoadrunner, "endtime_dct", {"BIOMD0000000001": 25.0}):
-            result = self.lrr.getBiomodelEndtime("BIOMD0000000001")
-        self.assertAlmostEqual(result, 25.0)
-
-    def test_returns_none_for_unknown_id(self) -> None:
-        """Returns None for an ID not present in endtime_dct."""
-        if IGNORE_TESTS:
-            return
-        with mock.patch.object(LRoadrunner, "endtime_dct", {}):
-            result = self.lrr.getBiomodelEndtime("BIOMD9999999999")
-        self.assertIsNone(result)
 
 
 class TestCalculateEndtimeSBML(unittest.TestCase):
