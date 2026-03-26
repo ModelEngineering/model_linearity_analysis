@@ -1,4 +1,6 @@
 """Tests for Roadrunner class."""
+import src.constants as cn  # type: ignore
+from src.l_roadrunner import LRoadrunner, _getBiomodelsEndtimes  # type: ignore
 
 import csv
 import os
@@ -9,10 +11,8 @@ import unittest.mock as mock
 
 import numpy as np  # type: ignore
 import tellurium as te  # type: ignore
+from typing import cast
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-import src.constants as cn
-from l_roadrunner import LRoadrunner, DEFAULT_END_TIME  # type: ignore
 
 IGNORE_TESTS = False
 
@@ -78,7 +78,7 @@ class TestLRoadrunnerInit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         rr = LRoadrunner(ANTIMONY_MODEL)
-        self.assertIsNone(rr._end_time)
+        self.assertTrue(np.isnan(rr._end_time))
 
     def test_roadrunner_instance_stored(self) -> None:
         """Internal RoadRunner instance is created and stored."""
@@ -92,7 +92,7 @@ class TestLRoadrunnerInit(unittest.TestCase):
         if IGNORE_TESTS:
             return
         with self.assertRaises(ValueError):
-            LRoadrunner(12345)
+            LRoadrunner("12345")
 
     def test_load_from_rr_instance(self) -> None:
         """LRoadrunner can be initialized from an existing RoadRunner instance."""
@@ -175,7 +175,7 @@ class TestEndTime(unittest.TestCase):
         """end_time returns a positive value."""
         if IGNORE_TESTS:
             return
-        self.assertGreater(self.rr.end_time, 0.0)
+        self.assertGreater(cast(float, self.rr.end_time), 0.0)
 
     def test_explicit_end_time_returned_unchanged(self) -> None:
         """end_time returns the explicitly provided value without computing."""
@@ -367,7 +367,8 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self.antimony_lrr._calculateEndtimeJacobian()
-        self.assertGreater(result, 0.0)
+        self.assertIsNotNone(result)
+        self.assertGreater(cast(float, result), 0.0)
 
     def test_antimony_model_end_time(self) -> None:
         """ANTIMONY_MODEL: smallest |eigenvalue| = k1 = 0.1, so end_time ≈ 10.0.
@@ -418,7 +419,7 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
         fresh.getFullStoichiometryMatrix.return_value = np.array([[-1.0, 0.0], [1.0, -1.0]])
         with mock.patch.object(lrr, "_loadModel", return_value=fresh):
             result = lrr._calculateEndtimeJacobian()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_returns_none_when_all_eigenvalues_zero(self) -> None:
         """Returns None when every eigenvalue is near-zero (no finite end time exists).
@@ -436,7 +437,7 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
         fresh.getFullStoichiometryMatrix.return_value = np.zeros((2, 2))
         with mock.patch.object(lrr, "_loadModel", return_value=fresh):
             result = lrr._calculateEndtimeJacobian()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_result_is_finite(self) -> None:
         """Returned end time is finite (not inf or nan)."""
@@ -523,7 +524,7 @@ class TestCalculateEndtimeCV(unittest.TestCase):
         fresh.getFloatingSpeciesIds.return_value = []
         with mock.patch.object(lrr, "_loadModel", return_value=fresh):
             result = lrr._calculateEndtimeCV()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_returns_none_when_all_species_zero_mean(self) -> None:
         """Returns None when every species has a zero-mean time course.
@@ -539,7 +540,7 @@ k1 = 0.1; S1 = 0; S2 = 0
 """
         lrr = LRoadrunner(zero_model, end_time=50.0, num_points=20)
         result = lrr._calculateEndtimeCV()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_end_time_source_set_to_max_median_cv(self) -> None:
         """end_time_source is set to ENDTIME_SOURCE_MAX_MEDIAN_CV when CV method is used.
@@ -551,15 +552,15 @@ k1 = 0.1; S1 = 0; S2 = 0
             return
         import unittest.mock as mock
         lrr = LRoadrunner(PRODUCTION_MODEL)
-        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=None), \
-             mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=None), \
-             mock.patch.object(lrr, "_calculateEndtimeJacobian", return_value=None):
+        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=np.nan), \
+                mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=np.nan), \
+                mock.patch.object(lrr, "_calculateEndtimeJacobian", return_value=np.nan):
             _ = lrr.end_time
         self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_MAX_MEDIAN_CV)
 
 
 class TestGetBiomodelsEndtimes(unittest.TestCase):
-    """Tests for LRoadrunner._getBiomodelsEndtimes."""
+    """Tests for _getBiomodelsEndtimes."""
 
     def setUp(self) -> None:
         self._tmpdir = tempfile.mkdtemp()
@@ -572,8 +573,8 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
         """Returns a dict."""
         if IGNORE_TESTS:
             return
-        result = LRoadrunner._getBiomodelsEndtimes.__func__(
-            LRoadrunner, "/nonexistent/path.csv"
+        result = _getBiomodelsEndtimes(
+            "/nonexistent/path.csv"
         )
         self.assertIsInstance(result, dict)
 
@@ -581,7 +582,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
         """Returns empty dict when the CSV file does not exist."""
         if IGNORE_TESTS:
             return
-        result = LRoadrunner._getBiomodelsEndtimes("/nonexistent/path.csv")
+        result = _getBiomodelsEndtimes("/nonexistent/path.csv")
         self.assertEqual(result, {})
 
     def test_valid_csv_returns_mapping(self) -> None:
@@ -594,7 +595,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
             writer.writerow(["BIOMD0000000001", "25.0"])
             writer.writerow(["BIOMD0000000002", "100.0"])
-        result = LRoadrunner._getBiomodelsEndtimes(csv_path)
+        result = _getBiomodelsEndtimes(csv_path)
         self.assertAlmostEqual(result["BIOMD0000000001"], 25.0)
         self.assertAlmostEqual(result["BIOMD0000000002"], 100.0)
 
@@ -607,7 +608,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow(["wrong_col", cn.COL_ENDTIME])
             writer.writerow(["BIOMD0000000001", "25.0"])
-        result = LRoadrunner._getBiomodelsEndtimes(csv_path)
+        result = _getBiomodelsEndtimes(csv_path)
         self.assertEqual(result, {})
 
     def test_missing_end_time_column_returns_empty_dict(self) -> None:
@@ -619,7 +620,7 @@ class TestGetBiomodelsEndtimes(unittest.TestCase):
             writer = csv.writer(f)
             writer.writerow([cn.COL_MODEL_NAME, "wrong_col"])
             writer.writerow(["BIOMD0000000001", "25.0"])
-        result = LRoadrunner._getBiomodelsEndtimes(csv_path)
+        result = _getBiomodelsEndtimes(csv_path)
         self.assertEqual(result, {})
 
 
@@ -661,7 +662,7 @@ class TestCalculateEndtimeSBML(unittest.TestCase):
 
     def _lrr(self, sedml_str: str) -> LRoadrunner:
         lrr = LRoadrunner(ANTIMONY_MODEL, sedml_str=sedml_str)
-        lrr._end_time = None
+        lrr._end_time = np.nan
         return lrr
 
     def test_returns_none_when_no_sedml(self) -> None:
@@ -670,7 +671,7 @@ class TestCalculateEndtimeSBML(unittest.TestCase):
             return
         lrr = LRoadrunner(ANTIMONY_MODEL)
         result = lrr._calculateEndtimeSBML()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_returns_none_when_no_output_end_time(self) -> None:
         """Returns None when SED-ML has no outputEndTime attribute."""
@@ -678,7 +679,7 @@ class TestCalculateEndtimeSBML(unittest.TestCase):
             return
         lrr = self._lrr('<sedML><uniformTimeCourse/></sedML>')
         result = lrr._calculateEndtimeSBML()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_returns_end_time_from_sedml(self) -> None:
         """Returns the outputEndTime value from SED-ML when it differs from the default."""
@@ -698,7 +699,7 @@ class TestCalculateEndtimeSBML(unittest.TestCase):
         )
         lrr = self._lrr(sedml)
         result = lrr._calculateEndtimeSBML()
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
 
     def test_uses_default_end_time_when_no_auto_marker(self) -> None:
         """Returns the default end time when outputEndTime=10.0 and no auto marker."""
@@ -726,7 +727,7 @@ class TestEndTimeSource(unittest.TestCase):
         if IGNORE_TESTS:
             return
         lrr = LRoadrunner(PRODUCTION_MODEL)
-        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=None):
+        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=np.nan):
             _ = lrr.end_time
         self.assertEqual(lrr.end_time_source, cn.ENDTIME_SOURCE_STEADYSTATE)
 
@@ -735,11 +736,11 @@ class TestEndTimeSource(unittest.TestCase):
         if IGNORE_TESTS:
             return
         lrr = LRoadrunner(PRODUCTION_MODEL)
-        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=None), \
-                mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=None), \
-                mock.patch.object(lrr, "_calculateEndtimeCV", return_value=None):
+        with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=np.nan), \
+                mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=np.nan), \
+                mock.patch.object(lrr, "_calculateEndtimeCV", return_value=np.nan):
             result = lrr.end_time
-        self.assertIsNone(result)
+        self.assertTrue(np.isnan(result))
         self.assertIsNone(lrr.end_time_source)
 
     def test_source_is_sedml_when_sedml_used(self) -> None:

@@ -26,40 +26,38 @@ DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
 SBML_DEFAULT_END_TIME = 10.0
 
 
+def _getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict:
+    """
+    Load a mapping of BioModels IDs to end times from a CSV file.
+
+    The CSV file should have two columns: "biomodel_id" and "end_time", where "biomodel_id" contains the BioModels ID (e.g., "BIOMD0000000001") and "end_time" contains the corresponding end time as a float.
+
+    Parameters
+    ----------
+    endtimes_csv_path : str
+        Path to the CSV file containing BioModels end times.
+
+    Returns
+    -------
+    dict
+        A dictionary mapping BioModels IDs (str) to end times (float).
+    """
+    result_dct : dict[str, float] = {}
+    if os.path.exists(endtimes_csv_path):
+        df = pd.read_csv(endtimes_csv_path)
+        if not cn.COL_MODEL_NAME in df.columns or not cn.COL_ENDTIME in df.columns:
+            #print(f"Warning: End times CSV file at {endtimes_csv_path} is missing required columns. Returning empty end times mapping.")
+            result_dct = {}
+            result_dct = {}
+        else:
+            result_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME]))
+    return result_dct
+
+
 class LRoadrunner(object):
     """Creates and manages the lifecycle of a RoadRunner simulation instance."""
-
-    @classmethod
-    def _getBiomodelsEndtimes(cls, endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict:
-        """
-        Load a mapping of BioModels IDs to end times from a CSV file.
-
-        The CSV file should have two columns: "biomodel_id" and "end_time", where "biomodel_id" contains the BioModels ID (e.g., "BIOMD0000000001") and "end_time" contains the corresponding end time as a float.
-
-        Parameters
-        ----------
-        endtimes_csv_path : str
-            Path to the CSV file containing BioModels end times.
-
-        Returns
-        -------
-        dict
-            A dictionary mapping BioModels IDs (str) to end times (float).
-        """
-        if not os.path.exists(endtimes_csv_path):
-            #print(f"Warning: End times CSV file not found at {endtimes_csv_path}. Returning empty end times mapping.")
-            result_dct : dict = {}
-        else:
-            df = pd.read_csv(endtimes_csv_path)
-            if not cn.COL_MODEL_NAME in df.columns or not cn.COL_ENDTIME in df.columns:
-                #print(f"Warning: End times CSV file at {endtimes_csv_path} is missing required columns. Returning empty end times mapping.")
-                result_dct = {}
-                result_dct = {}
-            else:
-                result_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME]))
-        return result_dct
-
-    endtime_dct: dict = _getBiomodelsEndtimes.__func__(None)  # type: ignore
+    # Class variable to store the mapping of BioModels IDs to end times, loaded once when the class is defined.
+    endtime_dct: dict = _getBiomodelsEndtimes()  # type: ignore
 
     def __init__(self, roadrunner_specification: str,
             start_time: float = cn.START_TIME,
@@ -88,11 +86,12 @@ class LRoadrunner(object):
         self._loadModel(roadrunner_specification)
         self.start_time = start_time
         self.num_points = num_points
-        self._end_time = end_time
+        self._end_time: float = end_time if end_time is not None else np.nan
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
 
-    def getBiomodelEndtime(self, biomodel_id: str) -> Optional[float]:
+    @classmethod
+    def getBiomodelEndtime(cls, biomodel_id: str) -> Optional[float]:
         """
         Get the end time for a given BioModels ID from the pre-calculated end times mapping.
 
@@ -106,7 +105,7 @@ class LRoadrunner(object):
         Optional[float]
             The end time associated with the given BioModels ID, or None if the ID is not found in the mapping.
         """
-        return self.endtime_dct.get(biomodel_id)
+        return cls.endtime_dct.get(biomodel_id)
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         return self._loadRoadrunner(self.specification)
@@ -151,10 +150,14 @@ class LRoadrunner(object):
         stripped = model.strip()
         if "<?xml" in stripped or "<sbml" in stripped:
             return te.loadSBMLModel(model)
-        return te.loada(model)
-    
+        try:
+            result = te.loada(model)
+            return result
+        except Exception as e:
+            raise ValueError(f"Error loading model: {e}")
+
     @property
-    def end_time(self) -> Optional[float]:
+    def end_time(self) -> float:
         """
         Get the simulation end time, calculating it if not already set.
 
@@ -171,31 +174,23 @@ class LRoadrunner(object):
             The simulation end time.
         """
         # Check if end time was has been calculated or provided
-        if self._end_time is not None:
+        if not np.isnan(self._end_time):
             self.end_time_source = cn.ENDTIME_SOURCE_USER_SPECIFIED
             return self._end_time
         #
         # Try to calculate from SED-ML string, if provided.
         self._end_time = self._calculateEndtimeSBML()
-        if self._end_time is not None:
+        if not np.isnan(self._end_time):
             self.end_time_source = cn.ENDTIME_SOURCE_SEDML
             return self._end_time
         # Try to calculate from steady state simulation.
         self._end_time = self._calculateEndtimeSteadystate()
-        if self._end_time is not None:
+        if not np.isnan(self._end_time):
             self.end_time_source = cn.ENDTIME_SOURCE_STEADYSTATE
             return self._end_time
-        # Try to calculate from Jacobian at t=0.
-        """ self._end_time = self._calculateEndtimeJacobian()
-        if self._end_time is not None:
-            self.end_time_source = cn.ENDTIME_SOURCE_RECIROCAL_MIN_EIGENVALUE
-            return self._end_time
-        # Dummy return
-        self._end_time = -1
-        return self._end_time """
         # Try to calculate by maximizing median CV over the time course.
         self._end_time = self._calculateEndtimeCV()
-        if self._end_time is not None:
+        if not np.isnan(self._end_time):
             self.end_time_source = cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
             return self._end_time
         # Could not find end_time
@@ -204,9 +199,9 @@ class LRoadrunner(object):
             "This may be because the model is invalid or unbounded."
         )
         self.end_time_source = None
-        return None
+        return np.nan
 
-    def _calculateEndtimeSteadystate(self) -> Optional[float]:
+    def _calculateEndtimeSteadystate(self) -> float:
         """
         Find the first simulation end time at which the model reaches steady state.
 
@@ -246,13 +241,13 @@ class LRoadrunner(object):
                 solver.setValue(k, v)
             rr.steadyState()
         except RuntimeError as e:
-            return None
+            return np.nan
         ss_arr = np.array(rr.getFloatingSpeciesConcentrations())
         ss_arr = np.array([max(v, 1e-8) for v in ss_arr])  # Avoid division by zero in _isAtSteadyState.
         if len(ss_arr) == 0:
-            return None
+            return np.nan
         if np.any(np.isnan(ss_arr)) or np.any(np.isinf(ss_arr)):
-            return None
+            return np.nan
         # Helper that determines if at steady state
         rr = self.getRoadrunner()  # Use a fresh instance to avoid state corruption left by a failed steadyState() call (which can cause simulate to segfault even after reset()).
         def _isAtSteadyState(end_time: float) -> bool:
@@ -273,11 +268,11 @@ class LRoadrunner(object):
             return bool(divergence < THRESHOLD)
         #
         # Phase 1: find an end_time where the model is at steady state.
-        end_time = 1.0
+        end_time : float = 1.0
         while not _isAtSteadyState(end_time):
             end_time *= 2
             if end_time > 1e9:
-                return None
+                return np.nan
         #
         # Phase 2: find the first time the model enters steady state.
         # This is done by binary reduction in the time intervals
@@ -303,7 +298,7 @@ class LRoadrunner(object):
         #print(text)
         pass
     
-    def _calculateEndtimeSBML(self) -> Optional[float]:
+    def _calculateEndtimeSBML(self) -> float:
         """
         Estimate an end time from the model's SBML string, if possible.
 
@@ -311,8 +306,8 @@ class LRoadrunner(object):
 
         Returns
         -------
-        Optional[float]
-            The end time specified in the SBML string, or None if no valid specification is found.
+        float or np.nan
+            The end time specified in the SBML string, or np.nan if no valid specification is found.
         """
         if not self._sedml_str:
             self._msg("No SED-ML string provided, skipping SED-ML end time extraction.")
@@ -335,12 +330,12 @@ class LRoadrunner(object):
         else:
             self._msg("No outputEndTime attribute found in SED-ML string.")
         """ # Validate the end time by simulating to it and checking for errors.
-        if self._end_time is not None:
+        if self._end_time is not np.nan:
             try:
                 rr = self.getRoadrunner()
                 rr.simulate(self.start_time, self._end_time, 2)
             except Exception:
-                self._end_time = None """
+                self._end_time = np.nan """
         #
         return self._end_time
     
@@ -412,7 +407,7 @@ class LRoadrunner(object):
 
         return np.array(jacobians), times_arr
 
-    def _calculateEndtimeJacobian(self) -> Optional[float]:
+    def _calculateEndtimeJacobian(self) -> float:
         """
         Estimate a simulation end time from the Jacobian evaluated at t=0.
 
@@ -426,7 +421,7 @@ class LRoadrunner(object):
 
         Returns
         -------
-        Optional[float]
+        float
             Estimated end time (1 / |λ_min|), or None if:
             - the condition is not satisfied, or
             - all eigenvalues are near-zero (no finite end time can be derived).
@@ -465,17 +460,17 @@ class LRoadrunner(object):
 
         # (c) Condition: conservation-law count covers all zero eigenvalues.
         if left_null_rank < num_zero_eigs:
-            return None
+            return np.nan
 
         # (i)/(ii) Smallest non-zero magnitude → end time.
         nonzero_magnitudes = magnitudes[magnitudes >= ZERO_TOL]
         if nonzero_magnitudes.size == 0:
-            return None
+            return np.nan
 
         min_magnitude = float(np.min(nonzero_magnitudes))
         return 1.0 / min_magnitude
 
-    def _calculateEndtimeCV(self) -> Optional[float]:
+    def _calculateEndtimeCV(self) -> float:
         """
         Estimate a simulation end time by maximising the median coefficient of
         variation (CV) of the floating species concentrations over the time course.
@@ -495,9 +490,9 @@ class LRoadrunner(object):
 
         Returns
         -------
-        Optional[float]
+        float
             End time (in model time units) that maximises the median species
-            CV, or ``None`` if the model has no floating species, cannot be
+            CV, or ``np.nan`` if the model has no floating species, cannot be
             simulated, or all species maintain a zero mean concentration.
         """
         LOG_LOWER = -5.0   # 10^-3 = 0.001 s
@@ -505,7 +500,7 @@ class LRoadrunner(object):
 
         rr = self._loadModel(self.specification)
         if len(rr.getFloatingSpeciesIds()) == 0:
-            return None
+            return np.nan
 
         def _negativeMedianCV(log_end_time: float) -> float:
             end_time = 10.0 ** log_end_time
@@ -532,4 +527,4 @@ class LRoadrunner(object):
         opt = minimize_scalar(_negativeMedianCV, bounds=(LOG_LOWER, LOG_UPPER), method="bounded")
         if opt.fun < 0:  # A genuine maximum was found
             return float(10.0 ** opt.x)
-        return None
+        return np.nan
