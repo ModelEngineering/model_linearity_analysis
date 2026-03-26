@@ -4,6 +4,7 @@ Module for analyzing linearity of SBML and Antimony models via Jacobian analysis
 import src.constants as cn
 from jacobian_collection import JacobianCollection # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
+from biomodels_iterator import BiomodelsIterator  # type: ignore
 
 import collections
 import os
@@ -243,7 +244,6 @@ class LinearAnalyzer:
                 print(f"Warning: skipping {model_dir}: {e}")
         return results
 
-    # TODO: (1) Use BiomodelsIterator; (2) Get endtime for model from CSV (or calculate if not present) and pass to LinearAnalyzer constructor instead of using default end time; (3) Write results to CSV after each model is processed instead of keeping in memory until the end.
     @classmethod
     def partitionBiomodelsJacobians(
         cls,
@@ -254,7 +254,7 @@ class LinearAnalyzer:
         is_sequential_partition: bool = False,
     ) -> pd.DataFrame:
         """
-        For each model in BioModels, partition its Jacobians into n_cluster clusters and save 
+        For each model in BioModels, partition its Jacobians into n_cluster clusters and save
         the max CV of the clusters to a CSV.
         Two partitionation methods are available:
             k-means clustering (partitionJacobians) and sequential partitioning
@@ -275,21 +275,19 @@ class LinearAnalyzer:
         Returns
         -------
         pd.DataFrame
-            DataFrame containing 
+            DataFrame containing
                 index: model identifiers (subdirectory names)
                 max_cv: max CV of the Jacobian clusters for each model.
                 end_time: end time used for each model's simulation.
         """
         if excluded_models is None:
             excluded_models = []
-        # Load existing CSV once to identify already-processed models
-        existing_df = pd.DataFrame()
-        if os.path.isfile(output_data_file) and os.path.getsize(output_data_file) > 0:
-            try:
-                existing_df = pd.read_csv(output_data_file)
-            except:
-                pass
-        processed_model_ids = set(existing_df[cn.COL_MODEL_NAME]) if not existing_df.empty else set()
+        iterator = BiomodelsIterator(
+            biomodels_dir=directory,
+            excluded_models=excluded_models,
+            existing_csv_path=output_data_file,
+        )
+        existing_df = iterator._existing_df
         ##
         def _write_csv(result_dct: Dict[str, float]) -> pd.DataFrame:
             """Write the given results to the output CSV, appending to existing data."""
@@ -301,46 +299,31 @@ class LinearAnalyzer:
         ##
         # Iterate over models and append results to CSV after each model is processed
         result_dct: dict = {c: [] for c in cn.COL_NAMES}
-        for model_dir in sorted(os.listdir(directory)):
-            model_dir = model_dir.strip()
-            print(model_dir)
-            if model_dir in excluded_models:
-                print(f"Skipping excluded model: {model_dir}")
+        for item in iterator:
+            if not item.sbml_paths:
+                print(f"Warning: skipping {item.model_name} due to missing SBML file.")
                 continue
-            if model_dir in processed_model_ids:
-                print(f"Skipping already-processed model: {model_dir}")
+            sbml_file = item.sbml_paths[0]
+            end_time = LRoadrunner.endtime_dct.get(item.model_name, np.nan) # type: ignore
+            if np.isnan(end_time): # type: ignore
+                print(f"Warning: skipping {item.model_name} due to missing end time.")
                 continue
-            model_path = os.path.join(directory, model_dir)
-            if not os.path.isdir(model_path):
-                continue
-            sbml_files = [
-                f
-                for f in glob.glob(os.path.join(model_path, "*.xml"))
-                if not f.endswith("manifest.xml")
-            ]
-            if not sbml_files:
-                continue
-            sbml_file = sbml_files[0]
-            # Write the CSV on each iteration since this can take a long time
             try:
                 with open(sbml_file, "r") as f:
                     sbml_str = f.read()
-                biomodel_dir = os.path.join(cn.BIOMODELS_DIR, model_dir)
-                sedml_str = cls._getSedml(biomodel_dir)
-                analyzer = cls(sbml_str, sedml_str=sedml_str)
-                end_time = analyzer.l_roadrunner.end_time
+                analyzer = cls(sbml_str, end=end_time)
                 if is_sequential_partition:
                     cluster_result = analyzer.partitionJacobiansSequentially(n_cluster=n_cluster)
                 else:
                     cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
                 max_cv = cluster_result.max_cv
-                result_dct[cn.COL_MODEL_NAME].append(model_dir)
+                result_dct[cn.COL_MODEL_NAME].append(item.model_name)
                 result_dct[cn.COL_MAXCV].append(max_cv)
                 result_dct[cn.COL_ENDTIME].append(end_time)
-                result_dct[cn.COL_ENDTIME_SOURCE].append( analyzer.l_roadrunner.end_time_source)
+                result_dct[cn.COL_ENDTIME_SOURCE].append(analyzer.l_roadrunner.end_time_source)
                 result_df = _write_csv(result_dct)
             except Exception as e:
-                print(f"Warning: skipping {model_dir}: {e}")
+                print(f"Warning: skipping {item.model_name}: {e}")
         #
         result_df = _write_csv(result_dct)
         return result_df

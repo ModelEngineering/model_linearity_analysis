@@ -26,7 +26,7 @@ DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
 SBML_DEFAULT_END_TIME = 10.0
 
 
-def getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict:
+def getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict[str, float]:
     """
     Load a mapping of BioModels IDs to end times from a CSV file.
 
@@ -57,7 +57,7 @@ def getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> d
 class LRoadrunner(object):
     """Creates and manages the lifecycle of a RoadRunner simulation instance."""
     # Class variable to store the mapping of BioModels IDs to end times, loaded once when the class is defined.
-    endtime_dct: dict = getBiomodelsEndtimes()  # type: ignore
+    endtime_dct: dict[str, float] = getBiomodelsEndtimes()  # type: ignore
 
     def __init__(self, roadrunner_specification: str,
             start_time: float = cn.START_TIME,

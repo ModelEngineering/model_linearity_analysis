@@ -4,5 +4,5 @@ if [ -z "$1" ]; then
   exit 1
 fi
 
-#mv data/$1s*sequential.csv /tmp
+mv data/$1s*sequential.csv /tmp
 source activate.sh; python scripts/analyze_biomodels.py --sequential --n_cluster $1
