@@ -140,4 +140,4 @@ class JacobianCollection(object):
 
         fig.tight_layout()
         plt.show()
-        return PlotInfo(top_ax=ax1, bottom_ax=ax2, fig=fig)  
+        return PlotInfo(top_ax=ax1, bottom_ax=ax2, fig=fig)

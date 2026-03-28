@@ -6,7 +6,6 @@ from jacobian_collection import JacobianCollection # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from biomodels_iterator import BiomodelsIterator  # type: ignore
 
-import collections
 import os
 import pandas as pd # type: ignore
 import glob
@@ -19,7 +18,6 @@ from sklearn.cluster import KMeans # type: ignore
 from src.l_roadrunner import LRoadrunner # type: ignore
 
 OUTPUT_DATA_FILE = os.path.join(cn.DATA_DIR, "model_linearity_analysis_data.csv")
-ClusterResult = collections.namedtuple("ClusterResult", ["clusters", "max_cv"])
 
 
 class LinearAnalyzer:
@@ -28,8 +26,8 @@ class LinearAnalyzer:
     def __init__(
         self,
         model: str,
-        start: float = 0,
-        end: Optional[float] = None,
+        start_time: float = 0,
+        end_time: Optional[float] = None,
         num_point: int = 100,
         sedml_str: Optional[str] = None,
     ) -> None:
@@ -40,27 +38,32 @@ class LinearAnalyzer:
         ----------
         model : str
             SBML XML string or Antimony model string.
-        start : float
+        start_time : float
             Simulation start time (default: 0).
-        end : float
+        end_time : float, optional
             Simulation end time (default: 10).
         num_point : int
             Number of simulation timepoints (default: 100).
         sedml_str : str, optional
             SED-ML string for simulation setup (default: None).
         """
-        self.start = start
-        self.end = end
+        self.start_time = start_time
+        self.end_time = end_time
         self.num_point = num_point
         self.sedml_str = sedml_str
-        self.l_roadrunner = LRoadrunner(model, start_time=start,
-                end_time=end, num_points=num_point)
+        self.l_roadrunner = LRoadrunner(model, start_time=start_time,
+                end_time=end_time, num_points=num_point)
         self._jacobian_collection = JacobianCollection(self.l_roadrunner)
         self.model = model
 
+    @staticmethod
+    def _report(text: str):
+        """Print a report message if reporting is enabled."""
+        print(text)
+
     def partitionJacobians(
         self, n_cluster: int, max_iter: int = 300
-    ) -> ClusterResult:
+    ) -> ClusteredJacobianCollection:
         """
         Partition the collected Jacobians into n_cluster clusters using
         scikit-learn KMeans. Clusters need not consist of
@@ -105,11 +108,10 @@ class LinearAnalyzer:
         labels_arr = kmeans.fit_predict(flat_arr)
 
         cluster_indices = [np.where(labels_arr == c)[0] for c in range(n_cluster)]
-        worst_cv = self._jacobian_collection.max_cv
 
-        return ClusterResult(
-            clusters=[jacobian_arr[idx] for idx in cluster_indices],
-            max_cv=worst_cv
+        return ClusteredJacobianCollection(
+            jacobian_collections=[JacobianCollection.fromArrays(jacobian_arr[idx],
+            self._jacobian_collection.timepoint_arr[idx]) for idx in cluster_indices]
         )
 
     def partitionJacobiansSequentially(self,
@@ -197,54 +199,6 @@ class LinearAnalyzer:
             return f.read()
 
     @classmethod
-    def makeBioModelAnalyzers(
-        cls,
-        directory: str = cn.BIOMODELS_DIR,
-    ) -> List[Tuple[str, "LinearAnalyzer"]]:
-        """
-        Create a LinearAnalyzer for each SBML model in subdirectories of directory.
-
-        Each subdirectory is expected to contain one or more XML files. The first
-        non-manifest XML file found is loaded as the SBML model. Models that fail
-        to load or simulate are skipped with a warning.
-
-        Parameters
-        ----------
-        directory : str
-            Path to the directory containing BioModel subdirectories. Defaults to
-            the local temp-biomodels/final directory.
-
-        Returns
-        -------
-        List[Tuple[str, LinearAnalyzer]]
-            List of (model_id, LinearAnalyzer) tuples for successfully processed
-            models, where model_id is the subdirectory name.
-        """
-        results = []
-        for model_dir in sorted(os.listdir(directory)):
-            model_path = os.path.join(directory, model_dir)
-            if not os.path.isdir(model_path):
-                continue
-            sbml_files = [
-                f
-                for f in glob.glob(os.path.join(model_path, "*.xml"))
-                if not f.endswith("manifest.xml")
-            ]
-            if not sbml_files:
-                continue
-            sbml_file = sbml_files[0]
-            try:
-                with open(sbml_file, "r") as f:
-                    sbml_str = f.read()
-                biomodel_dir = os.path.join(cn.BIOMODELS_DIR, model_dir)
-                sedml_str = cls._getSedml(biomodel_dir)
-                analyzer = cls(sbml_str, sedml_str=sedml_str)
-                results.append((model_dir, analyzer))
-            except Exception as e:
-                print(f"Warning: skipping {model_dir}: {e}")
-        return results
-
-    @classmethod
     def partitionBiomodelsJacobians(
         cls,
         directory: str = cn.BIOMODELS_DIR,
@@ -252,6 +206,7 @@ class LinearAnalyzer:
         excluded_models: Optional[List[str]] = None,
         n_cluster: int = 3,
         is_sequential_partition: bool = False,
+        is_report: bool = True,
     ) -> pd.DataFrame:
         """
         For each model in BioModels, partition its Jacobians into n_cluster clusters and save
@@ -271,6 +226,8 @@ class LinearAnalyzer:
             Number of clusters of Jacobians for timepoints to use for k-means clustering.
         is_sequential_partition : bool
             Whether to use sequential partitioning instead of k-means clustering.
+        is_report : bool
+            Whether to report progress during processing.
 
         Returns
         -------
@@ -286,6 +243,7 @@ class LinearAnalyzer:
             biomodels_dir=directory,
             excluded_models=excluded_models,
             existing_csv_path=output_data_file,
+            is_report=is_report,
         )
         existing_df = iterator._existing_df
         ##
@@ -298,32 +256,81 @@ class LinearAnalyzer:
             return df
         ##
         # Iterate over models and append results to CSV after each model is processed
-        result_dct: dict = {c: [] for c in cn.COL_NAMES}
+        col_names = list(set(cn.COL_NAMES) - {cn.COL_ENDTIME_SOURCE})
+        result_dct: dict = {c: [] for c in col_names}
         for item in iterator:
-            if not item.sbml_paths:
-                print(f"Warning: skipping {item.model_name} due to missing SBML file.")
-                continue
-            sbml_file = item.sbml_paths[0]
-            end_time = LRoadrunner.endtime_dct.get(item.model_name, np.nan) # type: ignore
-            if np.isnan(end_time): # type: ignore
-                print(f"Warning: skipping {item.model_name} due to missing end time.")
-                continue
-            try:
-                with open(sbml_file, "r") as f:
-                    sbml_str = f.read()
-                analyzer = cls(sbml_str, end=end_time)
-                if is_sequential_partition:
-                    cluster_result = analyzer.partitionJacobiansSequentially(n_cluster=n_cluster)
-                else:
-                    cluster_result = analyzer.partitionJacobians(n_cluster=n_cluster)
-                max_cv = cluster_result.max_cv
-                result_dct[cn.COL_MODEL_NAME].append(item.model_name)
-                result_dct[cn.COL_MAXCV].append(max_cv)
-                result_dct[cn.COL_ENDTIME].append(end_time)
-                result_dct[cn.COL_ENDTIME_SOURCE].append(analyzer.l_roadrunner.end_time_source)
-                result_df = _write_csv(result_dct)
-            except Exception as e:
-                print(f"Warning: skipping {item.model_name}: {e}")
+
+            clustered_jacobian_collection = cls.makeBiomodelCusteredJacobianCollection(
+                item.model_name,
+                directory=directory,
+                n_cluster=n_cluster,
+                is_sequential_partition=is_sequential_partition,
+                is_report=is_report,
+            )
+            result_dct[cn.COL_MODEL_NAME].append(item.model_name)
+            result_dct[cn.COL_MAXCV].append(clustered_jacobian_collection.max_cv)
+            result_dct[cn.COL_ENDTIME].append(clustered_jacobian_collection.end_time)
+            result_df = _write_csv(result_dct)
         #
         result_df = _write_csv(result_dct)
         return result_df
+    
+    @classmethod
+    def makeBiomodelCusteredJacobianCollection(cls,
+        model_name: str,
+        directory: str = cn.BIOMODELS_DIR,
+        start_time: float = cn.START_TIME,
+        num_point: int = cn.NUM_POINTS,
+        n_cluster: int = 1,
+        is_sequential_partition: bool = True,
+        is_report: bool = True,
+    ) -> ClusteredJacobianCollection:
+        """
+        Create a ClusteredJacobianCollection for a single Biomodel.
+
+        Parameters
+        ----------
+        model_name : str
+            The BioModel identifier (e.g. 'BIOMD0000000001').
+        directory : str
+            Path to the directory containing BioModel subdirectories.
+            Defaults to cn.BIOMODELS_DIR.
+        start_time : float
+            The start time for the simulation.
+        num_points : int
+            The number of time points to simulate.
+        n_cluster : int
+            The number of clusters to partition the Jacobians into.
+        is_sequential_partition : bool
+            Whether to use sequential partitioning instead of k-means clustering.
+        is_report : bool
+            Whether to print report messages during processing.
+
+        Returns
+        -------
+        ClusteredJacobianCollection
+            A ClusteredJacobianCollection instance containing the clustered Jacobian collections for the model.
+        """
+        clustered_jacobian_collection = ClusteredJacobianCollection([])
+        model_dir = os.path.join(directory, model_name)
+        item = BiomodelsIterator.getBiomodelInfo(model_dir)
+        sbml_file = item.sbml_paths[0]
+        end_time = LRoadrunner.endtime_dct.get(item.model_name, np.nan) # type: ignore
+        if np.isnan(end_time): # type: ignore
+            if is_report:
+                cls._report(f"Error processing {model_name}: skipping due to missing end time.")
+            return clustered_jacobian_collection
+        try:
+            with open(sbml_file, "r") as f:
+                sbml_str = f.read()
+            analyzer = cls(sbml_str, start_time=start_time, num_point=num_point, end_time=end_time)
+            if is_sequential_partition:
+                clustered_jacobian_collection = analyzer.partitionJacobiansSequentially(n_cluster=n_cluster)
+            else:
+                clustered_jacobian_collection= analyzer.partitionJacobians(n_cluster=n_cluster)
+        except Exception as e:
+            if is_report:
+                cls._report(f"Error processing {model_name}: {e}")
+            return clustered_jacobian_collection
+        #
+        return clustered_jacobian_collection

@@ -96,7 +96,8 @@ class BiomodelsIterator:
         processed_models = df[cn.COL_MODEL_NAME].tolist()
         return df, processed_models
 
-    def _findFilesWithExtension(self, model_dir: str, extension: str) -> List[str]:
+    @classmethod
+    def _findFilesWithExtension(cls, model_dir: str, extension: str) -> List[str]:
         """
         Find files with a given extension in a model directory, excluding manifest.xml.
 
@@ -123,6 +124,18 @@ class BiomodelsIterator:
         if self._is_report:
             print(text)
 
+    @classmethod
+    def getBiomodelInfo(cls, model_dir: str) -> BiomodelsItem:
+        model_name = os.path.basename(model_dir)
+        sbml_paths = cls._findFilesWithExtension(model_dir, ".xml")
+        sedml_paths = cls._findFilesWithExtension(model_dir, ".sedml")
+        return BiomodelsItem(
+            model_name=model_name,
+            sbml_paths=sbml_paths,
+            sedml_paths=sedml_paths,
+            existing_df=pd.DataFrame()
+        )
+
     def __iter__(self) -> Iterator[BiomodelsItem]:
         """
         Yield a BiomodelsItem for each BioModel directory.
@@ -146,11 +159,6 @@ class BiomodelsIterator:
                 self._msg(f"Skipping excluded model: {model_name}")
                 continue
             self._msg(f"Processing model: {model_name}")
-            sbml_paths = self._findFilesWithExtension(model_dir, ".xml")
-            sedml_paths = self._findFilesWithExtension(model_dir, ".sedml")
-            yield BiomodelsItem(
-                model_name=model_name,
-                sbml_paths=sbml_paths,
-                sedml_paths=sedml_paths,
-                existing_df=self._existing_df,
-            )
+            item = self.getBiomodelInfo(model_dir)
+            item.existing_df = self._existing_df
+            yield item
