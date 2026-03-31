@@ -23,7 +23,7 @@ class JacobianCollection(object):
             An LRoadrunner instance used to simulate the model and collect Jacobians.
             Jacobians and timepoints are obtained by calling makeJacobians() on this object.
         """
-        self._l_roadrunner = l_roadrunner
+        self.l_roadrunner = l_roadrunner
         try:
             self.jacobian_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
             self._sortArrays()
@@ -37,12 +37,13 @@ class JacobianCollection(object):
         self.jacobian_arr = self.jacobian_arr[sort_indices]
     
     @classmethod
-    def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray):
+    def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray, l_roadrunner: Optional[LRoadrunner] = None):
         """Create a JacobianCollection from explicit arrays."""
-        """There is no self._l_roadrunner in this case, so we cannot call makeJacobians()."""
         jc = cls.__new__(cls)
         jc.jacobian_arr = jacobian_arr
         jc.timepoint_arr = timepoint_arr
+        if l_roadrunner is not None:
+            jc.l_roadrunner = l_roadrunner
         jc._sortArrays()
         return jc
 
@@ -105,10 +106,10 @@ class JacobianCollection(object):
             An optional matplotlib Figure object to use. If None, a new figure will be created.
         """
 
-        if hasattr(self, '_l_roadrunner'):
-            roadrunner = self._l_roadrunner.getRoadrunner()
+        if hasattr(self, 'l_roadrunner'):
+            roadrunner = self.l_roadrunner.getRoadrunner()
             species_ids = roadrunner.getFloatingSpeciesIds()
-            data_arr = self._l_roadrunner.simulate(is_with_timepoints=True)
+            data_arr = self.l_roadrunner.simulate(is_with_timepoints=True)
             species_data = data_arr[:, 1:]  # Exclude time column
             species_times = data_arr[:, 0]  # Extract time column
         else:

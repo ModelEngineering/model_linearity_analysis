@@ -239,7 +239,7 @@ class TestPlot(unittest.TestCase):
 
     def test_second_axis_line_count_matches_species(self) -> None:
         """Second subplot has one line per floating species."""
-        n_species = len(self.collection._l_roadrunner.getRoadrunner().getFloatingSpeciesIds())
+        n_species = len(self.collection.l_roadrunner.getRoadrunner().getFloatingSpeciesIds())
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         self.assertEqual(len(plt.gcf().axes[1].lines), n_species)

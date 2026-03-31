@@ -9,6 +9,9 @@ REPO_DIR = os.path.dirname(PROJECT_DIR)
 BIOMODELS_DIR = os.path.join(REPO_DIR, "temp-biomodels", "final")
 CALCULATED_ENTIMES_PATH = os.path.join(DATA_DIR, "biomodels_endtime.csv")
 
+# Types
+TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"
+
 # Constants
 START_TIME = 0.0
 END_TIME = 10.0
