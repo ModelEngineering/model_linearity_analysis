@@ -11,9 +11,8 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import src.constants as cn
 from jacobian_collection import JacobianCollection  # type: ignore
-from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
-from linear_predictor import LinearPredictor, MultipleLinearPredictor  # type: ignore
+from linear_predictor import LinearPredictor  # type: ignore
 
 IGNORE_TESTS = False
 
@@ -418,101 +417,6 @@ class TestLinearPredictorPlot(unittest.TestCase):
         dashed_lines = [ln for ln in ax.lines if ln.get_linestyle() == "--"]
         self.assertEqual(len(dashed_lines), n_species)
         plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# Tests for MultipleLinearPredictor
-# ---------------------------------------------------------------------------
-
-class TestMultipleLinearPredictorInit(unittest.TestCase):
-    """Tests for MultipleLinearPredictor.__init__."""
-
-    def test_stores_clustered_jacobian_collection(self) -> None:
-        """clustered_jacobian_collection attribute is stored."""
-        if IGNORE_TESTS:
-            return
-        jc = _make_jc()
-        cjc = ClusteredJacobianCollection([jc])
-        lr = MagicMock(spec=LRoadrunner)
-        predictor = MultipleLinearPredictor(cjc, lr)
-        self.assertIs(predictor.clustered_jacobian_collection, cjc)
-
-    def test_stores_l_roadrunner(self) -> None:
-        """l_roadrunner attribute is stored."""
-        if IGNORE_TESTS:
-            return
-        jc = _make_jc()
-        cjc = ClusteredJacobianCollection([jc])
-        lr = MagicMock(spec=LRoadrunner)
-        predictor = MultipleLinearPredictor(cjc, lr)
-        self.assertIs(predictor.l_roadrunner, lr)
-
-
-class TestMultipleLinearPredictorPredict(unittest.TestCase):
-    """Tests for MultipleLinearPredictor.predict."""
-
-    def _make_predictor_from_model(self, antimony_str: str,
-                                    n_clusters: int) -> MultipleLinearPredictor:
-        """Return a MultipleLinearPredictor built from a real model."""
-        lr = _make_lroadrunner(antimony_str)
-        jc = JacobianCollection(lr)
-        # Split timepoints into n_clusters contiguous chunks
-        n_points = len(jc.timepoint_arr)
-        chunk_size = n_points // n_clusters
-        jcs = []
-        for i in range(n_clusters):
-            start = i * chunk_size
-            end = start + chunk_size if i < n_clusters - 1 else n_points
-            chunk_jac = jc.jacobian_arr[start:end]
-            chunk_t = jc.timepoint_arr[start:end]
-            jcs.append(JacobianCollection.fromArrays(chunk_jac, chunk_t, lr))
-        cjc = ClusteredJacobianCollection(jcs)
-        return MultipleLinearPredictor(cjc, lr)
-
-    def test_predict_shape_single_cluster(self) -> None:
-        """predict returns shape (1, n_species) for a single-cluster collection."""
-        if IGNORE_TESTS:
-            return
-        predictor = self._make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
-        result = predictor.predict()
-        self.assertEqual(result.shape[0], 1)
-        self.assertGreater(result.shape[1], 0)
-
-    def test_predict_shape_multiple_clusters(self) -> None:
-        """predict returns shape (n_clusters, n_species)."""
-        if IGNORE_TESTS:
-            return
-        n_clusters = 3
-        predictor = self._make_predictor_from_model(ANTIMONY_DECAY, n_clusters=n_clusters)
-        result = predictor.predict()
-        self.assertEqual(result.shape[0], n_clusters)
-
-    def test_predict_finite_values(self) -> None:
-        """predict returns finite concentration values."""
-        if IGNORE_TESTS:
-            return
-        predictor = self._make_predictor_from_model(ANTIMONY_FORCED, n_clusters=2)
-        result = predictor.predict()
-        self.assertTrue(np.all(np.isfinite(result)))
-
-    def test_predict_non_negative_concentrations(self) -> None:
-        """predict returns non-negative concentrations for a decay model starting at 0."""
-        if IGNORE_TESTS:
-            return
-        predictor = self._make_predictor_from_model(ANTIMONY_FORCED, n_clusters=2)
-        result = predictor.predict()
-        self.assertTrue(np.all(result >= -1e-6))
-
-    def test_predict_approaches_steady_state(self) -> None:
-        """For ANTIMONY_FORCED, predictions should increase toward steady state 0.5."""
-        if IGNORE_TESTS:
-            return
-        n_clusters = 5
-        predictor = self._make_predictor_from_model(ANTIMONY_FORCED, n_clusters=n_clusters)
-        result = predictor.predict()
-        # Concentrations should be increasing toward SS=0.5
-        self.assertTrue(result[-1, 0] > result[0, 0])
-        self.assertLess(result[-1, 0], 0.6)  # Should not overshoot greatly
 
 
 if __name__ == "__main__":

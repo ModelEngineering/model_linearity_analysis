@@ -1,6 +1,7 @@
 '''Constants used in the project'''
 
 import os
+import tellurium as te  # type: ignore
 
 # Directories and paths
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -11,6 +12,7 @@ CALCULATED_ENTIMES_PATH = os.path.join(DATA_DIR, "biomodels_endtime.csv")
 
 # Types
 TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"
+NULL_ROADRUNNER = te.loada("")
 
 # Constants
 START_TIME = 0.0

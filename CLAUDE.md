@@ -38,6 +38,7 @@ All code lives in `src/`, all tests in `tests/`. There are two modules:
 **[src/constants.py](src/constants.py)** — Project-wide paths: `PROJECT_DIR` (repo root) and `DATA_DIR` (`<repo>/data/`).
 
 **[src/linear_analyzer.py](src/linear_analyzer.py)** — `LinearAnalyzer` class that:
+
 1. Accepts an SBML XML string or Antimony string (auto-detected: SBML starts with `<?xml` or `<sbml`).
 2. Uses [tellurium](https://tellurium.readthedocs.io/) / RoadRunner to simulate the model.
 3. `collectJacobians()` — resets the model, runs a first simulation to obtain timepoints, then resets again and steps forward timepoint-by-timepoint calling `rr.getFullJacobian()` at each step. Returns `ndarray` of shape `(num_points, n_species, n_species)`. Only floating species appear in the Jacobian. Cached in `_jacobian_arr`.
@@ -53,6 +54,7 @@ SBML models are stored in `/Users/jlheller/home/Technical/repos/temp-biomodels/f
 ## Coding Style
 
 Per `docs/specification.md`:
+
 - Method names: camelCase
 - Variable names: lower_case_with_underscores with required type suffixes:
   - `_dct` for dicts, `_arr` for arrays, `_df` for DataFrames, `_ser` for Series
@@ -62,3 +64,6 @@ Per `docs/specification.md`:
 - All tests should be preceeded by the following guard and the top of tests should have IGNORE_TESTS = False.
   - if IGNORE_TEST
     - return
+- For objects that are constructed for classes in this project, name the object using snake case of the class name. For example, a FooBar object would be named foo_bar.
+- Avoid duplication of the same coding sequences. Create a new function or method instead.
+- All methods internal to a class begin with underscore "_".

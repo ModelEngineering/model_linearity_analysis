@@ -110,9 +110,10 @@ class LinearAnalyzer:
         cluster_indices = [np.where(labels_arr == c)[0] for c in range(n_cluster)]
         # FIXME: Construct with l_roadrunner for collections
         return ClusteredJacobianCollection(
-            jacobian_collections=[JacobianCollection.fromArrays(jacobian_arr[idx],
-            self._jacobian_collection.timepoint_arr[idx], self.l_roadrunner)
-                    for idx in cluster_indices]
+                jacobian_collections=[JacobianCollection.fromArrays(jacobian_arr[idx],
+                self._jacobian_collection.timepoint_arr[idx],
+                l_roadrunner=self.l_roadrunner)
+                for idx in cluster_indices]
         )
 
     def partitionJacobiansSequentially(self,
@@ -184,7 +185,8 @@ class LinearAnalyzer:
         clusters = [jacobian_arr[start:end] for start, end in boundaries]
         timepoint_arr = self._jacobian_collection.timepoint_arr
         timespans = [timepoint_arr[start:end] for start, end in boundaries]
-        jacobian_collections = [JacobianCollection.fromArrays(cluster, timespan, self.l_roadrunner)
+        jacobian_collections = [JacobianCollection.fromArrays(cluster, timespan,
+                l_roadrunner=self.l_roadrunner)
                 for cluster, timespan in zip(clusters, timespans)] 
         clustered_jacobian_collection = ClusteredJacobianCollection(jacobian_collections)
         #

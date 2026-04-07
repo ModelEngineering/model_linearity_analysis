@@ -1,6 +1,6 @@
 '''Container of a collection of Jacobian matrices and their timepoints and utilities.'''
 import src.constants as cn
-from src.l_roadrunner import LRoadrunner  # type: ignore
+from src.l_roadrunner import LRoadrunner, NULL_L_ROADRUNNER  # type: ignore
 
 import collections
 import matplotlib.axes as maxes  # type: ignore
@@ -8,7 +8,8 @@ import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import seaborn as sns  # type: ignore
-from typing import Optional, Set, Tuple
+from typing import Optional, Tuple
+
 
 
 PlotInfo = collections.namedtuple("PlotInfo",
@@ -17,8 +18,7 @@ PlotInfo = collections.namedtuple("PlotInfo",
 class JacobianCollection(object):
     """A collection of Jacobian matrices over one or more simulation timepoints."""
 
-    def __init__(self, l_roadrunner: LRoadrunner,
-            ) -> None:
+    def __init__(self, l_roadrunner: LRoadrunner=NULL_L_ROADRUNNER) -> None:
         """
         Parameters
         ----------
@@ -26,15 +26,19 @@ class JacobianCollection(object):
             An LRoadrunner instance used to simulate the model and collect Jacobians.
             Jacobians and timepoints are obtained by calling makeJacobians() on this object.
         """
-        self.l_roadrunner = l_roadrunner
-        self._jacobian_mean_arr = np.array([])
-        self._jacobian_std_arr = np.array([])
+        self._initialize(l_roadrunner)
         try:
             self.jacobian_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
             self._sortArrays()
         except Exception as e:
             raise ValueError(f"Failed to create JacobianCollection for {l_roadrunner.specification[0:200]}") from e
-
+        
+    def _initialize(self, l_roadrunner: LRoadrunner) -> None:
+        """Initialize the JacobianCollection with a new LRoadrunner instance."""
+        self.l_roadrunner = l_roadrunner
+        self._jacobian_mean_arr = np.array([])
+        self._jacobian_std_arr = np.array([])
+    
     def _sortArrays(self) -> None:
         """Sort the jacobian_arr and timepoint_arr by timepoint."""
         sort_indices = np.argsort(self.timepoint_arr)
@@ -42,13 +46,13 @@ class JacobianCollection(object):
         self.jacobian_arr = self.jacobian_arr[sort_indices]
     
     @classmethod
-    def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray, l_roadrunner: Optional[LRoadrunner] = None):
+    def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray,
+            l_roadrunner: LRoadrunner = NULL_L_ROADRUNNER):
         """Create a JacobianCollection from explicit arrays."""
-        jc = cls.__new__(cls)
+        jc = object.__new__(cls)
+        jc._initialize(l_roadrunner)
         jc.jacobian_arr = jacobian_arr
         jc.timepoint_arr = timepoint_arr
-        if l_roadrunner is not None:
-            jc.l_roadrunner = l_roadrunner
         jc._sortArrays()
         return jc
 
@@ -131,8 +135,6 @@ class JacobianCollection(object):
         else:
             raise ValueError("Cannot plot species timecourse without an LRoadrunner instance.") 
         jacobian_times = self.getTimes()
-        if len(jacobian_times) == 1:
-                import pdb; pdb.set_trace()
         deviation_arr = self._calculateDeviation()
 
         if top_ax is None or bottom_ax is None or fig is None:

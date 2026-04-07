@@ -1,7 +1,6 @@
-'''Linear predictors for chemical reaction network trajectories.'''
+'''Linear predictor for chemical reaction network trajectories.'''
 
 from src.jacobian_collection import JacobianCollection  # type: ignore
-from src.clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from src.l_roadrunner import LRoadrunner  # type: ignore
 
 import collections
@@ -10,7 +9,7 @@ import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
-from typing import List, Optional
+from typing import Optional
 
 
 ZERO_TOL = 1e-10  # Threshold below which concentrations are treated as zero.
@@ -49,12 +48,12 @@ class LinearPredictor(object):
             vector u in dx/dt = J_mean @ x + u.
         """
         self.jacobian_collection = jacobian_collection
+        self._l_roadrunner = jacobian_collection.l_roadrunner
         self.initial_value_arr = initial_value_arr
         self.forced_input_arr = forced_input_arr
         self.mean_jacobian_arr = np.mean(jacobian_collection.jacobian_arr, axis=0)
 
-    def predict(self, times: np.ndarray,
-               l_roadrunner: Optional[LRoadrunner] = None) -> "PredictionResult":
+    def predict(self, times: np.ndarray, l_roadrunner: Optional[LRoadrunner] = None) -> "PredictionResult":
         """Predict floating species concentrations at the given times.
 
         Solves the linear ODE dx/dt = mean_jacobian_arr @ x + forced_input_arr
@@ -105,8 +104,9 @@ class LinearPredictor(object):
 
         mean_abs_error: float = np.nan
         max_abs_err: float = np.nan
-        if l_roadrunner is not None:
-            simulated_arr = l_roadrunner.simulate(is_with_timepoints=False)
+        effective_lr = l_roadrunner if l_roadrunner is not None else self._l_roadrunner
+        if effective_lr is not None:
+            simulated_arr = effective_lr.simulate(is_with_timepoints=False)
             if simulated_arr.shape == prediction_arr.shape:
                 with np.errstate(divide="ignore", invalid="ignore"):
                     abs_error_arr = np.abs(1.0 - prediction_arr / simulated_arr)
@@ -184,73 +184,4 @@ class LinearPredictor(object):
             ax.set_ylim(ylim)
         if xlim is not None:
             ax.set_xlim(xlim)
-        return fig
-
-
-class MultipleLinearPredictor(object):
-    """Predicts species concentrations across a sequence of linear models.
-
-    Uses a ClusteredJacobianCollection to build one LinearPredictor per cluster,
-    propagating the predicted state from the end of each cluster as the initial
-    condition for the next.  Forced inputs for each cluster are computed from
-    the LRoadrunner instance via: u = f(x0) - J_mean @ x0, where f(x0) is the
-    instantaneous rate of change of floating species at the current state x0.
-    """
-
-    def __init__(self,
-            clustered_jacobian_collection: ClusteredJacobianCollection,
-            l_roadrunner: LRoadrunner,
-            ) -> None:
-        """
-        Parameters
-        ----------
-        clustered_jacobian_collection : ClusteredJacobianCollection
-            Clustered Jacobian collections defining the sequence of linear models.
-        l_roadrunner : LRoadrunner
-            LRoadrunner instance used to obtain initial concentrations and to
-            compute instantaneous rates of change for forced-input estimation.
-        """
-        self.clustered_jacobian_collection = clustered_jacobian_collection
-        self.l_roadrunner = l_roadrunner
-
-    def predict(self) -> np.ndarray:
-        """Predict floating species concentrations at the end of each cluster.
-
-        For each JacobianCollection in the ClusteredJacobianCollection:
-        1. Compute the forced input u = f(x0) - J_mean @ x0, where f(x0) is
-           the instantaneous rate of change at the current state x0.
-        2. Build a LinearPredictor with the current state as initial condition.
-        3. Predict concentrations at the last timepoint of the cluster.
-        4. Use the predicted concentrations as the initial state for the next cluster.
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (n_clusters, n_species) containing the predicted
-            floating species concentrations at the last timepoint of each cluster.
-        """
-        rr = self.l_roadrunner.getRoadrunner()
-        rr.reset()
-        current_x = np.array(rr.getFloatingSpeciesConcentrations())
-
-        predictions: List[np.ndarray] = []
-        for jc in self.clustered_jacobian_collection.jacobian_collections:
-            j_mean_arr = np.mean(jc.jacobian_arr, axis=0)
-
-            # Compute forced input: u = f(x0) - J_mean @ x0
-            # Set floating species to current_x and read instantaneous rates.
-            rr.reset()
-            species_ids = rr.getFloatingSpeciesIds()
-            for idx, sp_id in enumerate(species_ids):
-                rr[sp_id] = float(current_x[idx])
-            f_arr = np.array(rr.getRatesOfChange())
-            forced_input_arr = f_arr - j_mean_arr @ current_x
-
-            # Predict at the end of this cluster (duration from cluster start)
-            duration = float(jc.timepoint_arr[-1] - jc.timepoint_arr[0])
-            predictor = LinearPredictor(jc, current_x, forced_input_arr)
-            predicted_arr = predictor.predict(np.array([0.0, duration])).prediction_arr
-            current_x = predicted_arr[-1]
-            predictions.append(current_x)
-
-        return np.array(predictions)  # shape: (n_clusters, n_species)
+        return fig  # type: ignore

@@ -91,28 +91,15 @@ class LRoadrunner(object):
         self.end_time_source: Optional[str] = None
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
-        return self._loadRoadrunner(self.specification)
+        if self.isNull():
+            raise ValueError("Cannot get RoadRunner instance from a null LRoadrunner.") 
+        rr = self._loadModel(self.specification)
+        rr.reset()
+        return rr
 
-    def _loadRoadrunner(self, roadrunner_specification) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
-        """
-        Return a RoadRunner instance from a model string or an existing instance.
-
-        Parameters
-        ----------
-        roadrunner_specification : str or roadrunner.ExtendedRoadRunner
-
-        Raises
-        ------
-        ValueError
-            If roadrunner_specification is neither a string nor a RoadRunner instance.
-        """
-        if isinstance(roadrunner_specification, str):
-            return self._loadModel(roadrunner_specification)
-        if hasattr(roadrunner_specification, "getFloatingSpeciesIds"):
-            return roadrunner_specification
-        raise ValueError(
-            "No RoadRunner instance found. Specification is not a valid model."
-        )
+    def isNull(self) -> bool:
+        """Check if this JacobianCollection is null (i.e. has no Jacobians)."""
+        return self.specification == NULL_L_ROADRUNNER
 
     def _loadModel(self, model: str) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         """
@@ -360,8 +347,8 @@ class LRoadrunner(object):
         """
         Run simulations and collect the full Jacobian at each timepoint.
 
-        The model is reset, simulated once to obtain the output timepoints, reset
-        again, then stepped forward point-by-point so a Jacobian can be captured
+        The model is simulated once to obtain the output timepoints, reset,
+        then stepped forward point-by-point so a Jacobian can be captured
         at each output time.
 
         Returns
@@ -379,7 +366,8 @@ class LRoadrunner(object):
             raise ValueError("Model has no floating species; cannot compute Jacobian.")
         result_arr = rr.simulate(self.start_time, self.end_time, self.num_points)
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
-        #    
+
+        rr.reset()
         jacobians = []
         for i, t in enumerate(times_arr):
             if i == 0:
@@ -511,3 +499,6 @@ class LRoadrunner(object):
         if opt.fun < 0:  # A genuine maximum was found
             return float(10.0 ** opt.x)
         return np.nan
+    
+# Other constants
+NULL_L_ROADRUNNER = LRoadrunner("")
