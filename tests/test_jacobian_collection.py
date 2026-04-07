@@ -15,6 +15,8 @@ import src.constants as cn
 from jacobian_collection import JacobianCollection  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
+IGNORE_TESTS = False
+
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
 S2 -> ; k2*S2
@@ -49,11 +51,15 @@ class TestJacobianCollectionInit(unittest.TestCase):
 
     def test_stores_jacobian_arr(self) -> None:
         """jacobian_arr attribute is stored as-is."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection()
         self.assertEqual(jc.jacobian_arr.shape, (5, 3, 3))
 
     def test_stores_timepoints(self) -> None:
         """timepoints attribute is stored as-is."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection()
         self.assertEqual(len(jc.timepoint_arr), 5)
 
@@ -63,11 +69,15 @@ class TestGetTimes(unittest.TestCase):
 
     def test_returns_set(self) -> None:
         """getTimes returns a set."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection()
         self.assertIsInstance(jc.getTimes(), np.ndarray)
 
     def test_unique_timepoints(self) -> None:
         """getTimes returns the unique set of timepoints."""
+        if IGNORE_TESTS:
+            return
         timepoints = np.array([0.0, 1.0, 1.0, 2.0])
         jacobian_arr = np.zeros((4, 2, 2))
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
@@ -75,8 +85,97 @@ class TestGetTimes(unittest.TestCase):
 
     def test_all_unique_timepoints(self) -> None:
         """getTimes returns all timepoints when none are duplicated."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection(n_points=5)
         self.assertEqual(len(jc.getTimes()), 5)
+
+
+class TestJacobianMeanArr(unittest.TestCase):
+    """Tests for JacobianCollection.jacobian_mean_arr property."""
+
+    def test_shape(self) -> None:
+        """jacobian_mean_arr has shape (n_species, n_species)."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_collection(n_points=5, n_species=3)
+        self.assertEqual(jc.jacobian_mean_arr.shape, (3, 3))
+
+    def test_known_value(self) -> None:
+        """jacobian_mean_arr equals element-wise mean across timepoints."""
+        if IGNORE_TESTS:
+            return
+        jacobian_arr = np.array([[[1.0, 2.0], [3.0, 4.0]],
+                                  [[5.0, 6.0], [7.0, 8.0]]])
+        timepoints = np.array([0.0, 1.0])
+        jc = _make_collection_from_arrays(jacobian_arr, timepoints)
+        expected = np.array([[3.0, 4.0], [5.0, 6.0]])
+        np.testing.assert_allclose(jc.jacobian_mean_arr, expected)
+
+    def test_single_timepoint_equals_jacobian(self) -> None:
+        """With one timepoint mean equals the Jacobian itself."""
+        if IGNORE_TESTS:
+            return
+        jacobian_arr = np.array([[[1.0, 2.0], [3.0, 4.0]]])
+        timepoints = np.array([0.0])
+        jc = _make_collection_from_arrays(jacobian_arr, timepoints)
+        np.testing.assert_allclose(jc.jacobian_mean_arr, jacobian_arr[0])
+
+    def test_cached_on_second_access(self) -> None:
+        """jacobian_mean_arr returns the same object on repeated access."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_collection(n_points=5, n_species=2)
+        first = jc.jacobian_mean_arr
+        second = jc.jacobian_mean_arr
+        self.assertIs(first, second)
+
+
+class TestJacobianStdArr(unittest.TestCase):
+    """Tests for JacobianCollection.jacobian_std_arr property."""
+
+    def test_shape(self) -> None:
+        """jacobian_std_arr has shape (n_species, n_species)."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_collection(n_points=5, n_species=3)
+        self.assertEqual(jc.jacobian_std_arr.shape, (3, 3))
+
+    def test_known_value(self) -> None:
+        """jacobian_std_arr equals element-wise std across timepoints."""
+        if IGNORE_TESTS:
+            return
+        values = np.array([1.0, 2.0, 3.0])
+        jacobian_arr = values.reshape(3, 1, 1)
+        timepoints = np.array([0.0, 1.0, 2.0])
+        jc = _make_collection_from_arrays(jacobian_arr, timepoints)
+        expected = np.array([[np.std(values)]])
+        np.testing.assert_allclose(jc.jacobian_std_arr, expected)
+
+    def test_constant_jacobian_gives_zero_std(self) -> None:
+        """Identical Jacobians across timepoints produce std=0 everywhere."""
+        if IGNORE_TESTS:
+            return
+        jacobian_arr = np.ones((5, 2, 2))
+        timepoints = np.linspace(0, 4, 5)
+        jc = _make_collection_from_arrays(jacobian_arr, timepoints)
+        np.testing.assert_allclose(jc.jacobian_std_arr, np.zeros((2, 2)))
+
+    def test_nonnegative(self) -> None:
+        """jacobian_std_arr is always non-negative."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_collection(n_points=10, n_species=3)
+        self.assertTrue(np.all(jc.jacobian_std_arr >= 0.0))
+
+    def test_cached_on_second_access(self) -> None:
+        """jacobian_std_arr returns the same object on repeated access."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_collection(n_points=5, n_species=2)
+        first = jc.jacobian_std_arr
+        second = jc.jacobian_std_arr
+        self.assertIs(first, second)
 
 
 class TestMaxCV(unittest.TestCase):
@@ -84,16 +183,22 @@ class TestMaxCV(unittest.TestCase):
 
     def test_returns_float(self) -> None:
         """max_cv returns a float."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection()
         self.assertIsInstance(jc.max_cv, float)
 
     def test_empty_array_returns_zero(self) -> None:
         """max_cv returns 0.0 for an empty jacobian_arr."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection_from_arrays(np.array([]), np.array([]))
         self.assertEqual(jc.max_cv, 0.0)
 
     def test_constant_entries_return_zero(self) -> None:
         """Constant Jacobian entries (std=0) produce cv=0 and max_cv=0."""
+        if IGNORE_TESTS:
+            return
         jacobian_arr = np.ones((10, 2, 2))
         timepoints = np.linspace(0, 1, 10)
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
@@ -101,6 +206,8 @@ class TestMaxCV(unittest.TestCase):
 
     def test_zero_mean_entries_excluded(self) -> None:
         """Entries with zero mean (which give inf/nan CV) are treated as 0, not inf."""
+        if IGNORE_TESTS:
+            return
         # Alternating +1/-1 → mean=0, so CV would be inf/nan
         jacobian_arr = np.array([[[1.0]], [[-1.0]], [[1.0]], [[-1.0]]])
         timepoints = np.array([0.0, 1.0, 2.0, 3.0])
@@ -109,6 +216,8 @@ class TestMaxCV(unittest.TestCase):
 
     def test_known_cv_value(self) -> None:
         """max_cv matches hand-computed CV for a simple case."""
+        if IGNORE_TESTS:
+            return
         # Single entry varying from 1 to 3 → mean=2, std=~0.816 → CV=~0.408
         values = np.array([1.0, 2.0, 3.0])
         jacobian_arr = values.reshape(3, 1, 1)
@@ -119,6 +228,8 @@ class TestMaxCV(unittest.TestCase):
 
     def test_max_taken_across_entries(self) -> None:
         """max_cv returns the maximum CV across all Jacobian entries."""
+        if IGNORE_TESTS:
+            return
         # Entry [0,0]: constant 1.0 → cv=0; Entry [0,1]: varies → cv>0
         jacobian_arr = np.ones((5, 2, 2))
         jacobian_arr[:, 0, 1] = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -130,6 +241,8 @@ class TestMaxCV(unittest.TestCase):
 
     def test_nonnegative(self) -> None:
         """max_cv is always non-negative."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection()
         self.assertGreaterEqual(jc.max_cv, 0.0)
 
@@ -139,12 +252,16 @@ class TestCalculateDeviation(unittest.TestCase):
 
     def test_returns_1d_array_of_correct_length(self) -> None:
         """Result has shape (num_points,)."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection(n_points=5, n_species=3)
         result = jc._calculateDeviation()
         self.assertEqual(result.shape, (5,))
 
     def test_identical_jacobians_give_zero_deviation(self) -> None:
         """When all Jacobians are identical the centroid equals every Jacobian, so deviation is 0."""
+        if IGNORE_TESTS:
+            return
         jacobian_arr = np.ones((4, 2, 2))
         timepoints = np.linspace(0, 3, 4)
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
@@ -153,6 +270,8 @@ class TestCalculateDeviation(unittest.TestCase):
 
     def test_known_value_1x1(self) -> None:
         """Hand-computed deviation for a 1×1 Jacobian with two timepoints."""
+        if IGNORE_TESTS:
+            return
         # centroid = 3.0; each deviation = |J - 3| / 3 = 1/3
         jacobian_arr = np.array([[[2.0]], [[4.0]]])
         timepoints = np.array([0.0, 1.0])
@@ -163,6 +282,8 @@ class TestCalculateDeviation(unittest.TestCase):
 
     def test_zero_centroid_entry_produces_no_nan_or_inf(self) -> None:
         """Entries whose centroid is 0 contribute 0 to the deviation (no inf/nan)."""
+        if IGNORE_TESTS:
+            return
         # Off-diagonal entries are always 0 → centroid off-diagonal = 0
         jacobian_arr = np.zeros((3, 2, 2))
         jacobian_arr[:, 0, 0] = np.array([1.0, 2.0, 3.0])
@@ -174,6 +295,8 @@ class TestCalculateDeviation(unittest.TestCase):
 
     def test_all_zero_jacobians_give_zero_deviation(self) -> None:
         """All-zero Jacobians → centroid zero → deviation is 0 everywhere."""
+        if IGNORE_TESTS:
+            return
         jacobian_arr = np.zeros((3, 2, 2))
         timepoints = np.array([0.0, 1.0, 2.0])
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
@@ -182,6 +305,8 @@ class TestCalculateDeviation(unittest.TestCase):
 
     def test_single_timepoint_gives_zero_deviation(self) -> None:
         """With one timepoint the centroid equals the Jacobian, so deviation is 0."""
+        if IGNORE_TESTS:
+            return
         jacobian_arr = np.array([[[1.0, 2.0], [3.0, 4.0]]])
         timepoints = np.array([0.0])
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
@@ -190,6 +315,8 @@ class TestCalculateDeviation(unittest.TestCase):
 
     def test_nonnegative(self) -> None:
         """Deviation is always non-negative."""
+        if IGNORE_TESTS:
+            return
         jc = _make_collection()
         result = jc._calculateDeviation()
         self.assertTrue(np.all(result >= 0.0))
@@ -207,17 +334,23 @@ class TestPlot(unittest.TestCase):
 
     def test_runs_without_error(self) -> None:
         """plot runs without raising for a simple Antimony model."""
+        if IGNORE_TESTS:
+            return
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
 
     def test_creates_two_axes(self) -> None:
         """plot creates a figure with exactly two subplots."""
+        if IGNORE_TESTS:
+            return
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         self.assertEqual(len(plt.gcf().axes), 2)
 
     def test_first_axis_title(self) -> None:
         """First subplot title describes the Jacobian deviation."""
+        if IGNORE_TESTS:
+            return
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         self.assertEqual(
@@ -227,18 +360,24 @@ class TestPlot(unittest.TestCase):
 
     def test_second_axis_title(self) -> None:
         """Second subplot title describes the species timecourse."""
+        if IGNORE_TESTS:
+            return
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         self.assertEqual(plt.gcf().axes[1].get_title(), "Species Timecourse")
 
     def test_first_axis_has_one_line(self) -> None:
         """First subplot contains exactly one line (the deviation curve)."""
+        if IGNORE_TESTS:
+            return
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         self.assertEqual(len(plt.gcf().axes[0].lines), 1)
 
     def test_second_axis_line_count_matches_species(self) -> None:
         """Second subplot has one line per floating species."""
+        if IGNORE_TESTS:
+            return
         n_species = len(self.collection.l_roadrunner.getRoadrunner().getFloatingSpeciesIds())
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
@@ -246,6 +385,8 @@ class TestPlot(unittest.TestCase):
 
     def test_second_axis_legend_contains_species_ids(self) -> None:
         """Second subplot legend labels match the floating species IDs."""
+        if IGNORE_TESTS:
+            return
         with patch("matplotlib.pyplot.show"):
             self.collection.plot()
         legend = plt.gcf().axes[1].get_legend()
@@ -257,6 +398,8 @@ class TestPlot(unittest.TestCase):
 
     def test_biomodel_38(self) -> None:
         """plot runs without error for BioModel BIOMD0000000038."""
+        if IGNORE_TESTS:
+            return
         with open(BIOMD_PATH) as f:
             sbml_str = f.read()
         lr = LRoadrunner(sbml_str, start_time=0.0, end_time=0.002, num_points=600)
@@ -279,6 +422,8 @@ class TestBiomodel206(unittest.TestCase):
 
     def test_construction_succeeds(self) -> None:
         """JacobianCollection is created without error from BIOMD0000000206."""
+        if IGNORE_TESTS:
+            return
         try:
             JacobianCollection(self.lr)
             self.assertTrue(False)
