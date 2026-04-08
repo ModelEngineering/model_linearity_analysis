@@ -283,6 +283,7 @@ class LinearAnalyzer:
         model_name: str,
         directory: str = cn.BIOMODELS_DIR,
         start_time: float = cn.START_TIME,
+        end_time: float = np.nan,
         num_point: int = cn.NUM_POINTS,
         n_cluster: int = 1,
         is_sequential_partition: bool = True,
@@ -318,7 +319,8 @@ class LinearAnalyzer:
         model_dir = os.path.join(directory, model_name)
         item = BiomodelsIterator.getBiomodelInfo(model_dir)
         sbml_file = item.sbml_paths[0]
-        end_time = LRoadrunner.endtime_dct.get(item.model_name, np.nan) # type: ignore
+        if np.isnan(end_time):
+            end_time = LRoadrunner.endtime_dct.get(item.model_name, np.nan) # type: ignore
         if np.isnan(end_time): # type: ignore
             if is_report:
                 cls._report(f"Error processing {model_name}: skipping due to missing end time.")

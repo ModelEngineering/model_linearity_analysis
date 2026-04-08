@@ -4,6 +4,9 @@ from src.clustered_jacobian_collection import ClusteredJacobianCollection  # typ
 from src.l_roadrunner import LRoadrunner  # type: ignore
 from src.linear_predictor import LinearPredictor  # type: ignore
 
+import matplotlib.axes as maxes  # type: ignore
+import matplotlib.figure as mfigure  # type: ignore
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 from typing import List, Optional
 
@@ -79,3 +82,96 @@ class MultipleLinearPredictor(object):
             predictions.append(current_x)
 
         return np.array(predictions)  # shape: (n_clusters, n_species)
+
+    def plot(self,
+            ax: Optional[maxes.Axes] = None,
+            title: str = "Multiple Linear Prediction vs Simulation",
+            ylim: Optional[tuple] = None,
+            xlim: Optional[tuple] = None,
+            ) -> mfigure.Figure:
+        """Plot predicted and simulated species concentrations over time.
+
+        Simulation is drawn as solid lines; the piecewise linear prediction as
+        dashed lines.  One colour per floating species is used so that prediction
+        and simulation for the same species share a colour.  A vertical dotted
+        line marks the start of each cluster after the first, indicating where a
+        new Jacobian takes over.
+
+        Parameters
+        ----------
+        ax : plt.Axes, optional
+            Axes to draw on.  A new figure and axes are created when omitted.
+        title : str, optional
+            Title for the axes.
+        ylim : tuple[float, float], optional
+            y-axis limits as (ymin, ymax).
+        xlim : tuple[float, float], optional
+            x-axis limits as (xmin, xmax).
+
+        Returns
+        -------
+        plt.Figure
+            The figure containing the plot.
+        """
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.get_figure()
+
+        # --- simulated trajectory ---
+        sim_arr = self.l_roadrunner.simulate(is_with_timepoints=True)
+        sim_times = sim_arr[:, 0]
+        sim_conc_arr = sim_arr[:, 1:]
+        n_species = sim_conc_arr.shape[1]
+
+        for i in range(n_species):
+            label = self.species_names[i] if i < len(self.species_names) else f"species_{i}"
+            ax.plot(sim_times, sim_conc_arr[:, i], color=f"C{i}",
+                    label=f"{label} (simulation)")
+
+        # --- piecewise linear prediction ---
+        rr = self.l_roadrunner.getRoadrunner()
+        rr.reset()
+        current_x = np.array(rr.getFloatingSpeciesConcentrations())
+
+        for cluster_idx, jc in enumerate(self.clustered_jacobian_collection.jacobian_collections):
+            # Draw vertical boundary line at the start of each new cluster.
+            if cluster_idx > 0:
+                ax.axvline(x=float(jc.timepoint_arr[0]), color="gray",
+                linestyle=":", linewidth=1.0)
+
+            # Forced input at current state.
+            rr.reset()
+            species_ids = rr.getFloatingSpeciesIds()
+            for idx, sp_id in enumerate(species_ids):
+                rr[sp_id] = float(current_x[idx])
+            f_arr = np.array(rr.getRatesOfChange())
+            forced_input_arr = f_arr - jc.jacobian_mean_arr @ current_x
+
+            # Predict at every timepoint in the cluster (relative times).
+            abs_times = jc.timepoint_arr
+            rel_times = abs_times - abs_times[0]
+            linear_predictor = LinearPredictor(jc, current_x, forced_input_arr)
+            predicted_arr = linear_predictor.predict(rel_times).prediction_arr
+
+            for i in range(n_species):
+                label = (self.species_names[i] if i < len(self.species_names)
+                         else f"species_{i}")
+                if cluster_idx == 0:
+                    ax.plot(abs_times, predicted_arr[:, i], color=f"C{i}",
+                            linestyle="--", label=f"{label} (prediction)")
+                else:
+                    ax.plot(abs_times, predicted_arr[:, i], color=f"C{i}",
+                            linestyle="--")
+
+            current_x = predicted_arr[-1]
+
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Concentration")
+        ax.set_title(title)
+        ax.legend()
+        if ylim is not None:
+            ax.set_ylim(ylim)
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        return fig  # type: ignore
