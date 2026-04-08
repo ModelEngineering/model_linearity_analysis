@@ -67,3 +67,5 @@ Per `docs/specification.md`:
 - For objects that are constructed for classes in this project, name the object using snake case of the class name. For example, a FooBar object would be named foo_bar.
 - Avoid duplication of the same coding sequences. Create a new function or method instead.
 - All methods internal to a class begin with underscore "_".
+- Unless otherwise stated, when requested to implement a method or function, also implement tests for the method or function, and run the tests to ensure that they pass. If they don't pass, make appropriate changes until tests do pass.
+- Continuation lines should be indented by two tabs.

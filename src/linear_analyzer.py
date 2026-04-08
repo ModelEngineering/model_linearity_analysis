@@ -116,20 +116,23 @@ class LinearAnalyzer:
                 for idx in cluster_indices]
         )
 
-    def partitionJacobiansSequentially(self,
-            n_cluster: int) -> ClusteredJacobianCollection:
+    def partitionJacobiansSequentially(self, n_cluster: int,
+            cost_criteria: str = "expo_eigen") -> ClusteredJacobianCollection:
         """
         Partition the collected Jacobians into n_cluster contiguous time segments.
 
         Unlike partitionJacobians (which uses KMeans and may produce non-contiguous
         clusters), this method constrains each cluster to be a contiguous run of
         timepoints. Dynamic programming is used to find the partition into exactly
-        n_cluster contiguous segments that minimises the maximum within-segment CV.
+        n_cluster contiguous segments that minimizes the maximum within-segment CV.
 
         Parameters
         ----------
         n_cluster : int
             Number of contiguous segments to partition the Jacobians into.
+        cost_criteria : str
+            Criteria for computing the cost of a segment. Options are "expo_eigen" (default)
+                "max_cv"
 
         Returns
         -------
@@ -142,6 +145,9 @@ class LinearAnalyzer:
         ValueError
             n_cluster exceeds the number of timepoints.
         """
+        CRITERIA_MAX_CV = "max_cv"
+        CRITERIA_EXPO_EIGEN = "expo_eigen"
+        #
         jacobian_arr = self._jacobian_collection.jacobian_arr
         timepoint_arr = self._jacobian_collection.timepoint_arr
         n_point = jacobian_arr.shape[0]
@@ -157,7 +163,10 @@ class LinearAnalyzer:
             for j in range(i, n_point):
                 jacobian_collection = JacobianCollection.fromArrays(jacobian_arr[i : j + 1],
                         timepoint_arr[i : j + 1], self.l_roadrunner)
-                cost[i][j] = jacobian_collection.max_cv
+                if cost_criteria == CRITERIA_MAX_CV:
+                    cost[i][j] = jacobian_collection.max_cv
+                elif cost_criteria == CRITERIA_EXPO_EIGEN:
+                    cost[i][j] = jacobian_collection.max_eigen_expo_distance
 
         # DP: dp[k][i] = min possible max-segment-CV when partitioning
         #     the first i timepoints into k contiguous segments.

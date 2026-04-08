@@ -8,7 +8,7 @@ import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import seaborn as sns  # type: ignore
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 
 
@@ -38,6 +38,7 @@ class JacobianCollection(object):
         self.l_roadrunner = l_roadrunner
         self._jacobian_mean_arr = np.array([])
         self._jacobian_std_arr = np.array([])
+        self._max_expo_eigen_distance = np.nan
     
     def _sortArrays(self) -> None:
         """Sort the jacobian_arr and timepoint_arr by timepoint."""
@@ -76,6 +77,26 @@ class JacobianCollection(object):
             cv_arr = np.abs(self.jacobian_std_arr / self.jacobian_mean_arr)
             cv_arr[~np.isfinite(cv_arr)] = 0.0
         return np.max(cv_arr)
+    
+    @property
+    def max_eigen_expo_distance(self) -> float:
+        """
+        Compute the maximum distance of the eigenvalues of each Jacobian 
+        from the eigenvalues of the mean Jacobian, where distance is defined as the L2 norm of the difference 
+        of their exponentials.
+        """
+        if not np.isnan(self._max_expo_eigen_distance):
+            return cast(float, self._max_expo_eigen_distance)
+        if self.jacobian_arr.size == 0:
+            return 0.0
+        mean_eigvals = np.linalg.eigvals(self.jacobian_mean_arr)
+        max_distance = 0.0
+        for jacobian_arr in self.jacobian_arr:
+            eigvals = np.linalg.eigvals(jacobian_arr)
+            distance = np.linalg.norm(np.exp(eigvals) - np.exp(mean_eigvals))
+            max_distance = max(max_distance, distance)
+        self._max_expo_eigen_distance = max_distance
+        return cast(float, self._max_expo_eigen_distance)
 
     @property
     def jacobian_std_arr(self) -> np.ndarray:

@@ -2,13 +2,16 @@
 
 from src.clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from src.l_roadrunner import LRoadrunner  # type: ignore
-from src.linear_predictor import LinearPredictor  # type: ignore
+from src.linear_predictor import LinearPredictor, ZERO_TOL  # type: ignore
 
+import collections
 import matplotlib.axes as maxes  # type: ignore
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 from typing import List, Optional
+
+ScoreResult = collections.namedtuple("ScoreResult", ["mean_rae", "max_rae"])
 
 
 class MultipleLinearPredictor(object):
@@ -82,6 +85,60 @@ class MultipleLinearPredictor(object):
             predictions.append(current_x)
 
         return np.array(predictions)  # shape: (n_clusters, n_species)
+
+    def score(self) -> ScoreResult:
+        """Compute the mean and max relative absolute error (RAE) of the prediction.
+
+        RAE is defined as |1 - prediction / simulation| computed element-wise
+        across all timepoints and all floating species.  When both the predicted
+        and simulated values are within ZERO_TOL of zero, the entry contributes
+        zero error rather than NaN.
+
+        Returns
+        -------
+        ScoreResult
+            Named tuple with fields:
+            - ``mean_rae`` : float — mean of |1 - prediction / simulation|
+            - ``max_rae``  : float — max  of |1 - prediction / simulation|
+        """
+        sim_arr = self.l_roadrunner.simulate(is_with_timepoints=False)
+
+        rr = self.l_roadrunner.getRoadrunner()
+        rr.reset()
+        current_x = np.array(rr.getFloatingSpeciesConcentrations())
+
+        predicted_rows: List[np.ndarray] = []
+        for jc in self.clustered_jacobian_collection.jacobian_collections:
+            rr.reset()
+            species_ids = rr.getFloatingSpeciesIds()
+            for idx, sp_id in enumerate(species_ids):
+                rr[sp_id] = float(current_x[idx])
+            f_arr = np.array(rr.getRatesOfChange())
+            forced_input_arr = f_arr - jc.jacobian_mean_arr @ current_x
+
+            abs_times = jc.timepoint_arr
+            rel_times = abs_times - abs_times[0]
+            linear_predictor = LinearPredictor(jc, current_x, forced_input_arr)
+            predicted_arr = linear_predictor.predict(rel_times).prediction_arr
+            predicted_rows.append(predicted_arr)
+            current_x = predicted_arr[-1]
+
+        prediction_arr = np.concatenate(predicted_rows, axis=0)
+
+        if prediction_arr.shape != sim_arr.shape:
+            return ScoreResult(mean_rae=np.nan, max_rae=np.nan)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rae_arr = np.abs(1.0 - prediction_arr / sim_arr)
+        both_near_zero = (
+            (np.abs(prediction_arr) < ZERO_TOL) & (np.abs(sim_arr) < ZERO_TOL)
+        )
+        rae_arr[both_near_zero] = 0.0
+
+        return ScoreResult(
+            mean_rae=float(np.nanmean(rae_arr)),
+            max_rae=float(np.nanmax(rae_arr)),
+        )
 
     def plot(self,
             ax: Optional[maxes.Axes] = None,
@@ -175,3 +232,15 @@ class MultipleLinearPredictor(object):
         if xlim is not None:
             ax.set_xlim(xlim)
         return fig  # type: ignore
+
+    def heatmaps(self) -> mfigure.Figure:
+        """Plot the CV heatmap for each JacobianCollection in a single row.
+
+        Delegates to ClusteredJacobianCollection.heatmaps().
+
+        Returns
+        -------
+        plt.Figure
+            The figure containing one heatmap per cluster and a shared colorbar.
+        """
+        return self.clustered_jacobian_collection.heatmaps()

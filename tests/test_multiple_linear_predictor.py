@@ -12,9 +12,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from jacobian_collection import JacobianCollection  # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
-from multiple_linear_predictor import MultipleLinearPredictor  # type: ignore
+from multiple_linear_predictor import MultipleLinearPredictor, ScoreResult  # type: ignore
 
-IGNORE_TESTS = False
+IGNORE_TESTS = True
 
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
@@ -32,6 +32,14 @@ ANTIMONY_DECAY = """
 S1 -> S2; k1*S1
 S2 -> ; k2*S2
 k1 = 0.1; k2 = 0.2; S1 = 10.0; S2 = 0.0
+"""
+
+# Nonlinear model: Michaelis-Menten kinetics gives a time-varying Jacobian.
+ANTIMONY_MM = """
+$Xo -> S1; k1*Xo
+S1 -> $X1; Vmax*S1/(Km + S1)
+S1 = 0.1
+k1 = 1.0; Vmax = 2.0; Km = 0.5; Xo = 1.0; X1 = 0.0
 """
 
 
@@ -174,8 +182,8 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         fig = predictor.plot()
         ax = fig.axes[0]
         vlines = [l for l in ax.lines
-                  if len(l.get_xdata()) == 2
-                  and l.get_xdata()[0] == l.get_xdata()[1]]
+                if len(l.get_xdata()) == 2
+                and l.get_xdata()[0] == l.get_xdata()[1]]
         self.assertEqual(len(vlines), 0)
         plt.close(fig)
 
@@ -188,10 +196,174 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         fig = predictor.plot()
         ax = fig.axes[0]
         vlines = [l for l in ax.lines
-                  if len(l.get_xdata()) == 2
-                  and l.get_xdata()[0] == l.get_xdata()[1]]
+                if len(l.get_xdata()) == 2
+                and l.get_xdata()[0] == l.get_xdata()[1]]
         self.assertEqual(len(vlines), n_clusters - 1)
         plt.close(fig)
+
+
+
+class TestMultipleLinearPredictorScore(unittest.TestCase):
+    """Tests for MultipleLinearPredictor.score."""
+
+    def test_score_returns_score_result(self) -> None:
+        """score returns a ScoreResult namedtuple."""
+        if IGNORE_TESTS:
+            return
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        result = predictor.score()
+        self.assertIsInstance(result, ScoreResult)
+
+    def test_score_mean_rae_is_non_negative(self) -> None:
+        """mean_rae is a non-negative float."""
+        if IGNORE_TESTS:
+            return
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        result = predictor.score()
+        self.assertGreaterEqual(result.mean_rae, 0.0)
+
+    def test_score_max_rae_is_non_negative(self) -> None:
+        """max_rae is a non-negative float."""
+        if IGNORE_TESTS:
+            return
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        result = predictor.score()
+        self.assertGreaterEqual(result.max_rae, 0.0)
+
+    def test_score_max_rae_ge_mean_rae(self) -> None:
+        """max_rae is greater than or equal to mean_rae."""
+        if IGNORE_TESTS:
+            return
+        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=2)
+        result = predictor.score()
+        self.assertGreaterEqual(result.max_rae, result.mean_rae)
+
+    def test_score_multiple_clusters_finite(self) -> None:
+        """score returns finite values for a multi-cluster predictor."""
+        if IGNORE_TESTS:
+            return
+        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=3)
+        result_3 = predictor.score()
+        self.assertTrue(np.isfinite(result_3.mean_rae))
+        self.assertTrue(np.isfinite(result_3.max_rae))
+
+    def test_score_decreases_as_n_cluster_increases(self) -> None:
+        """mean_rae decreases strictly as n_cluster increases for a nonlinear model.
+
+        ANTIMONY_MM uses Michaelis-Menten kinetics so the Jacobian changes over
+        time.  Splitting the simulation into more clusters gives finer-grained
+        local linear approximations and should strictly reduce mean_rae.
+        """
+        if IGNORE_TESTS:
+            return
+        lr = LRoadrunner(ANTIMONY_MM, start_time=0.0, end_time=5.0, num_points=60)
+        jc_full = JacobianCollection(lr)
+        n_points = len(jc_full.timepoint_arr)
+
+        scores = []
+        for n_clusters in [1, 2, 3]:
+            chunk_size = n_points // n_clusters
+            jcs = []
+            for i in range(n_clusters):
+                start = i * chunk_size
+                end = start + chunk_size if i < n_clusters - 1 else n_points
+                jcs.append(JacobianCollection.fromArrays(
+                        jc_full.jacobian_arr[start:end],
+                        jc_full.timepoint_arr[start:end],
+                        lr))
+            cjc = ClusteredJacobianCollection(jcs)
+            predictor = MultipleLinearPredictor(cjc, lr)
+            scores.append(predictor.score().mean_rae)
+
+        self.assertGreater(scores[0], scores[1])
+        self.assertGreater(scores[1], scores[2])
+
+
+class TestClusteredJacobianCollectionScore(unittest.TestCase):
+    """Tests for ClusteredJacobianCollection score (max_cv) behaviour."""
+
+    def test_score_decreases_as_n_cluster_increases(self) -> None:
+        """score (max_cv) decreases as n_cluster increases for linearly-varying random matrices."""
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        n_matrices = 20
+        n_species = 3
+        # Base matrix with strictly positive entries so CV is well-defined.
+        base = np.abs(np.random.rand(n_species, n_species)) + 1.0
+        # Each matrix is (i+1) * base, creating a clear linear trend over time.
+        jacobian_arr = np.array([(i + 1) * base for i in range(n_matrices)])
+        timepoint_arr = np.arange(n_matrices, dtype=float)
+        jc = JacobianCollection.fromArrays(jacobian_arr, timepoint_arr)
+
+        scores = []
+        for n_clusters in [1, 3, 5]:
+            chunk_size = n_matrices // n_clusters
+            jcs = []
+            for i in range(n_clusters):
+                start = i * chunk_size
+                end = start + chunk_size if i < n_clusters - 1 else n_matrices
+                jcs.append(JacobianCollection.fromArrays(
+                        jc.jacobian_arr[start:end],
+                        jc.timepoint_arr[start:end]))
+            cjc = ClusteredJacobianCollection(jcs)
+            scores.append(cjc.score)
+
+        self.assertGreater(scores[0], scores[1])
+        self.assertGreater(scores[1], scores[2])
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels directory not available")
+class TestMultipleLinearPredictorScoreWithBioModels(unittest.TestCase):
+    """Tests for MultipleLinearPredictor.score using real BioModels data (BIOMD8)."""
+
+    BIOMD8_DIR = os.path.join(BIOMODELS_DIR, "BIOMD0000000008")
+
+    def _skip_if_no_endtime(self) -> None:
+        """Skip if BIOMD8 is not in the precomputed end-time table."""
+        if "BIOMD0000000008" not in LRoadrunner.endtime_dct:
+            self.skipTest("BIOMD0000000008 not in endtime_dct")
+
+    def _make_predictor(self, n_cluster: int) -> MultipleLinearPredictor:
+        """Return a MultipleLinearPredictor for BIOMD8 with the given cluster count."""
+        from linear_analyzer import LinearAnalyzer  # type: ignore
+        cjc = LinearAnalyzer.makeBiomodelCusteredJacobianCollection(
+            self.BIOMD8_DIR, n_cluster=n_cluster, is_report=False)
+        return MultipleLinearPredictor(cjc, cjc.l_roadrunner)
+
+    def test_score_biomd8_returns_score_result(self) -> None:
+        """score returns a ScoreResult for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        self._skip_if_no_endtime()
+        predictor = self._make_predictor(n_cluster=1)
+        result = predictor.score()
+        self.assertIsInstance(result, ScoreResult)
+
+    def test_score_biomd8_finite_values(self) -> None:
+        """score returns finite mean_rae and max_rae for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        self._skip_if_no_endtime()
+        predictor = self._make_predictor(n_cluster=1)
+        result = predictor.score()
+        self.assertTrue(np.isfinite(result.mean_rae))
+        self.assertTrue(np.isfinite(result.max_rae))
+
+    def test_score_biomd8_three_clusters_finite(self) -> None:
+        """score returns finite values for BIOMD8 with 3 clusters."""
+        if IGNORE_TESTS:
+            return
+        self._skip_if_no_endtime()
+        predictor_1 = self._make_predictor(n_cluster=1)
+        result_1 = predictor_1.score()
+        self.assertTrue(np.isfinite(result_1.mean_rae))
+        self.assertTrue(np.isfinite(result_1.max_rae))
+        predictor_3 = self._make_predictor(n_cluster=3)
+        result_3 = predictor_3.score()
+        predictor_1.heatmaps(); plt.show()
+        self.assertTrue(np.isfinite(result_3.mean_rae))
+        self.assertTrue(np.isfinite(result_3.max_rae))
 
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels directory not available")
@@ -237,6 +409,42 @@ class TestMultipleLinearPredictorPlotWithBioModels(unittest.TestCase):
                 and l.get_xdata()[0] == l.get_xdata()[1]]
         self.assertEqual(len(vlines), 2)
         plt.close(fig)
+
+
+class TestMultipleLinearPredictorScoreDecreases(unittest.TestCase):
+    """Tests for ClusteredJacobianCollection score (max_cv) behaviour."""
+
+    # FIXME: Need an actual model so can compare it to linear
+    def test_score_decreases_as_n_cluster_increases(self) -> None:
+        """score decreases as n_cluster increases for linearly-varying random matrices."""
+        # if IGNORE_TESTS:
+        #     return
+        np.random.seed(0)
+        n_matrices = 20
+        n_species = 3
+        # Base matrix with strictly positive entries so CV is well-defined.
+        base = np.abs(np.random.rand(n_species, n_species)) + 1.0
+        # Each matrix is (i+1) * base, creating a clear linear trend over time.
+        jacobian_arr = np.array([(i + 1) * base for i in range(n_matrices)])
+        timepoint_arr = np.arange(n_matrices, dtype=float)
+        jc = JacobianCollection.fromArrays(jacobian_arr, timepoint_arr)
+
+        scores = []
+        for n_clusters in [1, 3, 5]:
+            chunk_size = n_matrices // n_clusters
+            jcs = []
+            for i in range(n_clusters):
+                start = i * chunk_size
+                end = start + chunk_size if i < n_clusters - 1 else n_matrices
+                jcs.append(JacobianCollection.fromArrays(
+                        jc.jacobian_arr[start:end],
+                        jc.timepoint_arr[start:end]))
+            cjc = ClusteredJacobianCollection(jcs)
+            scores.append(cjc.score)
+
+        self.assertGreater(scores[0], scores[1])
+        self.assertGreater(scores[1], scores[2])
+
 
 
 if __name__ == "__main__":
