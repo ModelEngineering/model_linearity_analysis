@@ -19,13 +19,17 @@ class MultipleLinearPredictor(object):
 
     Uses a ClusteredJacobianCollection to build one LinearPredictor per cluster,
     propagating the predicted state from the end of each cluster as the initial
-    condition for the next.  Forced inputs for each cluster are computed from
-    the LRoadrunner instance via: u = f(x0) - J_mean @ x0, where f(x0) is the
-    instantaneous rate of change of floating species at the current state x0.
+    condition for the next.
+
+    Construction mirrors LinearPredictor: callers supply initial_value_arr and
+    forced_input_arr directly.  Use makeFromLRoadrunner to derive these arrays
+    automatically from a simulation.
     """
 
     def __init__(self,
             clustered_jacobian_collection: ClusteredJacobianCollection,
+            initial_value_arr: np.ndarray,
+            forced_input_arr: np.ndarray,
             l_roadrunner: Optional[LRoadrunner] = None,
             ) -> None:
         """
@@ -33,27 +37,73 @@ class MultipleLinearPredictor(object):
         ----------
         clustered_jacobian_collection : ClusteredJacobianCollection
             Clustered Jacobian collections defining the sequence of linear models.
+        initial_value_arr : np.ndarray
+            1-D array of shape (n_species,) containing the initial floating
+            species concentrations at the start of the first cluster.
+        forced_input_arr : np.ndarray
+            1-D array of shape (n_species,) representing the constant forcing
+            vector u computed at the initial state: u = f(x0) - J_mean_0 @ x0.
+            The same vector is reused for all clusters.
         l_roadrunner : LRoadrunner, optional
-            LRoadrunner instance used to obtain initial concentrations and to
-            compute instantaneous rates of change for forced-input estimation.
-            If not provided, falls back to the l_roadrunner from the collection.
+            LRoadrunner instance used by score() and plot() to obtain the reference
+            simulation.  Not required for predict().
         """
         self.clustered_jacobian_collection = clustered_jacobian_collection
-        self.l_roadrunner = l_roadrunner if l_roadrunner is not None else self.clustered_jacobian_collection.l_roadrunner
+        self.initial_value_arr = initial_value_arr
+        self.forced_input_arr = forced_input_arr
+        self.l_roadrunner = l_roadrunner
         if self.l_roadrunner is not None:
             self.species_names = self.l_roadrunner.getRoadrunner().getFloatingSpeciesIds()
         else:
             self.species_names = []
 
+    @classmethod
+    def makeFromLRoadrunner(cls,
+            clustered_jacobian_collection: ClusteredJacobianCollection,
+            l_roadrunner: LRoadrunner,
+            ) -> "MultipleLinearPredictor":
+        """Construct a MultipleLinearPredictor by deriving inputs from a simulation.
+
+        Resets the model to obtain initial_value_arr, then propagates a chain of
+        LinearPredictor calls to estimate the forced input for each cluster:
+            u_i = f(x_{i}) - J_mean_i @ x_{i}
+        where x_{i} is the predicted state at the start of cluster i and f(x_{i})
+        is the instantaneous rate of change at that state.
+
+        Parameters
+        ----------
+        clustered_jacobian_collection : ClusteredJacobianCollection
+            Clustered Jacobian collections defining the sequence of linear models.
+        l_roadrunner : LRoadrunner
+            LRoadrunner instance used to obtain initial concentrations and
+            instantaneous rates of change.
+
+        Returns
+        -------
+        MultipleLinearPredictor
+        """
+        rr = l_roadrunner.getRoadrunner()
+        rr.reset()
+        initial_value_arr = np.array(rr.getFloatingSpeciesConcentrations())
+
+        f_arr = np.array(rr.getRatesOfChange())
+        first_jc = clustered_jacobian_collection.jacobian_collections[0]
+        forced_input_arr = f_arr - first_jc.jacobian_mean_arr @ initial_value_arr
+
+        return cls(
+                clustered_jacobian_collection,
+                initial_value_arr,
+                forced_input_arr,
+                l_roadrunner)
+
     def predict(self) -> np.ndarray:
         """Predict floating species concentrations at the end of each cluster.
 
-        For each JacobianCollection in the ClusteredJacobianCollection:
-        1. Compute the forced input u = f(x0) - J_mean @ x0, where f(x0) is
-            the instantaneous rate of change at the current state x0.
-        2. Build a LinearPredictor with the current state as initial condition.
-        3. Predict concentrations at the last timepoint of the cluster.
-        4. Use the predicted concentrations as the initial state for the next cluster.
+        Uses the stored initial_value_arr and forced_input_arr.  For each cluster:
+        1. Build a LinearPredictor with the current state and the pre-computed
+            forced input for that cluster.
+        2. Predict concentrations at the last timepoint of the cluster.
+        3. Use the predicted concentrations as the initial state for the next cluster.
 
         Returns
         -------
@@ -61,25 +111,11 @@ class MultipleLinearPredictor(object):
             Array of shape (n_clusters, n_species) containing the predicted
             floating species concentrations at the last timepoint of each cluster.
         """
-        rr = self.l_roadrunner.getRoadrunner()
-        rr.reset()
-        current_x = np.array(rr.getFloatingSpeciesConcentrations())
-
+        current_x = self.initial_value_arr.copy()
         predictions: List[np.ndarray] = []
         for jc in self.clustered_jacobian_collection.jacobian_collections:
-
-            # Compute forced input: u = f(x0) - J_mean @ x0
-            # Set floating species to current_x and read instantaneous rates.
-            rr.reset()
-            species_ids = rr.getFloatingSpeciesIds()
-            for idx, sp_id in enumerate(species_ids):
-                rr[sp_id] = float(current_x[idx])
-            f_arr = np.array(rr.getRatesOfChange())
-            forced_input_arr = f_arr - jc.jacobian_mean_arr @ current_x
-
-            # Predict at the end of this cluster (duration from cluster start)
             duration = float(jc.timepoint_arr[-1] - jc.timepoint_arr[0])
-            linear_predictor = LinearPredictor(jc, current_x, forced_input_arr)
+            linear_predictor = LinearPredictor(jc, current_x, self.forced_input_arr)
             predicted_arr = linear_predictor.predict(np.array([0.0, duration])).prediction_arr
             current_x = predicted_arr[-1]
             predictions.append(current_x)
@@ -101,24 +137,16 @@ class MultipleLinearPredictor(object):
             - ``mean_rae`` : float — mean of |1 - prediction / simulation|
             - ``max_rae``  : float — max  of |1 - prediction / simulation|
         """
+        if self.l_roadrunner is None:
+            raise ValueError("score() requires l_roadrunner to be set.")
         sim_arr = self.l_roadrunner.simulate(is_with_timepoints=False)
 
-        rr = self.l_roadrunner.getRoadrunner()
-        rr.reset()
-        current_x = np.array(rr.getFloatingSpeciesConcentrations())
-
+        current_x = self.initial_value_arr.copy()
         predicted_rows: List[np.ndarray] = []
         for jc in self.clustered_jacobian_collection.jacobian_collections:
-            rr.reset()
-            species_ids = rr.getFloatingSpeciesIds()
-            for idx, sp_id in enumerate(species_ids):
-                rr[sp_id] = float(current_x[idx])
-            f_arr = np.array(rr.getRatesOfChange())
-            forced_input_arr = f_arr - jc.jacobian_mean_arr @ current_x
-
             abs_times = jc.timepoint_arr
             rel_times = abs_times - abs_times[0]
-            linear_predictor = LinearPredictor(jc, current_x, forced_input_arr)
+            linear_predictor = LinearPredictor(jc, current_x, self.forced_input_arr)
             predicted_arr = linear_predictor.predict(rel_times).prediction_arr
             predicted_rows.append(predicted_arr)
             current_x = predicted_arr[-1]
@@ -176,6 +204,8 @@ class MultipleLinearPredictor(object):
             fig = ax.get_figure()
 
         # --- simulated trajectory ---
+        if self.l_roadrunner is None:
+            raise ValueError("plot() requires l_roadrunner to be set.")
         sim_arr = self.l_roadrunner.simulate(is_with_timepoints=True)
         sim_times = sim_arr[:, 0]
         sim_conc_arr = sim_arr[:, 1:]
@@ -187,9 +217,7 @@ class MultipleLinearPredictor(object):
                     label=f"{label} (simulation)")
 
         # --- piecewise linear prediction ---
-        rr = self.l_roadrunner.getRoadrunner()
-        rr.reset()
-        current_x = np.array(rr.getFloatingSpeciesConcentrations())
+        current_x = self.initial_value_arr.copy()
 
         for cluster_idx, jc in enumerate(self.clustered_jacobian_collection.jacobian_collections):
             # Draw vertical boundary line at the start of each new cluster.
@@ -197,23 +225,14 @@ class MultipleLinearPredictor(object):
                 ax.axvline(x=float(jc.timepoint_arr[0]), color="gray",
                 linestyle=":", linewidth=1.0)
 
-            # Forced input at current state.
-            rr.reset()
-            species_ids = rr.getFloatingSpeciesIds()
-            for idx, sp_id in enumerate(species_ids):
-                rr[sp_id] = float(current_x[idx])
-            f_arr = np.array(rr.getRatesOfChange())
-            forced_input_arr = f_arr - jc.jacobian_mean_arr @ current_x
-
-            # Predict at every timepoint in the cluster (relative times).
             abs_times = jc.timepoint_arr
             rel_times = abs_times - abs_times[0]
-            linear_predictor = LinearPredictor(jc, current_x, forced_input_arr)
+            linear_predictor = LinearPredictor(jc, current_x, self.forced_input_arr)
             predicted_arr = linear_predictor.predict(rel_times).prediction_arr
 
             for i in range(n_species):
                 label = (self.species_names[i] if i < len(self.species_names)
-                         else f"species_{i}")
+                        else f"species_{i}")
                 if cluster_idx == 0:
                     ax.plot(abs_times, predicted_arr[:, i], color=f"C{i}",
                             linestyle="--", label=f"{label} (prediction)")

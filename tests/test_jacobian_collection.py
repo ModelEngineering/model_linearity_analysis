@@ -408,88 +408,97 @@ class TestPlot(unittest.TestCase):
             collection.plot()
 
 
-class TestMaxEigenExpoDistance(unittest.TestCase):
-    """Tests for JacobianCollection.max_eigen_expo_distance property."""
+def _weighted_eigenvectors(jacobian_arr: np.ndarray) -> np.ndarray:
+    """Mirror of JacobianCollection._calculateWeightedEigenvectors for tests."""
+    eigvals, eigvecs = np.linalg.eig(jacobian_arr)
+    return eigvecs @ np.exp(eigvals)
+
+
+class TestDiameter(unittest.TestCase):
+    """Tests for JacobianCollection.diameter property."""
 
     def test_returns_float(self) -> None:
-        """max_eigen_expo_distance returns a float."""
+        """diameter returns a float."""
         if IGNORE_TESTS:
             return
         jc = _make_collection()
-        self.assertIsInstance(jc.max_eigen_expo_distance, float)
+        self.assertIsInstance(jc.diameter, float)
 
     def test_empty_array_returns_zero(self) -> None:
-        """max_eigen_expo_distance returns 0.0 for an empty jacobian_arr."""
+        """diameter returns 0.0 for an empty jacobian_arr."""
         if IGNORE_TESTS:
             return
         jc = _make_collection_from_arrays(np.array([]), np.array([]))
-        self.assertEqual(jc.max_eigen_expo_distance, 0.0)
+        self.assertEqual(jc.diameter, 0.0)
 
     def test_identical_jacobians_return_zero(self) -> None:
-        """When all Jacobians are identical the mean equals each one, so distance is 0."""
+        """When all Jacobians are identical the mean equals each one, so diameter is 0."""
         if IGNORE_TESTS:
             return
         jacobian_arr = np.tile(np.array([[1.0, 2.0], [3.0, 4.0]]), (5, 1, 1))
         timepoints = np.linspace(0, 4, 5)
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
-        self.assertAlmostEqual(jc.max_eigen_expo_distance, 0.0, places=10)
+        self.assertAlmostEqual(jc.diameter, 0.0, places=10)
 
     def test_single_timepoint_returns_zero(self) -> None:
-        """With one timepoint the mean equals the Jacobian, so distance is 0."""
+        """With one timepoint the mean equals the Jacobian, so diameter is 0."""
         if IGNORE_TESTS:
             return
         jacobian_arr = np.array([[[1.0, 0.0], [0.0, -2.0]]])
         timepoints = np.array([0.0])
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
-        self.assertAlmostEqual(jc.max_eigen_expo_distance, 0.0, places=10)
+        self.assertAlmostEqual(jc.diameter, 0.0, places=10)
 
     def test_known_value_diagonal(self) -> None:
-        """Hand-computed distance for two diagonal Jacobians."""
+        """Hand-computed diameter for two diagonal Jacobians.
+
+        For diagonal matrices eigenvectors = I, so
+        _calculateWeightedEigenvectors(diag([a, b])) = [exp(a), exp(b)].
+        """
         if IGNORE_TESTS:
             return
-        # Diagonal Jacobians: eigenvalues are the diagonal entries.
         j0 = np.diag([1.0, 2.0])
         j1 = np.diag([3.0, 4.0])
         jacobian_arr = np.array([j0, j1])
         timepoints = np.array([0.0, 1.0])
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
-        mean_eigvals = np.linalg.eigvals(np.diag([2.0, 3.0]))
-        dist0 = np.linalg.norm(np.exp(np.linalg.eigvals(j0)) - np.exp(mean_eigvals))
-        dist1 = np.linalg.norm(np.exp(np.linalg.eigvals(j1)) - np.exp(mean_eigvals))
-        expected = float(max(dist0, dist1))
-        self.assertAlmostEqual(jc.max_eigen_expo_distance, expected, places=10)
+        w_mean = _weighted_eigenvectors(np.diag([2.0, 3.0]))
+        dist0 = float(np.linalg.norm(_weighted_eigenvectors(j0) - w_mean))
+        dist1 = float(np.linalg.norm(_weighted_eigenvectors(j1) - w_mean))
+        expected = max(dist0, dist1)
+        self.assertAlmostEqual(jc.diameter, expected, places=10)
 
     def test_max_taken_across_timepoints(self) -> None:
-        """max_eigen_expo_distance is the maximum distance, not mean or sum."""
+        """diameter is the maximum distance, not mean or sum."""
         if IGNORE_TESTS:
             return
-        # j_mean is the average of j0 and j1; j1 is further from j_mean than j0.
+        # mean = diag([3, 3]); j1 is further from the mean than j0.
         j0 = np.diag([1.0, 1.0])
         j1 = np.diag([5.0, 5.0])
         jacobian_arr = np.array([j0, j1])
         timepoints = np.array([0.0, 1.0])
         jc = _make_collection_from_arrays(jacobian_arr, timepoints)
-        mean_eigvals = np.linalg.eigvals(jc.jacobian_mean_arr)
-        dist0 = float(np.linalg.norm(np.exp(np.linalg.eigvals(j0)) - np.exp(mean_eigvals)))
-        dist1 = float(np.linalg.norm(np.exp(np.linalg.eigvals(j1)) - np.exp(mean_eigvals)))
+        w_mean = _weighted_eigenvectors(jc.jacobian_mean_arr)
+        dist0 = float(np.linalg.norm(_weighted_eigenvectors(j0) - w_mean))
+        dist1 = float(np.linalg.norm(_weighted_eigenvectors(j1) - w_mean))
         self.assertNotEqual(dist0, dist1)
-        self.assertAlmostEqual(jc.max_eigen_expo_distance, max(dist0, dist1), places=10)
+        self.assertAlmostEqual(jc.diameter, max(dist0, dist1), places=10)
 
     def test_nonnegative(self) -> None:
-        """max_eigen_expo_distance is always non-negative."""
+        """diameter is always non-negative."""
         if IGNORE_TESTS:
             return
         jc = _make_collection()
-        self.assertGreaterEqual(jc.max_eigen_expo_distance, 0.0)
+        self.assertGreaterEqual(jc.diameter, 0.0)
 
     def test_decreases_as_outliers_eliminated(self) -> None:
-        """max_eigen_expo_distance decreases strictly as outlier Jacobians are removed.
+        """diameter decreases strictly as outlier Jacobians are removed.
 
         Three symmetric collections are built around center diag([2, 2]) so that
         the mean stays diag([2, 2]) regardless of which subset is used:
-          - full: strong outliers + mild outliers + center  → largest distance
-          - mid:  mild outliers + center                    → intermediate distance
-          - center only                                     → distance = 0
+            - full: strong outliers + mild outliers + center  → largest diameter
+            - mid:  mild outliers + center                    → intermediate diameter
+            - center only                                     → diameter = 0
         """
         if IGNORE_TESTS:
             return
@@ -508,13 +517,9 @@ class TestMaxEigenExpoDistance(unittest.TestCase):
         center_arr = np.array([j_center])
         jc_center = JacobianCollection.fromArrays(center_arr, np.array([0.0]))
 
-        d_full = jc_full.max_eigen_expo_distance
-        d_mid = jc_mid.max_eigen_expo_distance
-        d_center = jc_center.max_eigen_expo_distance
-
-        self.assertGreater(d_full, d_mid)
-        self.assertGreater(d_mid, d_center)
-        self.assertAlmostEqual(d_center, 0.0, places=10)
+        self.assertGreater(jc_full.diameter, jc_mid.diameter)
+        self.assertGreater(jc_mid.diameter, jc_center.diameter)
+        self.assertAlmostEqual(jc_center.diameter, 0.0, places=10)
 
 
 class TestPartitionJacobians(unittest.TestCase):

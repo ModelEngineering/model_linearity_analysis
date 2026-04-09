@@ -39,7 +39,7 @@ class JacobianCollection(object):
         self.l_roadrunner = l_roadrunner
         self._jacobian_mean_arr = np.array([])
         self._jacobian_std_arr = np.array([])
-        self._max_expo_eigen_distance = np.nan
+        self._diameter = np.nan
     
     def _sortArrays(self) -> None:
         """Sort the jacobian_arr and timepoint_arr by timepoint."""
@@ -79,25 +79,41 @@ class JacobianCollection(object):
             cv_arr[~np.isfinite(cv_arr)] = 0.0
         return np.max(cv_arr)
     
+    @staticmethod
+    def _calculateWeightedEigenvectors(jacobian_arr: np.ndarray) -> np.ndarray:
+        """
+        Calculate the eigenvectors of each Jacobian weighted by their eigenvalues.
+        This is essentially the solution to an initial value problems
+        at time t=1 with initial conditions that yield constants c_i=1 for each eigenvector.
+        The result is a vector that captures the dominant modes of variation in the
+        Jacobian, weighted by their growth rates (eigenvalues).
+        """
+        eigvals, eigvecs = np.linalg.eig(jacobian_arr)
+        result_arr = eigvecs @ np.exp(eigvals)
+        return result_arr
+
     @property
-    def max_eigen_expo_distance(self) -> float:
+    def diameter(self) -> float:
         """
-        Compute the maximum distance of the eigenvalues of each Jacobian 
-        from the eigenvalues of the mean Jacobian, where distance is defined as the L2 norm of the difference 
-        of their exponentials.
+        Compute the maximum distance between the centroid Jacobian
+        (the element-wise mean) and any individual Jacobian in the collection.   
+        The distance is the L2 norm.
         """
-        if not np.isnan(self._max_expo_eigen_distance):
-            return cast(float, self._max_expo_eigen_distance)
+        if not np.isnan(self._diameter):
+            return cast(float, self._diameter)
         if self.jacobian_arr.size == 0:
             return 0.0
-        mean_eigvals = np.linalg.eigvals(self.jacobian_mean_arr)
-        max_distance = 0.0
+        weighted_arrs: list[np.ndarray] = []
         for jacobian_arr in self.jacobian_arr:
-            eigvals = np.linalg.eigvals(jacobian_arr)
-            distance = np.linalg.norm(np.exp(eigvals) - np.exp(mean_eigvals))
+            weighted_arr = self._calculateWeightedEigenvectors(jacobian_arr)
+            weighted_arrs.append(weighted_arr)
+        mean_weighted_arr = np.mean(weighted_arrs, axis=0)
+        max_distance = 0.0
+        for weighted_arr in weighted_arrs:
+            distance = np.linalg.norm(weighted_arr - mean_weighted_arr)
             max_distance = max(max_distance, distance)
-        self._max_expo_eigen_distance = max_distance
-        return cast(float, self._max_expo_eigen_distance)
+        self._diameter = max_distance
+        return cast(float, self._diameter)
 
     @property
     def jacobian_std_arr(self) -> np.ndarray:
@@ -266,7 +282,7 @@ class JacobianCollection(object):
                 if cost_criteria == CRITERIA_MAX_CV:
                     cost[i][j] = jc.max_cv
                 elif cost_criteria == CRITERIA_EXPO_EIGEN:
-                    cost[i][j] = jc.max_eigen_expo_distance
+                    cost[i][j] = jc.diameter
         INF = float("inf")
         dp = [[INF] * (n_point + 1) for _ in range(n_cluster + 1)]
         split = [[0] * (n_point + 1) for _ in range(n_cluster + 1)]
