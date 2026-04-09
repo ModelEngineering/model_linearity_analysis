@@ -517,6 +517,126 @@ class TestMaxEigenExpoDistance(unittest.TestCase):
         self.assertAlmostEqual(d_center, 0.0, places=10)
 
 
+class TestPartitionJacobians(unittest.TestCase):
+    """Tests for JacobianCollection.partitionJacobians."""
+
+    def setUp(self) -> None:
+        self.n_points = 20
+        self.n_species = 3
+        rng = np.random.default_rng(0)
+        jacobian_arr = rng.standard_normal((self.n_points, self.n_species, self.n_species))
+        timepoint_arr = np.linspace(0.0, 10.0, self.n_points)
+        self.jc = JacobianCollection.fromArrays(jacobian_arr, timepoint_arr)
+
+    def test_returns_list(self) -> None:
+        """partitionJacobians returns a list."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobians(n_cluster=2)
+        self.assertIsInstance(result, list)
+
+    def test_cluster_count_equals_n_cluster(self) -> None:
+        """Result has exactly n_cluster elements."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobians(n_cluster=3)
+        self.assertEqual(len(result), 3)
+
+    def test_each_element_is_jacobian_collection(self) -> None:
+        """Each element in the result is a JacobianCollection."""
+        if IGNORE_TESTS:
+            return
+        for jc in self.jc.partitionJacobians(n_cluster=2):
+            self.assertIsInstance(jc, JacobianCollection)
+
+    def test_total_jacobians_preserved(self) -> None:
+        """Total Jacobian count across all clusters equals n_points."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobians(n_cluster=4)
+        total = sum(jc.jacobian_arr.shape[0] for jc in result)
+        self.assertEqual(total, self.n_points)
+
+    def test_raises_when_n_cluster_exceeds_n_points(self) -> None:
+        """ValueError is raised when n_cluster exceeds the number of timepoints."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            self.jc.partitionJacobians(n_cluster=self.n_points + 1)
+
+    def test_n_cluster_one_returns_all_jacobians(self) -> None:
+        """With n_cluster=1, the single cluster contains all timepoints."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobians(n_cluster=1)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].jacobian_arr.shape[0], self.n_points)
+
+
+class TestPartitionJacobiansSequentially(unittest.TestCase):
+    """Tests for JacobianCollection.partitionJacobiansSequentially."""
+
+    def setUp(self) -> None:
+        self.n_points = 20
+        self.n_species = 3
+        rng = np.random.default_rng(0)
+        jacobian_arr = rng.standard_normal((self.n_points, self.n_species, self.n_species))
+        timepoint_arr = np.linspace(0.0, 10.0, self.n_points)
+        self.jc = JacobianCollection.fromArrays(jacobian_arr, timepoint_arr)
+
+    def test_returns_list(self) -> None:
+        """partitionJacobiansSequentially returns a list."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobiansSequentially(n_cluster=2)
+        self.assertIsInstance(result, list)
+
+    def test_cluster_count_equals_n_cluster(self) -> None:
+        """Result has exactly n_cluster elements."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobiansSequentially(n_cluster=3)
+        self.assertEqual(len(result), 3)
+
+    def test_each_element_is_jacobian_collection(self) -> None:
+        """Each element in the result is a JacobianCollection."""
+        if IGNORE_TESTS:
+            return
+        for jc in self.jc.partitionJacobiansSequentially(n_cluster=2):
+            self.assertIsInstance(jc, JacobianCollection)
+
+    def test_total_jacobians_preserved(self) -> None:
+        """Total Jacobian count across all clusters equals n_points."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobiansSequentially(n_cluster=4)
+        total = sum(jc.jacobian_arr.shape[0] for jc in result)
+        self.assertEqual(total, self.n_points)
+
+    def test_clusters_are_contiguous_in_time(self) -> None:
+        """Concatenating cluster jacobian_arrs in order reconstructs the original array."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobiansSequentially(n_cluster=3)
+        reconstructed = np.concatenate([jc.jacobian_arr for jc in result], axis=0)
+        np.testing.assert_array_equal(reconstructed, self.jc.jacobian_arr)
+
+    def test_raises_when_n_cluster_exceeds_n_points(self) -> None:
+        """ValueError is raised when n_cluster exceeds the number of timepoints."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            self.jc.partitionJacobiansSequentially(n_cluster=self.n_points + 1)
+
+    def test_n_cluster_one_returns_all_jacobians(self) -> None:
+        """With n_cluster=1, the single cluster contains all timepoints."""
+        if IGNORE_TESTS:
+            return
+        result = self.jc.partitionJacobiansSequentially(n_cluster=1)
+        self.assertEqual(len(result), 1)
+        np.testing.assert_array_equal(result[0].jacobian_arr, self.jc.jacobian_arr)
+
+
 class TestBiomodel206(unittest.TestCase):
     """Integration tests for JacobianCollection with BioModel BIOMD0000000206.
 

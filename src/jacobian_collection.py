@@ -8,7 +8,8 @@ import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import seaborn as sns  # type: ignore
-from typing import Optional, Tuple, cast
+from sklearn.cluster import KMeans  # type: ignore
+from typing import List, Optional, Tuple, cast
 
 
 
@@ -181,6 +182,116 @@ class JacobianCollection(object):
         fig.tight_layout()
         plt.show()
         return PlotInfo(top_ax=ax1, bottom_ax=ax2, fig=fig)
+
+    def partitionJacobians(self, n_cluster: int, max_iter: int = 300) -> List["JacobianCollection"]:
+        """Partition the Jacobians into n_cluster clusters using KMeans.
+
+        Clusters need not consist of contiguous timepoints. Each Jacobian
+        matrix is flattened to a feature vector and clustered with KMeans
+        (k-means++ init).
+
+        Parameters
+        ----------
+        n_cluster : int
+            Number of clusters to partition the Jacobians into.
+        max_iter : int
+            Maximum number of k-means iterations (default: 300).
+
+        Returns
+        -------
+        List[JacobianCollection]
+            One JacobianCollection per cluster.
+
+        Raises
+        ------
+        ValueError
+            If n_cluster exceeds the number of timepoints.
+        """
+        n_points = self.jacobian_arr.shape[0]
+        if n_cluster > n_points:
+            raise ValueError(
+                f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_points})."
+            )
+        flat_arr = self.jacobian_arr.reshape(n_points, -1).astype(float)
+        kmeans = KMeans(
+            n_clusters=n_cluster, init="k-means++", max_iter=max_iter,
+            n_init=1, random_state=0,
+        )
+        labels_arr = kmeans.fit_predict(flat_arr)
+        cluster_indices = [np.where(labels_arr == c)[0] for c in range(n_cluster)]
+        return [
+            JacobianCollection.fromArrays(
+                self.jacobian_arr[idx], self.timepoint_arr[idx], self.l_roadrunner)
+            for idx in cluster_indices
+        ]
+
+    def partitionJacobiansSequentially(self, n_cluster: int,
+            cost_criteria: str = "expo_eigen") -> List["JacobianCollection"]:
+        """Partition the Jacobians into n_cluster contiguous time segments.
+
+        Dynamic programming finds the partition into exactly n_cluster
+        contiguous segments that minimises the maximum within-segment cost.
+
+        Parameters
+        ----------
+        n_cluster : int
+            Number of contiguous segments.
+        cost_criteria : str
+            Cost metric per segment: ``"expo_eigen"`` (default) or ``"max_cv"``.
+
+        Returns
+        -------
+        List[JacobianCollection]
+            One JacobianCollection per segment, in time order.
+
+        Raises
+        ------
+        ValueError
+            If n_cluster exceeds the number of timepoints.
+        """
+        CRITERIA_MAX_CV = "max_cv"
+        CRITERIA_EXPO_EIGEN = "expo_eigen"
+        n_point = self.jacobian_arr.shape[0]
+        if n_cluster > n_point:
+            raise ValueError(
+                f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_point})."
+            )
+        cost = np.zeros((n_point, n_point))
+        for i in range(n_point):
+            for j in range(i, n_point):
+                jc = JacobianCollection.fromArrays(
+                        self.jacobian_arr[i:j + 1],
+                        self.timepoint_arr[i:j + 1],
+                        self.l_roadrunner)
+                if cost_criteria == CRITERIA_MAX_CV:
+                    cost[i][j] = jc.max_cv
+                elif cost_criteria == CRITERIA_EXPO_EIGEN:
+                    cost[i][j] = jc.max_eigen_expo_distance
+        INF = float("inf")
+        dp = [[INF] * (n_point + 1) for _ in range(n_cluster + 1)]
+        split = [[0] * (n_point + 1) for _ in range(n_cluster + 1)]
+        dp[0][0] = 0.0
+        for k in range(1, n_cluster + 1):
+            for i in range(k, n_point + 1):
+                for j in range(k - 1, i):
+                    val = max(dp[k - 1][j], cost[j][i - 1])
+                    if val < dp[k][i]:
+                        dp[k][i] = val
+                        split[k][i] = j
+        boundaries = []
+        i = n_point
+        for k in range(n_cluster, 0, -1):
+            j = split[k][i]
+            boundaries.append((j, i))
+            i = j
+        boundaries.reverse()
+        return [
+            JacobianCollection.fromArrays(
+                self.jacobian_arr[start:end],
+                self.timepoint_arr[start:end],
+                self.l_roadrunner)
+            for start, end in boundaries
+        ]
 
     def heatmap(self, ax: Optional[maxes.Axes] = None) -> mfigure.Figure:
         """Construct a heatmap of the Jacobian where cells are colored by their

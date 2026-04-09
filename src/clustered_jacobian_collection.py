@@ -11,7 +11,7 @@ import matplotlib.gridspec as mgridspec  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import seaborn as sns  # type: ignore
-from typing import List, Optional
+from typing import List
 
 # TODO: Implement a plot that shows the timecourse of the simulation in combination
 #   with the clustered Jacobian information
@@ -19,22 +19,18 @@ from typing import List, Optional
 class ClusteredJacobianCollection(object):
     """A collection of Jacobian matrices that have been clustered into contiguous time spans."""
 
-    def __init__(self, jacobian_collections: List[JacobianCollection],
-            end_time: Optional[float]=np.nan) -> None:
+    def __init__(self, jacobian_collections: List[JacobianCollection]) -> None:
         """
         Parameters
         ----------
         jacobian_collections : list[JacobianCollection]
             List of Jacobian collections for each cluster.
-        end_time : float, optional
-            The end time of the simulation, used for normalization. If None, no normalization is applied
         """
         self.jacobian_collections = jacobian_collections
         if len(jacobian_collections) > 0:
             self.l_roadrunner = jacobian_collections[0].l_roadrunner
         else:
             self.l_roadrunner = NULL_L_ROADRUNNER
-        self.end_time = end_time
 
     @property
     def max_cv(self) -> float:

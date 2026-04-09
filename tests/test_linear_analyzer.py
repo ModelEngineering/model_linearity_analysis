@@ -95,225 +95,6 @@ class TestLinearAnalyzerInit(unittest.TestCase):
         self.assertEqual(analyzer._jacobian_collection.jacobian_arr.ndim, 3)
 
 
-class TestPartitionJacobians(unittest.TestCase):
-    """Tests for LinearAnalyzer.partitionJacobians."""
-
-    def setUp(self) -> None:
-        self.n_points = 20
-        self.analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=self.n_points)
-
-    def test_returns_clustered_jacobian_collection(self) -> None:
-        """partitionJacobians returns a ClusteredJacobianCollection."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=2)
-        self.assertIsInstance(result, ClusteredJacobianCollection)
-        self.assertTrue(hasattr(result, "jacobian_collections"))
-        self.assertTrue(hasattr(result, "max_cv"))
-
-    def test_cluster_count_equals_n_cluster(self) -> None:
-        """The jacobian_collections list has exactly n_cluster elements."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=3)
-        self.assertEqual(len(result.jacobian_collections), 3)
-
-    def test_each_cluster_is_jacobian_collection(self) -> None:
-        """Each element in jacobian_collections is a JacobianCollection."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=2)
-        for jc in result.jacobian_collections:
-            self.assertIsInstance(jc, JC)
-
-    def test_cluster_ndim(self) -> None:
-        """Each cluster's jacobian_arr has 3 dimensions (n_i, n_species, n_species)."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=2)
-        for jc in result.jacobian_collections:
-            self.assertEqual(jc.jacobian_arr.ndim, 3)
-
-    def test_cluster_species_dims(self) -> None:
-        """The last two dimensions of each cluster match n_species (2 for ANTIMONY_MODEL)."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=2)
-        for jc in result.jacobian_collections:
-            self.assertEqual(jc.jacobian_arr.shape[1], 2)
-            self.assertEqual(jc.jacobian_arr.shape[2], 2)
-
-    def test_total_jacobians_preserved(self) -> None:
-        """Total Jacobian count across all clusters equals n_points."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=4)
-        total = sum(jc.jacobian_arr.shape[0] for jc in result.jacobian_collections)
-        self.assertEqual(total, self.n_points)
-
-    def test_max_cv_is_float(self) -> None:
-        """max_cv in ClusterResult is a float."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=2)
-        self.assertIsInstance(result.max_cv, float)
-
-    def test_max_cv_is_non_negative(self) -> None:
-        """max_cv is non-negative."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=2)
-        self.assertGreaterEqual(result.max_cv, 0.0)
-
-    def test_raises_when_n_cluster_exceeds_n_points(self) -> None:
-        """ValueError is raised when n_cluster exceeds the number of timepoints."""
-        if IGNORE_TESTS:
-            return
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=5)
-        with self.assertRaises(ValueError):
-            analyzer.partitionJacobians(n_cluster=10)
-
-    def test_n_cluster_one(self) -> None:
-        """With n_cluster=1, returns a single cluster containing all timepoints."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=1)
-        self.assertEqual(len(result.jacobian_collections), 1)
-        self.assertEqual(result.jacobian_collections[0].jacobian_arr.shape[0], self.n_points)
-
-    def test_n_cluster_equals_n_points(self) -> None:
-        """With n_cluster == n_points, each cluster has at least one timepoint."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobians(n_cluster=self.n_points)
-        self.assertEqual(len(result.jacobian_collections), self.n_points)
-        total = sum(jc.jacobian_arr.shape[0] for jc in result.jacobian_collections)
-        self.assertEqual(total, self.n_points)
-
-
-class TestPartitionJacobiansSequentially(unittest.TestCase):
-    """Tests for LinearAnalyzer.partitionJacobiansSequentially."""
-
-    def setUp(self) -> None:
-        self.n_points = 20
-        self.analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=self.n_points)
-
-    def test_returns_clustered_jacobian_collection(self) -> None:
-        """partitionJacobiansSequentially returns a ClusteredJacobianCollection."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        self.assertIsInstance(result, ClusteredJacobianCollection)
-
-    def test_cluster_count_equals_n_cluster(self) -> None:
-        """The jacobian_collections list has exactly n_cluster elements."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
-        self.assertEqual(len(result.jacobian_collections), 3)
-
-    def test_each_cluster_is_jacobian_collection(self) -> None:
-        """Each element in jacobian_collections is a JacobianCollection."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        for jc in result.jacobian_collections:
-            self.assertIsInstance(jc, JC)
-
-    def test_cluster_ndim(self) -> None:
-        """Each cluster's jacobian_arr has 3 dimensions."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        for jc in result.jacobian_collections:
-            self.assertEqual(jc.jacobian_arr.ndim, 3)
-
-    def test_cluster_species_dims(self) -> None:
-        """The last two dimensions of each cluster's jacobian_arr match n_species."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        for jc in result.jacobian_collections:
-            self.assertEqual(jc.jacobian_arr.shape[1], 2)
-            self.assertEqual(jc.jacobian_arr.shape[2], 2)
-
-    def test_total_jacobians_preserved(self) -> None:
-        """Total Jacobian count across all clusters equals n_points."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=4)
-        total = sum(jc.jacobian_arr.shape[0] for jc in result.jacobian_collections)
-        self.assertEqual(total, self.n_points)
-
-    def test_max_cv_is_non_negative(self) -> None:
-        """max_cv is non-negative."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=2)
-        self.assertGreaterEqual(result.max_cv, 0.0)
-
-    def test_raises_when_n_cluster_exceeds_n_points(self) -> None:
-        """ValueError is raised when n_cluster exceeds the number of timepoints."""
-        if IGNORE_TESTS:
-            return
-        analyzer = LinearAnalyzer(ANTIMONY_MODEL, num_point=5)
-        with self.assertRaises(ValueError):
-            analyzer.partitionJacobiansSequentially(n_cluster=10)
-
-    def test_clusters_are_contiguous_in_time(self) -> None:
-        """Concatenating cluster jacobian_arrs in order reconstructs the original array."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
-        reconstructed = np.concatenate(
-            [jc.jacobian_arr for jc in result.jacobian_collections], axis=0
-        )
-        np.testing.assert_array_equal(
-            reconstructed, self.analyzer._jacobian_collection.jacobian_arr
-        )
-
-    def test_n_cluster_one_returns_all_jacobians(self) -> None:
-        """With n_cluster=1, the single cluster contains all timepoints."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=1)
-        self.assertEqual(len(result.jacobian_collections), 1)
-        np.testing.assert_array_equal(
-            result.jacobian_collections[0].jacobian_arr,
-            self.analyzer._jacobian_collection.jacobian_arr,
-        )
-
-    def test_n_cluster_equals_n_points(self) -> None:
-        """With n_cluster == n_points, every cluster has exactly one timepoint."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=self.n_points)
-        self.assertEqual(len(result.jacobian_collections), self.n_points)
-        for jc in result.jacobian_collections:
-            self.assertEqual(jc.jacobian_arr.shape[0], 1)
-
-    def test_max_cv_le_unpartitioned(self) -> None:
-        """Sequential partitioning into multiple clusters yields max_cv <= single-segment CV."""
-        if IGNORE_TESTS:
-            return
-        single = self.analyzer.partitionJacobiansSequentially(n_cluster=1)
-        multi = self.analyzer.partitionJacobiansSequentially(n_cluster=4)
-        self.assertLessEqual(multi.max_cv, single.max_cv + 1e-9)
-
-    def test_no_timepoints_skipped_or_repeated(self) -> None:
-        """Each timepoint appears in exactly one cluster."""
-        if IGNORE_TESTS:
-            return
-        result = self.analyzer.partitionJacobiansSequentially(n_cluster=3)
-        total = sum(jc.jacobian_arr.shape[0] for jc in result.jacobian_collections)
-        self.assertEqual(total, self.n_points)
-        reconstructed = np.concatenate(
-            [jc.jacobian_arr for jc in result.jacobian_collections], axis=0
-        )
-        self.assertEqual(reconstructed.shape[0], self.n_points)
-
-
-
 FIRST_FIVE_MODEL_IDS = [
     "BIOMD0000000026",
     "BIOMD0000000027",
@@ -603,9 +384,9 @@ class TestWithBioModels(unittest.TestCase):
         if IGNORE_TESTS:
             return
         analyzer = LinearAnalyzer(_load_sbml(BIOMD300_SBML), num_point=20)
-        result = analyzer.partitionJacobians(n_cluster=3)
-        self.assertEqual(len(result.jacobian_collections), 3)
-        total = sum(jc.jacobian_arr.shape[0] for jc in result.jacobian_collections)
+        result = analyzer._jacobian_collection.partitionJacobians(n_cluster=3)
+        self.assertEqual(len(result), 3)
+        total = sum(jc.jacobian_arr.shape[0] for jc in result)
         self.assertEqual(total, 20)
 
     def test_sequential_partition_biomd3(self) -> None:
@@ -613,9 +394,9 @@ class TestWithBioModels(unittest.TestCase):
         if IGNORE_TESTS:
             return
         analyzer = LinearAnalyzer(_load_sbml(BIOMD300_SBML), num_point=20)
-        result = analyzer.partitionJacobiansSequentially(n_cluster=3)
+        result = analyzer._jacobian_collection.partitionJacobiansSequentially(n_cluster=3)
         reconstructed = np.concatenate(
-            [jc.jacobian_arr for jc in result.jacobian_collections], axis=0
+            [jc.jacobian_arr for jc in result], axis=0
         )
         np.testing.assert_array_equal(
             reconstructed, analyzer._jacobian_collection.jacobian_arr
@@ -658,18 +439,18 @@ class TestWithBioModels(unittest.TestCase):
         if IGNORE_TESTS:
             return
         analyzer = LinearAnalyzer(_load_sbml(BIOMD241_SBML), num_point=20)
-        result = analyzer.partitionJacobians(n_cluster=3)
-        self.assertEqual(len(result.jacobian_collections), 3)
-        self.assertEqual(sum(jc.jacobian_arr.shape[0] for jc in result.jacobian_collections), 20)
+        result = analyzer._jacobian_collection.partitionJacobians(n_cluster=3)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(sum(jc.jacobian_arr.shape[0] for jc in result), 20)
 
     def test_sequential_partition_biomd241(self) -> None:
         """partitionJacobiansSequentially produces contiguous segments on BIOMD241."""
         if IGNORE_TESTS:
             return
         analyzer = LinearAnalyzer(_load_sbml(BIOMD241_SBML), num_point=20)
-        result = analyzer.partitionJacobiansSequentially(n_cluster=3)
+        result = analyzer._jacobian_collection.partitionJacobiansSequentially(n_cluster=3)
         reconstructed = np.concatenate(
-            [jc.jacobian_arr for jc in result.jacobian_collections], axis=0
+            [jc.jacobian_arr for jc in result], axis=0
         )
         np.testing.assert_array_equal(
             reconstructed, analyzer._jacobian_collection.jacobian_arr
