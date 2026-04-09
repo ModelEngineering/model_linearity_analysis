@@ -147,14 +147,14 @@ class JacobianCollection(object):
             An optional matplotlib Figure object to use. If None, a new figure will be created.
         """
 
-        if hasattr(self, 'l_roadrunner'):
+        if hasattr(self.l_roadrunner, "getRoadrunner"):
             roadrunner = self.l_roadrunner.getRoadrunner()
             species_ids = roadrunner.getFloatingSpeciesIds()
             data_arr = self.l_roadrunner.simulate(is_with_timepoints=True)
             species_data = data_arr[:, 1:]  # Exclude time column
             species_times = data_arr[:, 0]  # Extract time column
         else:
-            raise ValueError("Cannot plot species timecourse without an LRoadrunner instance.") 
+            raise ValueError("Cannot plot species timecourse has a NULL LRoadrunner instance.") 
         jacobian_times = self.getTimes()
         deviation_arr = self._calculateDeviation()
 

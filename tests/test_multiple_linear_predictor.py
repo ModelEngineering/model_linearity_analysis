@@ -14,7 +14,7 @@ from clustered_jacobian_collection import ClusteredJacobianCollection  # type: i
 from l_roadrunner import LRoadrunner  # type: ignore
 from multiple_linear_predictor import MultipleLinearPredictor, ScoreResult  # type: ignore
 
-IGNORE_TESTS = True
+IGNORE_TESTS = False
 
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
@@ -417,8 +417,8 @@ class TestMultipleLinearPredictorScoreDecreases(unittest.TestCase):
     # FIXME: Need an actual model so can compare it to linear
     def test_score_decreases_as_n_cluster_increases(self) -> None:
         """score decreases as n_cluster increases for linearly-varying random matrices."""
-        # if IGNORE_TESTS:
-        #     return
+        if IGNORE_TESTS:
+            return
         np.random.seed(0)
         n_matrices = 20
         n_species = 3
