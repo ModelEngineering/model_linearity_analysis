@@ -12,20 +12,23 @@ from sklearn.cluster import KMeans  # type: ignore
 from typing import List, Optional, Tuple, cast
 
 
-
 PlotInfo = collections.namedtuple("PlotInfo",
         ["top_ax", "bottom_ax", "fig"])
 
 class JacobianCollection(object):
     """A collection of Jacobian matrices over one or more simulation timepoints."""
 
-    def __init__(self, l_roadrunner: LRoadrunner=NULL_L_ROADRUNNER) -> None:
+    def __init__(self, l_roadrunner: LRoadrunner=NULL_L_ROADRUNNER,
+            diameter_metric: str = cn.DIAMETER_WEIGHTED_EIGENVECTORS) -> None:
         """
         Parameters
         ----------
         l_roadrunner : LRoadrunner
             An LRoadrunner instance used to simulate the model and collect Jacobians.
             Jacobians and timepoints are obtained by calling makeJacobians() on this object.
+        diameter_metric : str
+            The metric to use for calculating the diameter of the Jacobian collection.
+            Options are "weighted_eigenvectors" (default) or "max_cv".
         """
         self._initialize(l_roadrunner)
         try:
@@ -33,13 +36,15 @@ class JacobianCollection(object):
             self._sortArrays()
         except Exception as e:
             raise ValueError(f"Failed to create JacobianCollection for {l_roadrunner.specification[0:200]}") from e
-        
+        self._diameter_metric = diameter_metric
+
     def _initialize(self, l_roadrunner: LRoadrunner) -> None:
         """Initialize the JacobianCollection with a new LRoadrunner instance."""
         self.l_roadrunner = l_roadrunner
         self._jacobian_mean_arr = np.array([])
         self._jacobian_std_arr = np.array([])
         self._diameter = np.nan
+        self._diameter_metric = cn.DIAMETER_WEIGHTED_EIGENVECTORS
     
     def _sortArrays(self) -> None:
         """Sort the jacobian_arr and timepoint_arr by timepoint."""
@@ -94,8 +99,15 @@ class JacobianCollection(object):
 
     @property
     def diameter(self) -> float:
+        if self._diameter_metric == cn.DIAMETER_MAX_CV:
+            return self.max_cv
+        return self.weighted_eigenvector_diameter
+
+    @property
+    def weighted_eigenvector_diameter(self) -> float:
         """
-        Compute the maximum distance between the centroid Jacobian
+        Compute the maximum distance between the centroid weighted eigenvector
+        (the element-wise mean of the weighted eigenvectors) and any individual weighted eigenvector in the collection.
         (the element-wise mean) and any individual Jacobian in the collection.   
         The distance is the L2 norm.
         """
@@ -199,7 +211,7 @@ class JacobianCollection(object):
         plt.show()
         return PlotInfo(top_ax=ax1, bottom_ax=ax2, fig=fig)
 
-    def partitionJacobians(self, n_cluster: int, max_iter: int = 300) -> List["JacobianCollection"]:
+    def nonsequentialPartition(self, n_cluster: int, max_iter: int = 300) -> List["JacobianCollection"]:
         """Partition the Jacobians into n_cluster clusters using KMeans.
 
         Clusters need not consist of contiguous timepoints. Each Jacobian
@@ -241,7 +253,7 @@ class JacobianCollection(object):
             for idx in cluster_indices
         ]
 
-    def partitionJacobiansSequentially(self, n_cluster: int,
+    def sequentialPartition(self, n_cluster: int,
             cost_criteria: str = "expo_eigen") -> List["JacobianCollection"]:
         """Partition the Jacobians into n_cluster contiguous time segments.
 

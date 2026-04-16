@@ -69,3 +69,4 @@ Per `docs/specification.md`:
 - All methods internal to a class begin with underscore "_".
 - Unless otherwise stated, when requested to implement a method or function, also implement tests for the method or function, and run the tests to ensure that they pass. If they don't pass, make appropriate changes until tests do pass.
 - Continuation lines should be indented by two tabs.
+- After all imports, use " # type: ignore" to avoid typing errors

@@ -19,6 +19,10 @@ START_TIME = 0.0
 END_TIME = 10.0
 NUM_POINTS = 10*int(END_TIME - START_TIME) + 1
 
+# Diameter metrics
+DIAMETER_WEIGHTED_EIGENVECTORS = "weighted_eigenvectors"
+DIAMETER_MAX_CV = "max_cv"
+
 # Columns
 COL_MAXCV = "max_cv"
 COL_ENDTIME = "end_time"

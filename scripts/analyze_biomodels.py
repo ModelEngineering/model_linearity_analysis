@@ -19,6 +19,7 @@ Arguments:
     --sequential  Use contiguous (sequential) partitioning instead of k-means.
 """
 import src.constants as cn  # noqa: E402
+from src.biomodels_cluster import BiomodelsCluster  # type: ignore
 
 import argparse
 import os
@@ -102,12 +103,13 @@ def main() -> None:
     print(f"***Using sequential partitioning: {args.sequential}")
     print("**********************************************************\n")
 
-    result_dct = LinearAnalyzer.partitionBiomodelsJacobians(
+    result_dct = BiomodelsCluster.clusterAnalysis(
         directory=args.directory,
         output_data_file=output_path,
         excluded_models=EXCLUDED_MODELS,
         n_cluster=args.n_cluster,
         is_sequential_partition=args.sequential,
+        is_report=True,
     )
 
     n_success = len(result_dct)

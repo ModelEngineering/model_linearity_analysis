@@ -8,11 +8,12 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from jacobian_collection import JacobianCollection  # type: ignore
-from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
-from l_roadrunner import LRoadrunner  # type: ignore
-from multiple_linear_predictor import MultipleLinearPredictor, ScoreResult  # type: ignore
+import src.constants as cn  # type: ignore
+from src.jacobian_collection import JacobianCollection  # type: ignore
+from src.clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
+from src.l_roadrunner import LRoadrunner  # type: ignore
+from src.multiple_linear_predictor import MultipleLinearPredictor, ScoreResult  # type: ignore
+from src.biomodels_cluster import BiomodelsCluster  # type: ignore
 
 IGNORE_TESTS = False
 
@@ -201,9 +202,10 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
         fig = predictor.plot()
         ax = fig.axes[0]
-        vlines = [l for l in ax.lines
-                if len(l.get_xdata()) == 2
-                and l.get_xdata()[0] == l.get_xdata()[1]]
+        def _is_vline(l) -> bool:  # type: ignore[no-untyped-def]
+            xd: np.ndarray = np.asarray(l.get_xdata())
+            return len(xd) >= 2 and bool(np.isclose(xd[0], xd[-1]))
+        vlines = [l for l in ax.lines if _is_vline(l)]
         self.assertEqual(len(vlines), 0)
         plt.close(fig)
 
@@ -215,9 +217,10 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=n_clusters)
         fig = predictor.plot()
         ax = fig.axes[0]
-        vlines = [l for l in ax.lines
-                if len(l.get_xdata()) == 2
-                and l.get_xdata()[0] == l.get_xdata()[1]]
+        def _is_vline(l) -> bool:  # type: ignore[no-untyped-def]
+            xd: np.ndarray = np.asarray(l.get_xdata())
+            return len(xd) >= 2 and bool(np.isclose(xd[0], xd[-1]))
+        vlines = [l for l in ax.lines if _is_vline(l)]
         self.assertEqual(len(vlines), n_clusters - 1)
         plt.close(fig)
 
@@ -337,10 +340,14 @@ class TestMultipleLinearPredictorScoreWithBioModels(unittest.TestCase):
 
     def _make_predictor(self, n_cluster: int) -> MultipleLinearPredictor:
         """Return a MultipleLinearPredictor for BIOMD8 with the given cluster count."""
-        from linear_analyzer import LinearAnalyzer  # type: ignore
-        cjc = LinearAnalyzer.makeBiomodelCusteredJacobianCollection(
-            self.BIOMD8_DIR, n_cluster=n_cluster, is_report=False)
-        return MultipleLinearPredictor.makeFromLRoadrunner(cjc, cjc.l_roadrunner)
+        b_cluster = BiomodelsCluster(
+                model_name="BIOMD0000000008",
+                start_time=0.0,
+                end_time=np.nan,
+                num_point=100,
+                diameter_metric="weighted_eigenvectors")
+        cjc = b_cluster.cluster(n_cluster=n_cluster, is_sequential_partition=True)
+        return MultipleLinearPredictor.makeFromLRoadrunner(cjc, b_cluster.l_roadrunner)
 
     def test_score_biomd8_returns_score_result(self) -> None:
         """score returns a ScoreResult for BIOMD8."""
@@ -389,11 +396,15 @@ class TestMultipleLinearPredictorPlotWithBioModels(unittest.TestCase):
 
     def _make_predictor(self, n_cluster: int) -> MultipleLinearPredictor:
         """Return a MultipleLinearPredictor for BIOMD8 with the given cluster count."""
-        from linear_analyzer import LinearAnalyzer  # type: ignore
-        cjc = LinearAnalyzer.makeBiomodelCusteredJacobianCollection(
-            self.BIOMD8_DIR, n_cluster=n_cluster, is_report=False,
-            end_time=20)
-        return MultipleLinearPredictor.makeFromLRoadrunner(cjc, cjc.l_roadrunner)
+        b_cluster = BiomodelsCluster(
+                model_name="BIOMD0000000008",
+                start_time=0.0,
+                end_time=20,
+                num_point=100,
+                diameter_metric="weighted_eigenvectors")
+        cjc = b_cluster.cluster(n_cluster=n_cluster, is_sequential_partition=True)
+        return MultipleLinearPredictor.makeFromLRoadrunner(cjc,
+                b_cluster.l_roadrunner)
 
     def test_plot_biomd8_one_cluster(self) -> None:
         """plot returns a Figure for BIOMD8 with 1 cluster."""
@@ -414,9 +425,10 @@ class TestMultipleLinearPredictorPlotWithBioModels(unittest.TestCase):
         fig = predictor.plot()
         self.assertIsInstance(fig, mfigure.Figure)
         ax = fig.axes[0]
-        vlines = [l for l in ax.lines
-                if len(l.get_xdata()) == 2
-                and l.get_xdata()[0] == l.get_xdata()[1]]
+        def _is_vline(l) -> bool:  # type: ignore[no-untyped-def]
+            xd: np.ndarray = np.asarray(l.get_xdata())
+            return len(xd) >= 2 and bool(np.isclose(xd[0], xd[-1]))
+        vlines = [l for l in ax.lines if _is_vline(l)]
         self.assertEqual(len(vlines), 2)
         plt.close(fig)
 
