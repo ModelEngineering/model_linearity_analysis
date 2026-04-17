@@ -29,6 +29,7 @@ BIOMD_PATH = os.path.join(
 BIOMD206_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
 )
+BIOMD206_ENDTIME = 15.0
 
 
 def _make_collection_from_arrays(jacobian_arr: np.ndarray, timepoints: np.ndarray) -> JacobianCollection:
@@ -651,7 +652,7 @@ class TestBiomodel206(unittest.TestCase):
     def setUp(self) -> None:
         with open(BIOMD206_PATH) as f:
             sbml_str = f.read()
-        self.lr = LRoadrunner(sbml_str, start_time=0.0, num_points=100)
+        self.lr = LRoadrunner(sbml_str, start_time=0.0, end_time=BIOMD206_ENDTIME, num_points=100)
 
     def test_construction_succeeds(self) -> None:
         """JacobianCollection is created without error from BIOMD0000000206."""
