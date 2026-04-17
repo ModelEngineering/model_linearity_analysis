@@ -499,6 +499,16 @@ class LRoadrunner(object):
         if opt.fun < 0:  # A genuine maximum was found
             return float(10.0 ** opt.x)
         return np.nan
-    
+
+
 # Other constants
-NULL_L_ROADRUNNER = LRoadrunner("")
+class DummyLRoadrunner(LRoadrunner):
+    def __init__(self, roadrunner_specification: str = "") -> None:
+        super().__init__(roadrunner_specification)
+
+    @property
+    def end_time(self) -> float:
+        return 10.0
+    
+
+NULL_L_ROADRUNNER = DummyLRoadrunner()

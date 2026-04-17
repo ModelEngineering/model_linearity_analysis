@@ -35,6 +35,7 @@ def _make_collection_from_arrays(jacobian_arr: np.ndarray, timepoints: np.ndarra
     """Return a JacobianCollection from explicit arrays using a mock LRoadrunner."""
     lr = MagicMock(spec=LRoadrunner)
     lr.makeJacobians.return_value = (jacobian_arr, timepoints)
+    lr.end_time = 5.0
     return JacobianCollection(lr)
 
 
@@ -661,6 +662,125 @@ class TestBiomodel206(unittest.TestCase):
             self.assertTrue(False)
         except Exception as e:
             self.assertTrue(True)
+
+
+def _make_wed_collection(jacobian_arr: np.ndarray, timepoint_arr: np.ndarray,
+        end_time: float = 1.0) -> JacobianCollection:
+    """Return a JacobianCollection backed by a real LRoadrunner for weighted_eigenvector_diameter.
+
+    weighted_eigenvector_diameter reads self.l_roadrunner.end_time to compute relative
+    timepoints, so a mock is not sufficient here.
+    """
+    lr = LRoadrunner(ANTIMONY_MODEL, start_time=0.0, end_time=end_time, num_points=11)
+    return JacobianCollection.fromArrays(jacobian_arr, timepoint_arr, lr)
+
+
+class TestWeightedEigenvectorDiameter(unittest.TestCase):
+    """Tests for JacobianCollection.weighted_eigenvector_diameter property.
+
+    Uses identity matrices as a key reference point: all eigenvalues are 1, so
+    eigvals**t = 1 for every t, and every weighted-eigenvector sum equals n*e.
+    The resulting constant sequence has mean n*e and max-distance 0 — the only
+    case that provably yields diameter = 0.
+    """
+
+    # 2×2 identity: eigvals=[1,1], so eigvecs@exp(eigvals**t)=[e,e] for all t.
+    IDENTITY = np.eye(2)
+    # Diagonal with eigenvalues 0.5: produces timepoint-dependent sums.
+    J_HALF = np.diag([0.5, 0.5])
+
+    def test_identical(self) -> None:
+        """weighted_eigenvector_diameter returns a Python float."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_wed_collection(
+                np.tile(self.IDENTITY, (3, 1, 1)),
+                np.linspace(0, 2, 3))
+        result = jc.weighted_eigenvector_diameter
+        self.assertIsInstance(result, float)
+        self.assertEqual(result, 0.0)  # Identity Jacobians should yield diameter = 0.0 
+    
+    def test_different(self) -> None:
+        """weighted_eigenvector_diameter returns a Python float."""
+        if IGNORE_TESTS:
+            return
+        jc1 = _make_wed_collection(
+                -1*np.array([self.IDENTITY, 2*self.IDENTITY, self.J_HALF]),
+                np.linspace(0, 2, 3))
+        result = jc1.weighted_eigenvector_diameter
+        self.assertIsInstance(result, float)
+        self.assertGreater(result, 0.0)  # Identity Jacobians should yield diameter = 0.0
+        #
+        jc2 = _make_wed_collection(
+                -1*np.array([self.IDENTITY, 2*self.IDENTITY, 0.5*self.J_HALF]),
+                np.linspace(0, 2, 3))
+        result2 = jc2.weighted_eigenvector_diameter
+        self.assertGreater(result2, result)  # More different Jacobians should yield larger diameter
+
+    def test_empty_collection_returns_zero(self) -> None:
+        """weighted_eigenvector_diameter returns 0.0 for an empty jacobian_arr."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_wed_collection(np.array([]), np.array([]))
+        self.assertEqual(jc.weighted_eigenvector_diameter, 0.0)
+
+    def test_nonnegative(self) -> None:
+        """weighted_eigenvector_diameter is always non-negative."""
+        if IGNORE_TESTS:
+            return
+        rng = np.random.default_rng(7)
+        jacobian_arr = rng.standard_normal((5, 2, 2)) * 0.2
+        jc = _make_wed_collection(jacobian_arr, np.linspace(0, 4, 5))
+        self.assertGreaterEqual(jc.weighted_eigenvector_diameter, 0.0)
+
+    def test_cached_on_second_access(self) -> None:
+        """weighted_eigenvector_diameter is cached: the same value is returned on repeated calls."""
+        if IGNORE_TESTS:
+            return
+        jc = _make_wed_collection(
+                np.tile(self.J_HALF, (3, 1, 1)),
+                np.linspace(0, 2, 3))
+        first = jc.weighted_eigenvector_diameter
+        second = jc.weighted_eigenvector_diameter
+        self.assertEqual(first, second)
+        self.assertFalse(np.isnan(jc._diameter))
+
+    def test_identity_matrices_give_zero(self) -> None:
+        """A collection of identity matrices has weighted_eigenvector_diameter == 0.
+
+        For J = I, eigvals = [1,...,1] so eigvals**t = 1 for all t, making every
+        weighted-eigenvector sum equal to n*e regardless of t.  The sequence is
+        constant and its max-distance from the mean is 0.
+        """
+        if IGNORE_TESTS:
+            return
+        jc = _make_wed_collection(
+                np.tile(self.IDENTITY, (5, 1, 1)),
+                np.linspace(0, 4, 5))
+        self.assertAlmostEqual(jc.weighted_eigenvector_diameter, 0.0, places=10)
+
+    def test_nonidentity_jacobians_give_positive_diameter(self) -> None:
+        """A collection that mixes identity and non-identity Jacobians has positive diameter."""
+        if IGNORE_TESTS:
+            return
+        jacobian_arr = np.array([self.IDENTITY, self.J_HALF, self.IDENTITY])
+        jc = _make_wed_collection(jacobian_arr, np.linspace(0, 2, 3))
+        self.assertGreater(jc.weighted_eigenvector_diameter, 0.0)
+
+    def test_larger_spread_gives_larger_diameter(self) -> None:
+        """Mixing identity Jacobians with a non-identity one increases the diameter.
+
+        jc_A contains only identity matrices  → diameter = 0.
+        jc_B contains identity and J_HALF     → diameter > 0.
+        """
+        if IGNORE_TESTS:
+            return
+        arr_a = np.tile(self.IDENTITY, (3, 1, 1))
+        arr_b = np.array([self.IDENTITY, self.J_HALF, self.IDENTITY])
+        jc_a = _make_wed_collection(arr_a, np.linspace(0, 2, 3))
+        jc_b = _make_wed_collection(arr_b, np.linspace(0, 2, 3))
+        self.assertGreater(jc_b.weighted_eigenvector_diameter,
+                jc_a.weighted_eigenvector_diameter)
 
 
 if __name__ == "__main__":

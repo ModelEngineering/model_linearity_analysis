@@ -85,16 +85,24 @@ class JacobianCollection(object):
         return np.max(cv_arr)
     
     @staticmethod
-    def _calculateWeightedEigenvectors(jacobian_arr: np.ndarray) -> np.ndarray:
+    def _calculateWeightedEigenvectors(jacobian_arr: np.ndarray,
+                timepoint: float) -> np.ndarray:
         """
         Calculate the eigenvectors of each Jacobian weighted by their eigenvalues.
         This is essentially the solution to an initial value problems
         at time t=1 with initial conditions that yield constants c_i=1 for each eigenvector.
         The result is a vector that captures the dominant modes of variation in the
         Jacobian, weighted by their growth rates (eigenvalues).
+
+        Parameters
+        ----------
+        jacobian_arr : np.ndarray
+            A 2D array representing the Jacobian matrix at a specific timepoint.
+        timepoint : float
+            The timepoint at which the Jacobian is evaluated, used to weight the eigenvectors.  
         """
         eigvals, eigvecs = np.linalg.eig(jacobian_arr)
-        result_arr = eigvecs @ np.exp(eigvals)
+        result_arr = eigvecs @ np.exp(eigvals*timepoint)
         return result_arr
 
     @property
@@ -103,6 +111,7 @@ class JacobianCollection(object):
             return self.max_cv
         return self.weighted_eigenvector_diameter
 
+    # TODO: Create a set of vectors at different points relative to the characteristic time
     @property
     def weighted_eigenvector_diameter(self) -> float:
         """
@@ -111,14 +120,21 @@ class JacobianCollection(object):
         (the element-wise mean) and any individual Jacobian in the collection.   
         The distance is the L2 norm.
         """
+        RELATIVE_TIMES = np.array([0, 0.1, 1])  # Times relative to the characteristic time at which to evaluate the weighted eigenvectors
         if not np.isnan(self._diameter):
             return cast(float, self._diameter)
+        # Exclude trivial case of empty collection to avoid NaN issues with mean and distance calculations
         if self.jacobian_arr.size == 0:
             return 0.0
+        #
+        timepoints = self.l_roadrunner.end_time * RELATIVE_TIMES
         weighted_arrs: list[np.ndarray] = []
         for jacobian_arr in self.jacobian_arr:
-            weighted_arr = self._calculateWeightedEigenvectors(jacobian_arr)
-            weighted_arrs.append(weighted_arr)
+            weighted_eigenvecs:list = []
+            # Calculate an array of weighted vectors for the time points
+            for t in timepoints:
+                weighted_eigenvecs.append(self._calculateWeightedEigenvectors(jacobian_arr, t))
+            weighted_arrs.append(np.concatenate(weighted_eigenvecs, axis=None))
         mean_weighted_arr = np.mean(weighted_arrs, axis=0)
         max_distance = 0.0
         for weighted_arr in weighted_arrs:
