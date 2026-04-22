@@ -11,7 +11,7 @@ import pandas as pd  # type: ignore
 import src.constants as cn
 from biomodels_cluster import BiomodelsCluster  # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
-from jacobian_collection import JacobianCollection  # type: ignore
+from trajectory import Trajectory  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
 IGNORE_TESTS = False
@@ -159,7 +159,7 @@ class TestBiomodelsClusterInit(unittest.TestCase):
         """_jacobian_collection attribute is a JacobianCollection instance."""
         if IGNORE_TESTS:
             return
-        self.assertIsInstance(self._biomodels_cluster._jacobian_collection, JacobianCollection)
+        self.assertIsInstance(self._biomodels_cluster._jacobian_collection, Trajectory)
 
     def test_end_time_default_from_lookup(self) -> None:
         """When end_time is NaN, it falls back to LRoadrunner.endtime_dct or cn.END_TIME."""

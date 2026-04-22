@@ -62,7 +62,7 @@ class LRoadrunner(object):
     def __init__(self, roadrunner_specification: str,
             start_time: float = cn.START_TIME,
             end_time: Optional[float] = None,
-            num_points: int = cn.NUM_POINTS,
+            num_point: int = cn.NUM_POINTS,
             sedml_str: Optional[str] = None,
             ) -> None:
         """
@@ -84,11 +84,61 @@ class LRoadrunner(object):
         self.specification = roadrunner_specification
         # Verify the specification can be loaded as a model, to fail fast if the model is invalid. The loaded model is not stored, so this does not affect the state of the object or its getRoadrunner() method.
         self._loadModel(roadrunner_specification)
-        self.start_time = start_time
-        self.num_points = num_points
+        self._start_time = start_time
+        self.num_points = num_point
         self._end_time: float = end_time if end_time is not None else np.nan
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
+
+    @property
+    def start_time(self) -> float:
+        return self._start_time
+    
+    @start_time.setter
+    def start_time(self, start_time: float) -> None:
+        self._start_time = start_time
+
+    @property
+    def timecourse(self) -> pd.DataFrame:
+        """
+        Simulate the model and return the time course as a DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            A DataFrame containing the time course of the simulation, with columns for time and each floating species.
+        """
+        rr = self.getRoadrunner()
+        result_arr = self.simulate(is_with_timepoints=True)
+        species_ids = rr.getFloatingSpeciesIds()
+        clean_ids = [s[1:-1] if s.startswith("[") and s.endswith("]") else s for s in species_ids]
+        df = pd.DataFrame(result_arr, columns=["time"] + clean_ids)
+        df = df.set_index("time")
+        return df
+
+    def getInitialValues(self) -> np.ndarray:
+        """
+        Get the initial state of the model as a 1-D array of floating species concentrations.
+        """
+        rr = self.getRoadrunner()
+        rr.reset()
+        return np.array(rr.getFloatingSpeciesConcentrations())
+    
+    def getForcedInputs(self) -> np.ndarray:
+        """
+        Get the forced input timecourse of the model as a 1-D array of of size the number of floating species.
+        Forced inputs are calculated as the difference between the rates of change and the Jacobian applied to the initial state, which is equivalent to the input that would need to be added to the system to make it perfectly linear with respect to the initial state.
+        This is used in the linear predictor to extrapolate from the initial state.
+        """
+        rr = self.getRoadrunner()
+        rr.reset()
+        half_time  = (self.start_time + self.end_time)/2
+        _ = rr.simulate(self.start_time, half_time, 2)
+        jacobian_arr = np.array(rr.getFullJacobian())
+        _ = rr.simulate(half_time, half_time*1.001, 2)
+        f_arr = np.array(rr.getRatesOfChange())
+        forced_input_arr = f_arr - jacobian_arr @ self.getInitialValues()
+        return forced_input_arr
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         if self.isNull():
@@ -367,15 +417,16 @@ class LRoadrunner(object):
         result_arr = rr.simulate(self.start_time, self.end_time, self.num_points)
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
 
+        # For BIOMD7, fails on the first simulation
         rr.reset()
         jacobians = []
         for i, t in enumerate(times_arr):
             if i == 0:
-                rr.simulate(self.start_time, t + 1e-10, 2)
+                t2 = self.start_time + 1e-10
+                rr.simulate(self.start_time, t2, 2)
             else:
                 rr.simulate(times_arr[i - 1], t, 2)
             jacobians.append(np.array(rr.getFullJacobian()).copy())
-
         return np.array(jacobians), times_arr
 
     def _calculateEndtimeJacobian(self) -> float:

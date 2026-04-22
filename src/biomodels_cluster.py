@@ -2,7 +2,7 @@
 Creates ClusteredJacobianCollection objects for BioModels.
 """
 import src.constants as cn
-from jacobian_collection import JacobianCollection # type: ignore
+from trajectory import Trajectory # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from biomodels_iterator import BiomodelsIterator  # type: ignore
 
@@ -26,7 +26,7 @@ class BiomodelsCluster:
         start_time: float = 0,
         end_time: float = np.nan,
         num_point: int = 100,
-        diameter_metric: str = cn.DIAMETER_WEIGHTED_EIGENVECTORS,
+        diameter_metric: str = cn.DIAMETER_IVP,
     ) -> None:
         """
         Initialize a BiomodelsCluster with a model and simulation parameters.
@@ -52,8 +52,8 @@ class BiomodelsCluster:
         #
         self.sbml_str = self._getSbml()
         self.l_roadrunner = LRoadrunner(self.sbml_str, start_time=start_time,
-                end_time=end_time, num_points=num_point)
-        self._jacobian_collection = JacobianCollection(self.l_roadrunner,
+                end_time=end_time, num_point=num_point)
+        self._jacobian_collection = Trajectory(self.l_roadrunner,
                 diameter_metric=diameter_metric)
 
     @staticmethod
@@ -95,7 +95,7 @@ class BiomodelsCluster:
         n_cluster: int = 1,
         is_report: bool = True,
         is_sequential_partition: bool = True,
-        diameter_metric: str = cn.DIAMETER_WEIGHTED_EIGENVECTORS,
+        diameter_metric: str = cn.DIAMETER_IVP,
         is_test: bool = False,
     ) -> pd.DataFrame:
         """

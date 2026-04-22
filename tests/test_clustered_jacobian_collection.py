@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from jacobian_collection import JacobianCollection  # type: ignore
+from trajectory import Trajectory  # type: ignore
 from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
@@ -30,16 +30,16 @@ k1 = 0.1; k2 = 0.2; Xo = 1.0; X1 = 0.0
 
 def _make_cjc(antimony_str: str, n_clusters: int) -> ClusteredJacobianCollection:
     """Return a ClusteredJacobianCollection built from a real Antimony model."""
-    lr = LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_points=11)
-    jc = JacobianCollection(lr)
+    lr = LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_point=11)
+    jc = Trajectory(lr)
     n_points = len(jc.timepoint_arr)
     chunk_size = n_points // n_clusters
     jcs = []
     for i in range(n_clusters):
         start = i * chunk_size
         end = start + chunk_size if i < n_clusters - 1 else n_points
-        jcs.append(JacobianCollection.fromArrays(
-            jc.jacobian_arr[start:end], jc.timepoint_arr[start:end], lr))
+        jcs.append(Trajectory.fromArrays(
+            jc.jacobian_collection_arr[start:end], jc.timepoint_arr[start:end], lr))
     return ClusteredJacobianCollection(jcs)
 
 
@@ -108,6 +108,40 @@ class TestClusteredJacobianCollectionHeatmaps(unittest.TestCase):
             )
             self.assertFalse(overlaps)
         plt.close(fig)
+
+
+class TestClusteredJacobianCollectionScore(unittest.TestCase):
+    """Tests for ClusteredJacobianCollection score (max_cv) behaviour."""
+
+    def test_score_decreases_as_n_cluster_increases(self) -> None:
+        """score (max_cv) decreases as n_cluster increases for linearly-varying random matrices."""
+        if IGNORE_TESTS:
+            return
+        np.random.seed(0)
+        n_matrices = 20
+        n_species = 3
+        # Base matrix with strictly positive entries so CV is well-defined.
+        base = np.abs(np.random.rand(n_species, n_species)) + 1.0
+        # Each matrix is (i+1) * base, creating a clear linear trend over time.
+        jacobian_arr = np.array([(i + 1) * base for i in range(n_matrices)])
+        timepoint_arr = np.arange(n_matrices, dtype=float)
+        jc = Trajectory.fromArrays(jacobian_arr, timepoint_arr)
+
+        scores = []
+        for n_clusters in [1, 3, 5]:
+            chunk_size = n_matrices // n_clusters
+            jcs = []
+            for i in range(n_clusters):
+                start = i * chunk_size
+                end = start + chunk_size if i < n_clusters - 1 else n_matrices
+                jcs.append(Trajectory.fromArrays(
+                        jc.jacobian_collection_arr[start:end],
+                        jc.timepoint_arr[start:end]))
+            cjc = ClusteredJacobianCollection(jcs)
+            scores.append(cjc.score)
+
+        self.assertGreater(scores[0], scores[1])
+        self.assertGreater(scores[1], scores[2])
 
 
 if __name__ == "__main__":

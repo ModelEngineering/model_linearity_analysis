@@ -9,6 +9,7 @@ import matplotlib.axes as maxes  # type: ignore
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
+from scipy.integrate import solve_ivp  # type: ignore
 from typing import List, Optional
 
 ScoreResult = collections.namedtuple("ScoreResult", ["mean_rae", "max_rae"])
@@ -166,7 +167,6 @@ class MultipleLinearPredictor(object):
         rr.reset()
         initial_value_arr = np.array(rr.getFloatingSpeciesConcentrations())
         species_ids = rr.getFloatingSpeciesIds()
-
         if not is_per_cluster_forced_input:
             f_arr = np.array(rr.getRatesOfChange())
             first_jc = clustered_jacobian_collection.jacobian_collections[0]
@@ -240,6 +240,8 @@ class MultipleLinearPredictor(object):
         predicted_rows: List[np.ndarray] = []
         for i, jc in enumerate(self.clustered_jacobian_collection.jacobian_collections):
             abs_times = jc.timepoint_arr
+            if len(abs_times) == 0:
+                import pdb; pdb.set_trace()  # FIXME: Why is this cluster empty?
             rel_times = abs_times - abs_times[0]
             linear_predictor = LinearPredictor(jc, current_x, self._getForcedInput(i))
             predicted_arr = linear_predictor.predict(rel_times).prediction_arr

@@ -1,6 +1,6 @@
 '''Linear predictor for chemical reaction network trajectories.'''
 
-from src.jacobian_collection import JacobianCollection  # type: ignore
+from trajectory import Trajectory  # type: ignore
 from src.l_roadrunner import LRoadrunner  # type: ignore
 
 import collections
@@ -23,14 +23,14 @@ PredictionResult = collections.namedtuple(
 class LinearPredictor(object):
     """Predicts floating species concentrations using a linear ODE with a mean Jacobian.
 
-    The linear model is: dx/dt = mean_jacobian_arr @ x + forced_input_arr,
-    where mean_jacobian_arr is the element-wise mean of all Jacobians in the
+    The linear model is: dx/dt = mean_jacobian_collection_arr @ x + forced_input_arr,
+    where mean_jacobian_collection_arr is the element-wise mean of all Jacobians in the
     collection and forced_input_arr is a constant forcing vector (e.g., from
     boundary species or 0th-order rate laws).
     """
 
     def __init__(self,
-            jacobian_collection: JacobianCollection,
+            jacobian_collection: Trajectory,
             initial_value_arr: np.ndarray,
             forced_input_arr: np.ndarray,
             ) -> None:
@@ -51,12 +51,12 @@ class LinearPredictor(object):
         self._l_roadrunner = jacobian_collection.l_roadrunner
         self.initial_value_arr = initial_value_arr
         self.forced_input_arr = forced_input_arr
-        self.mean_jacobian_arr = np.mean(jacobian_collection.jacobian_arr, axis=0)
+        self.mean_jacobian_collection_arr = np.mean(jacobian_collection.jacobian_collection_arr, axis=0)
 
     def predict(self, times: np.ndarray, l_roadrunner: Optional[LRoadrunner] = None) -> "PredictionResult":
         """Predict floating species concentrations at the given times.
 
-        Solves the linear ODE dx/dt = mean_jacobian_arr @ x + forced_input_arr
+        Solves the linear ODE dx/dt = mean_jacobian_collection_arr @ x + forced_input_arr
         with initial condition initial_value_arr at t=times[0], using
         scipy.integrate.solve_ivp for numerical robustness.
 
@@ -89,7 +89,7 @@ class LinearPredictor(object):
             prediction_arr = np.tile(self.initial_value_arr, (len(times), 1))
         else:
             def _ode(t: float, x: np.ndarray) -> np.ndarray:
-                return self.mean_jacobian_arr @ x + self.forced_input_arr
+                return self.mean_jacobian_collection_arr @ x + self.forced_input_arr
 
             sol = solve_ivp(
                 _ode,

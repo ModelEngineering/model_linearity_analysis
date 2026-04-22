@@ -10,6 +10,7 @@ import unittest
 import unittest.mock as mock
 
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 import tellurium as te  # type: ignore
 from typing import cast
 
@@ -26,6 +27,12 @@ BIOMD11_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000011", "BIOMD0000000011_
 # BIOMD477: outputEndTime="25" in SED-ML — non-default, so used directly.
 BIOMD477_SBML  = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "BIOMD0000000477_url.xml")
 BIOMD477_SEDML = os.path.join(BIOMODELS_DIR, "BIOMD0000000477", "MODEL1308080000_figure5.sedml")
+
+# BIOMD8: 5-species nonlinear model (C, X, M, Y, Z).
+# Initial values: C=0, X=0, M=0, Y=1, Z=1
+BIOMD8_SBML = os.path.join(BIOMODELS_DIR, "BIOMD0000000008", "BIOMD0000000008_url.xml")
+BIOMD8_N_SPECIES = 5
+BIOMD8_INITIAL_VALUES = np.array([0.0, 0.0, 0.0, 1.0, 1.0])
 
 # BIOMD241: rate-rule-only model (no reactions) with events that block steadyState().
 # end_time falls back to _calculateEndtimeJacobian.
@@ -68,7 +75,7 @@ class TestLRoadrunnerInit(unittest.TestCase):
         """Custom start_time, end_time, and num_points are stored correctly."""
         if IGNORE_TESTS:
             return
-        rr = LRoadrunner(ANTIMONY_MODEL, start_time=1.0, end_time=5.0, num_points=20)
+        rr = LRoadrunner(ANTIMONY_MODEL, start_time=1.0, end_time=5.0, num_point=20)
         self.assertEqual(rr.start_time, 1.0)
         self.assertEqual(rr._end_time, 5.0)
         self.assertEqual(rr.num_points, 20)
@@ -243,7 +250,7 @@ class TestSimulate(unittest.TestCase):
     """Tests for LRoadrunner.simulate."""
 
     def setUp(self) -> None:
-        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=50)
+        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=50)
 
     def test_returns_ndarray(self) -> None:
         """simulate returns a numpy ndarray."""
@@ -295,7 +302,7 @@ class TestMakeJacobians(unittest.TestCase):
     """Tests for LRoadrunner.makeJacobians."""
 
     def setUp(self) -> None:
-        self.rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        self.rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
 
     def test_returns_tuple_of_two(self) -> None:
         """makeJacobians returns a tuple of two elements."""
@@ -352,8 +359,8 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
     """Tests for LRoadrunner._calculateEndtimeJacobian."""
 
     def setUp(self) -> None:
-        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
-        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0, num_points=10)
+        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
+        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0, num_point=10)
 
     def test_returns_float_for_normal_model(self) -> None:
         """Returns a float for a model with non-zero eigenvalues."""
@@ -412,7 +419,7 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
         if IGNORE_TESTS:
             return
         import unittest.mock as mock
-        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
         fresh = mock.MagicMock()
         fresh.getFullJacobian.return_value = np.array([[0.0, 0.0], [0.0, -0.2]])
         # Full-rank 2×2 stoichiometry → left_null_rank = 0
@@ -431,7 +438,7 @@ class TestGetEndtimeFromJacobian(unittest.TestCase):
         if IGNORE_TESTS:
             return
         import unittest.mock as mock
-        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
         fresh = mock.MagicMock()
         fresh.getFullJacobian.return_value = np.zeros((2, 2))
         fresh.getFullStoichiometryMatrix.return_value = np.zeros((2, 2))
@@ -451,8 +458,8 @@ class TestCalculateEndtimeCV(unittest.TestCase):
     """Tests for LRoadrunner._calculateEndtimeCV."""
 
     def setUp(self) -> None:
-        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=20)
-        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0, num_points=20)
+        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=20)
+        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0, num_point=20)
 
     def test_returns_float_for_antimony_model(self) -> None:
         """Returns a float for a model with dynamics."""
@@ -492,7 +499,7 @@ class TestCalculateEndtimeCV(unittest.TestCase):
         """
         if IGNORE_TESTS:
             return
-        lrr = LRoadrunner(PRODUCTION_MODEL, num_points=20)
+        lrr = LRoadrunner(PRODUCTION_MODEL, num_point=20)
         opt_time = lrr._calculateEndtimeCV()
         self.assertIsNotNone(opt_time)
 
@@ -519,7 +526,7 @@ class TestCalculateEndtimeCV(unittest.TestCase):
         if IGNORE_TESTS:
             return
         import unittest.mock as mock
-        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_points=10)
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
         fresh = mock.MagicMock()
         fresh.getFloatingSpeciesIds.return_value = []
         with mock.patch.object(lrr, "_loadModel", return_value=fresh):
@@ -538,7 +545,7 @@ class TestCalculateEndtimeCV(unittest.TestCase):
 S1 -> S2; k1*S1
 k1 = 0.1; S1 = 0; S2 = 0
 """
-        lrr = LRoadrunner(zero_model, end_time=50.0, num_points=20)
+        lrr = LRoadrunner(zero_model, end_time=50.0, num_point=20)
         result = lrr._calculateEndtimeCV()
         self.assertTrue(np.isnan(result))
 
@@ -788,6 +795,229 @@ class TestEndTimeBiomd241(unittest.TestCase):
         first = self.lrr.end_time
         second = self.lrr.end_time
         self.assertEqual(first, second)
+
+
+class TestGetInitialValues(unittest.TestCase):
+    """Tests for LRoadrunner.getInitialValues."""
+
+    def setUp(self) -> None:
+        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0)
+
+    def test_returns_ndarray(self) -> None:
+        """getInitialValues returns a numpy ndarray."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr.getInitialValues()
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_shape_matches_species_count(self) -> None:
+        """getInitialValues returns a 1-D array with one entry per floating species."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr.getInitialValues()
+        n_species = len(self.antimony_lrr.getRoadrunner().getFloatingSpeciesIds())
+        self.assertEqual(result.shape, (n_species,))
+
+    def test_known_initial_values_antimony(self) -> None:
+        """getInitialValues returns [10, 0] for ANTIMONY_MODEL (S1=10, S2=0)."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr.getInitialValues()
+        np.testing.assert_array_almost_equal(result, np.array([10.0, 0.0]))
+
+    def test_known_initial_values_production(self) -> None:
+        """getInitialValues returns [0] for PRODUCTION_MODEL (S1=0)."""
+        if IGNORE_TESTS:
+            return
+        result = self.production_lrr.getInitialValues()
+        np.testing.assert_array_almost_equal(result, np.array([0.0]))
+
+    def test_returns_reset_state(self) -> None:
+        """getInitialValues returns the reset (initial) concentrations, not post-simulation."""
+        if IGNORE_TESTS:
+            return
+        rr_raw = self.antimony_lrr.getRoadrunner()
+        rr_raw.simulate(0.0, 50.0, 10)
+        result = self.antimony_lrr.getInitialValues()
+        np.testing.assert_array_almost_equal(result, np.array([10.0, 0.0]))
+
+
+class TestGetForcedInputs(unittest.TestCase):
+    """Tests for LRoadrunner.getForcedInputs.
+
+    getForcedInputs evaluates f and J at end_time/100.  To recover near-t=0
+    values (where the linearisation identity f = J*x0 + u holds cleanly), the
+    tests that check specific numerical values use a very small end_time so
+    that end_time/100 ≈ 0.
+    """
+
+    def setUp(self) -> None:
+        # Use a large end_time for shape/type tests (speed doesn't matter).
+        self.antimony_lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+        self.production_lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0)
+        # Tiny end_time so evaluation is essentially at t=0.
+        self.antimony_lrr_near0 = LRoadrunner(ANTIMONY_MODEL, end_time=1e-3)
+        self.production_lrr_near0 = LRoadrunner(PRODUCTION_MODEL, end_time=1e-3)
+
+    def test_returns_ndarray(self) -> None:
+        """getForcedInputs returns a numpy ndarray."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr.getForcedInputs()
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_shape_matches_species_count(self) -> None:
+        """getForcedInputs returns a 1-D array with one entry per floating species."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr.getForcedInputs()
+        n_species = len(self.antimony_lrr.getRoadrunner().getFloatingSpeciesIds())
+        self.assertEqual(result.shape, (n_species,))
+
+    def test_linear_model_has_zero_forced_inputs(self) -> None:
+        """ANTIMONY_MODEL is linear (dx/dt = J*x), so forced inputs are zero near t=0."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr_near0.getForcedInputs()
+        np.testing.assert_array_almost_equal(result, np.zeros(2), decimal=3)
+
+    def test_production_model_has_nonzero_forced_inputs(self) -> None:
+        """PRODUCTION_MODEL has a constant production term k_in=1.0, so forced input ≈ 1.0 near t=0."""
+        if IGNORE_TESTS:
+            return
+        result = self.production_lrr_near0.getForcedInputs()
+        self.assertAlmostEqual(float(result[0]), 1.0, places=3)
+
+    def test_values_are_finite(self) -> None:
+        """All forced input values are finite."""
+        if IGNORE_TESTS:
+            return
+        result = self.antimony_lrr.getForcedInputs()
+        self.assertTrue(np.all(np.isfinite(result)))
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestBiomd8InitialValuesAndForcedInputs(unittest.TestCase):
+    """Tests for getInitialValues and getForcedInputs using BIOMD8.
+
+    BIOMD8 is a 5-species nonlinear model (C, X, M, Y, Z), making it a realistic
+    integration test for both methods.  A tiny end_time (1e-3) is used so that
+    end_time/100 ≈ 0, keeping the Jacobian and rates near the initial state.
+    """
+
+    def setUp(self) -> None:
+        with open(BIOMD8_SBML) as fh:
+            sbml = fh.read()
+        self.lrr = LRoadrunner(sbml, end_time=1e-3)
+
+    def test_get_initial_values_returns_ndarray(self) -> None:
+        """getInitialValues returns a numpy ndarray for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.getInitialValues()
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_get_initial_values_shape(self) -> None:
+        """getInitialValues returns a 1-D array of length 5 for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.getInitialValues()
+        self.assertEqual(result.shape, (BIOMD8_N_SPECIES,))
+
+    def test_get_initial_values_known_values(self) -> None:
+        """getInitialValues matches the known initial concentrations for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.getInitialValues()
+        np.testing.assert_array_almost_equal(result, BIOMD8_INITIAL_VALUES, decimal=6)
+
+    def test_get_forced_inputs_returns_ndarray(self) -> None:
+        """getForcedInputs returns a numpy ndarray for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.getForcedInputs()
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_get_forced_inputs_shape(self) -> None:
+        """getForcedInputs returns a 1-D array of length 5 for BIOMD8."""
+        #if IGNORE_TESTS:
+        #    return
+        result = self.lrr.getForcedInputs()
+        self.assertEqual(result.shape, (BIOMD8_N_SPECIES,))
+
+    def test_get_forced_inputs_nonzero(self) -> None:
+        """getForcedInputs has at least one nonzero entry for the nonlinear BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.getForcedInputs()
+        self.assertGreater(np.max(np.abs(result)), 0.0)
+
+    def test_get_forced_inputs_values_are_finite(self) -> None:
+        """All forced input values are finite for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.getForcedInputs()
+        self.assertTrue(np.all(np.isfinite(result)))
+
+
+class TestTimecourse(unittest.TestCase):
+    """Tests for LRoadrunner.timecourse property."""
+
+    def setUp(self) -> None:
+        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=50)
+
+    def test_returns_dataframe(self) -> None:
+        """timecourse returns a pandas DataFrame."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        self.assertIsInstance(result, pd.DataFrame)
+
+    def test_index_is_named_time(self) -> None:
+        """timecourse DataFrame index is named 'time'."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        self.assertEqual(result.index.name, "time")
+
+    def test_index_is_monotonically_increasing(self) -> None:
+        """timecourse index values are strictly increasing."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        times = result.index.to_numpy()
+        self.assertTrue(np.all(np.diff(times) > 0))
+
+    def test_shape_num_points_by_species(self) -> None:
+        """timecourse DataFrame has shape (num_points, n_species)."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        n_species = len(self.lrr.getRoadrunner().getFloatingSpeciesIds())
+        self.assertEqual(result.shape, (self.lrr.num_points, n_species))
+
+    def test_columns_match_species_names(self) -> None:
+        """timecourse columns match the floating species IDs."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        species_ids = self.lrr.getRoadrunner().getFloatingSpeciesIds()
+        self.assertEqual(list(result.columns), species_ids)
+
+    def test_values_are_finite(self) -> None:
+        """All timecourse values are finite."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        self.assertTrue(np.all(np.isfinite(result.values)))
+
+    def test_values_are_non_negative(self) -> None:
+        """All timecourse concentration values are non-negative."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.timecourse
+        self.assertTrue(np.all(result.values >= 0.0))
 
 
 if __name__ == "__main__":

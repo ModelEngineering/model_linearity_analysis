@@ -1,7 +1,7 @@
 '''Jacobian collections that are the result of clustering'''
 
 import src.constants as cn
-from src.jacobian_collection import JacobianCollection  # type: ignore
+from trajectory import Trajectory  # type: ignore
 from src.l_roadrunner import NULL_L_ROADRUNNER  # type: ignore
 
 import matplotlib.cm as mcm  # type: ignore
@@ -19,7 +19,7 @@ from typing import List
 class ClusteredJacobianCollection(object):
     """A collection of Jacobian matrices that have been clustered into contiguous time spans."""
 
-    def __init__(self, jacobian_collections: List[JacobianCollection]) -> None:
+    def __init__(self, jacobian_collections: List[Trajectory]) -> None:
         """
         Parameters
         ----------

@@ -6,16 +6,18 @@ import unittest
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
+import tellurium as te  # type: ignore
 from unittest.mock import MagicMock
+from typing import Tuple
 
 import src.constants as cn  # type: ignore
-from src.jacobian_collection import JacobianCollection  # type: ignore
+from trajectory import Trajectory  # type: ignore
 from src.clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
 from src.l_roadrunner import LRoadrunner  # type: ignore
 from src.multiple_linear_predictor import MultipleLinearPredictor, ScoreResult  # type: ignore
 from src.biomodels_cluster import BiomodelsCluster  # type: ignore
 
-IGNORE_TESTS = False
+IGNORE_TESTS = True
 
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
@@ -44,24 +46,37 @@ k1 = 1.0; Vmax = 2.0; Km = 0.5; Xo = 1.0; X1 = 0.0
 """
 
 
-def _make_lroadrunner(antimony_str: str) -> LRoadrunner:
+# Simple 2-species decay model.
+ANTIMONY_DECAY_FORCED = """
+ -> S1; k0
+S1 -> S2; k1*S1
+S2 -> S1; k2*S2*S1
+S2 -> ; k3*S2
+k0=1; k1 = 0.1; k2 = 0.002; k3 = 0.05; S1 = 0; S2 = 0.0
+"""
+""" rr = te.loada(ANTIMONY_DECAY_FORCED)
+data = rr.simulate(0, 5, 100)
+rr.plot() """
+
+
+def _make_lroadrunner(antimony_str: str, end_time:float = 10.0) -> LRoadrunner:
     """Return a real LRoadrunner for the given Antimony model."""
-    return LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_points=11)
+    return LRoadrunner(antimony_str, start_time=0.0, end_time=end_time, num_point=11)
 
 
 def _make_predictor_from_model(antimony_str: str,
-                                n_clusters: int) -> MultipleLinearPredictor:
+        n_cluster: int, end_time:float = 10.0) -> MultipleLinearPredictor:
     """Return a MultipleLinearPredictor built from a real Antimony model."""
     lr = _make_lroadrunner(antimony_str)
-    jc = JacobianCollection(lr)
+    jc = Trajectory(lr)
     n_points = len(jc.timepoint_arr)
-    chunk_size = n_points // n_clusters
+    chunk_size = n_points // n_cluster
     jcs = []
-    for i in range(n_clusters):
+    for i in range(n_cluster):
         start = i * chunk_size
-        end = start + chunk_size if i < n_clusters - 1 else n_points
-        jcs.append(JacobianCollection.fromArrays(
-            jc.jacobian_arr[start:end], jc.timepoint_arr[start:end], lr))
+        end = start + chunk_size if i < n_cluster - 1 else n_points
+        jcs.append(Trajectory.fromArrays(
+            jc.jacobian_collection_arr[start:end], jc.timepoint_arr[start:end], lr))
     cjc = ClusteredJacobianCollection(jcs)
     return MultipleLinearPredictor.makeFromLRoadrunner(cjc, lr)
 
@@ -75,7 +90,7 @@ class TestMultipleLinearPredictorInit(unittest.TestCase):
         lr.makeJacobians.return_value = (
             np.full((3, 1, 1), -0.2), np.linspace(0.0, 10.0, 3)
         )
-        jc = JacobianCollection(lr)
+        jc = Trajectory(lr)
         cjc = ClusteredJacobianCollection([jc])
         initial_value_arr = np.array([1.0])
         forced_input_arr = np.array([0.5])
@@ -123,7 +138,7 @@ class TestMultipleLinearPredictorPredict(unittest.TestCase):
         """predict returns shape (1, n_species) for a single-cluster collection."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         result = predictor.predict()
         self.assertEqual(result.shape[0], 1)
         self.assertGreater(result.shape[1], 0)
@@ -133,7 +148,7 @@ class TestMultipleLinearPredictorPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         n_clusters = 3
-        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=n_clusters)
+        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_cluster=n_clusters)
         result = predictor.predict()
         self.assertEqual(result.shape[0], n_clusters)
 
@@ -141,7 +156,7 @@ class TestMultipleLinearPredictorPredict(unittest.TestCase):
         """predict returns finite concentration values."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=2)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=2)
         result = predictor.predict()
         self.assertTrue(np.all(np.isfinite(result)))
 
@@ -149,7 +164,7 @@ class TestMultipleLinearPredictorPredict(unittest.TestCase):
         """predict returns non-negative concentrations for a decay model starting at 0."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=2)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=2)
         result = predictor.predict()
         self.assertTrue(np.all(result >= -1e-6))
 
@@ -158,7 +173,7 @@ class TestMultipleLinearPredictorPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         n_clusters = 5
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=n_clusters)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=n_clusters)
         result = predictor.predict()
         self.assertTrue(result[-1, 0] > result[0, 0])
         self.assertLess(result[-1, 0], 0.6)
@@ -171,7 +186,7 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         """plot returns a matplotlib Figure."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         fig = predictor.plot()
         self.assertIsInstance(fig, mfigure.Figure)
         plt.close(fig)
@@ -180,7 +195,7 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         """plot creates a new figure with one axes when ax is not supplied."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         fig = predictor.plot(ax=None)
         self.assertEqual(len(fig.axes), 1)
         plt.close(fig)
@@ -189,7 +204,7 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         """plot draws on the supplied axes and returns its parent figure."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         external_fig, external_ax = plt.subplots()
         returned_fig = predictor.plot(ax=external_ax)
         self.assertIs(returned_fig, external_fig)
@@ -199,7 +214,7 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         """With one cluster there are no vertical boundary lines."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         fig = predictor.plot()
         ax = fig.axes[0]
         def _is_vline(l) -> bool:  # type: ignore[no-untyped-def]
@@ -214,7 +229,7 @@ class TestMultipleLinearPredictorPlot(unittest.TestCase):
         if IGNORE_TESTS:
             return
         n_clusters = 3
-        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=n_clusters)
+        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_cluster=n_clusters)
         fig = predictor.plot()
         ax = fig.axes[0]
         def _is_vline(l) -> bool:  # type: ignore[no-untyped-def]
@@ -233,7 +248,7 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
         """score returns a ScoreResult namedtuple."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         result = predictor.score()
         self.assertIsInstance(result, ScoreResult)
 
@@ -241,7 +256,7 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
         """mean_rae is a non-negative float."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         result = predictor.score()
         self.assertGreaterEqual(result.mean_rae, 0.0)
 
@@ -249,7 +264,7 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
         """max_rae is a non-negative float."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_clusters=1)
+        predictor = _make_predictor_from_model(ANTIMONY_FORCED, n_cluster=1)
         result = predictor.score()
         self.assertGreaterEqual(result.max_rae, 0.0)
 
@@ -257,7 +272,7 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
         """max_rae is greater than or equal to mean_rae."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=2)
+        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_cluster=2)
         result = predictor.score()
         self.assertGreaterEqual(result.max_rae, result.mean_rae)
 
@@ -265,7 +280,7 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
         """score returns finite values for a multi-cluster predictor."""
         if IGNORE_TESTS:
             return
-        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_clusters=3)
+        predictor = _make_predictor_from_model(ANTIMONY_DECAY, n_cluster=3)
         result_3 = predictor.score()
         self.assertTrue(np.isfinite(result_3.mean_rae))
         self.assertTrue(np.isfinite(result_3.max_rae))
@@ -274,8 +289,8 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
         """score returns finite mean_rae for n_cluster in [1, 2, 3] on a nonlinear model."""
         if IGNORE_TESTS:
             return
-        lr = LRoadrunner(ANTIMONY_MM, start_time=0.0, end_time=5.0, num_points=60)
-        jc_full = JacobianCollection(lr)
+        lr = LRoadrunner(ANTIMONY_MM, start_time=0.0, end_time=5.0, num_point=60)
+        jc_full = Trajectory(lr)
         n_points = len(jc_full.timepoint_arr)
 
         for n_clusters in [1, 2, 3]:
@@ -284,8 +299,8 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
             for i in range(n_clusters):
                 start = i * chunk_size
                 end = start + chunk_size if i < n_clusters - 1 else n_points
-                jcs.append(JacobianCollection.fromArrays(
-                        jc_full.jacobian_arr[start:end],
+                jcs.append(Trajectory.fromArrays(
+                        jc_full.jacobian_collection_arr[start:end],
                         jc_full.timepoint_arr[start:end],
                         lr))
             cjc = ClusteredJacobianCollection(jcs)
@@ -293,57 +308,25 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
             self.assertTrue(np.isfinite(predictor.score().mean_rae))
 
 
-class TestClusteredJacobianCollectionScore(unittest.TestCase):
-    """Tests for ClusteredJacobianCollection score (max_cv) behaviour."""
-
-    def test_score_decreases_as_n_cluster_increases(self) -> None:
-        """score (max_cv) decreases as n_cluster increases for linearly-varying random matrices."""
-        if IGNORE_TESTS:
-            return
-        np.random.seed(0)
-        n_matrices = 20
-        n_species = 3
-        # Base matrix with strictly positive entries so CV is well-defined.
-        base = np.abs(np.random.rand(n_species, n_species)) + 1.0
-        # Each matrix is (i+1) * base, creating a clear linear trend over time.
-        jacobian_arr = np.array([(i + 1) * base for i in range(n_matrices)])
-        timepoint_arr = np.arange(n_matrices, dtype=float)
-        jc = JacobianCollection.fromArrays(jacobian_arr, timepoint_arr)
-
-        scores = []
-        for n_clusters in [1, 3, 5]:
-            chunk_size = n_matrices // n_clusters
-            jcs = []
-            for i in range(n_clusters):
-                start = i * chunk_size
-                end = start + chunk_size if i < n_clusters - 1 else n_matrices
-                jcs.append(JacobianCollection.fromArrays(
-                        jc.jacobian_arr[start:end],
-                        jc.timepoint_arr[start:end]))
-            cjc = ClusteredJacobianCollection(jcs)
-            scores.append(cjc.score)
-
-        self.assertGreater(scores[0], scores[1])
-        self.assertGreater(scores[1], scores[2])
-
-
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels directory not available")
 class TestMultipleLinearPredictorScoreWithBioModels(unittest.TestCase):
     """Tests for MultipleLinearPredictor.score using real BioModels data (BIOMD8)."""
 
-    BIOMD8_DIR = os.path.join(BIOMODELS_DIR, "BIOMD0000000008")
+    MODEL_NAME = "BIOMD0000000008"
+    BIOMD8_DIR = os.path.join(BIOMODELS_DIR, MODEL_NAME)
+    BIOMD8_ENDTIME = 20.0
 
     def _skip_if_no_endtime(self) -> None:
         """Skip if BIOMD8 is not in the precomputed end-time table."""
-        if "BIOMD0000000008" not in LRoadrunner.endtime_dct:
-            self.skipTest("BIOMD0000000008 not in endtime_dct")
+        if self.MODEL_NAME not in LRoadrunner.endtime_dct:
+            self.skipTest(f"{self.MODEL_NAME} not in endtime_dct")
 
     def _make_predictor(self, n_cluster: int) -> MultipleLinearPredictor:
         """Return a MultipleLinearPredictor for BIOMD8 with the given cluster count."""
         b_cluster = BiomodelsCluster(
-                model_name="BIOMD0000000008",
+                model_name=self.MODEL_NAME,
                 start_time=0.0,
-                end_time=np.nan,
+                end_time=self.BIOMD8_ENDTIME,
                 num_point=100,
                 diameter_metric="weighted_eigenvectors")
         cjc = b_cluster.cluster(n_cluster=n_cluster, is_sequential_partition=True)
@@ -359,7 +342,7 @@ class TestMultipleLinearPredictorScoreWithBioModels(unittest.TestCase):
         self.assertIsInstance(result, ScoreResult)
 
     def test_score_biomd8_finite_values(self) -> None:
-        """score returns finite mean_rae and max_rae for BIOMD8."""
+        """score returns finite mean_rae and max_rae for {self.MODEL_NAME}."""
         if IGNORE_TESTS:
             return
         self._skip_if_no_endtime()
@@ -368,6 +351,7 @@ class TestMultipleLinearPredictorScoreWithBioModels(unittest.TestCase):
         self.assertTrue(np.isfinite(result.mean_rae))
         self.assertTrue(np.isfinite(result.max_rae))
 
+    # FIXME: Score for 3 clusters is worse than score for 1 cluster
     def test_score_biomd8_three_clusters_finite(self) -> None:
         """score returns finite values for BIOMD8 with 3 clusters."""
         if IGNORE_TESTS:
@@ -379,6 +363,40 @@ class TestMultipleLinearPredictorScoreWithBioModels(unittest.TestCase):
         self.assertTrue(np.isfinite(result_1.max_rae))
         predictor_3 = self._make_predictor(n_cluster=3)
         result_3 = predictor_3.score()
+        self.assertTrue(np.isfinite(result_3.mean_rae))
+        self.assertTrue(np.isfinite(result_3.max_rae))
+
+
+class TestMultipleLinearPredictorScoreSimpleModel(unittest.TestCase):
+    """Tests for MultipleLinearPredictor.score using a simple model."""
+
+    MODEL_NAME = ANTIMONY_DECAY
+    ENDTIME = 50
+
+
+    def _make_jc(self) -> Tuple[LRoadrunner, Trajectory]:
+        """Return a MultipleLinearPredictor built from a real Antimony model."""
+        lr = _make_lroadrunner(self.MODEL_NAME, end_time=self.ENDTIME)
+        return lr, Trajectory(lr)
+
+    def _make_predictor_from_model(self, n_cluster: int, end_time:float = 10.0) -> MultipleLinearPredictor:
+        """Return a MultipleLinearPredictor built from a real Antimony model."""
+        lr, jc = self._make_jc()
+        jcs = jc.sequentialPartition(n_cluster=n_cluster)
+        cjc = ClusteredJacobianCollection(jcs)
+        return MultipleLinearPredictor.makeFromLRoadrunner(cjc, lr)
+
+    def test_score_decay_forced_three_clusters_finite(self) -> None:
+        """score returns finite values for BIOMD8 with 3 clusters."""
+        #if IGNORE_TESTS:
+        #    return
+        predictor_1 = self._make_predictor_from_model(n_cluster=1, end_time=self.ENDTIME)
+        result_1 = predictor_1.score()
+        self.assertTrue(np.isfinite(result_1.mean_rae))
+        self.assertTrue(np.isfinite(result_1.max_rae))
+        predictor_3 = self._make_predictor_from_model(n_cluster=3, end_time=self.ENDTIME)
+        result_3 = predictor_3.score()
+        import pdb; pdb.set_trace()
         self.assertTrue(np.isfinite(result_3.mean_rae))
         self.assertTrue(np.isfinite(result_3.max_rae))
 

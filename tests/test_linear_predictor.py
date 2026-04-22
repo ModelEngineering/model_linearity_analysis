@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import src.constants as cn
-from jacobian_collection import JacobianCollection  # type: ignore
+from trajectory import Trajectory  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 from linear_predictor import LinearPredictor  # type: ignore
 
@@ -35,26 +35,26 @@ k1 = 0.1; k2 = 0.2; S1 = 10.0; S2 = 0.0
 """
 
 
-def _make_jc_from_arrays(jacobian_arr: np.ndarray, timepoint_arr: np.ndarray) -> JacobianCollection:
+def _make_jc_from_arrays(jacobian_collection_arr: np.ndarray, timepoint_arr: np.ndarray) -> Trajectory:
     """Return a JacobianCollection from explicit arrays (no real simulation needed)."""
     lr = MagicMock(spec=LRoadrunner)
-    lr.makeJacobians.return_value = (jacobian_arr, timepoint_arr)
-    return JacobianCollection(lr)
+    lr.makeJacobians.return_value = (jacobian_collection_arr, timepoint_arr)
+    return Trajectory(lr)
 
 
 def _make_jc(n_points: int = 5, n_species: int = 1,
-             jacobian_val: float = -0.2) -> JacobianCollection:
+             jacobian_val: float = -0.2) -> Trajectory:
     """Return a JacobianCollection with a constant diagonal Jacobian."""
-    jacobian_arr = np.full((n_points, n_species, n_species), 0.0)
+    jacobian_collection_arr = np.full((n_points, n_species, n_species), 0.0)
     for i in range(n_species):
-        jacobian_arr[:, i, i] = jacobian_val
+        jacobian_collection_arr[:, i, i] = jacobian_val
     timepoint_arr = np.linspace(0.0, 10.0, n_points)
-    return _make_jc_from_arrays(jacobian_arr, timepoint_arr)
+    return _make_jc_from_arrays(jacobian_collection_arr, timepoint_arr)
 
 
 def _make_lroadrunner(antimony_str: str) -> LRoadrunner:
     """Return a real LRoadrunner for the given Antimony model."""
-    return LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_points=11)
+    return LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_point=11)
 
 
 # ---------------------------------------------------------------------------
@@ -91,25 +91,25 @@ class TestLinearPredictorInit(unittest.TestCase):
         self.assertTrue(np.array_equal(predictor.forced_input_arr, forced_arr))
 
     def test_mean_jacobian_shape(self) -> None:
-        """mean_jacobian_arr has shape (n_species, n_species)."""
+        """mean_jacobian_collection_arr has shape (n_species, n_species)."""
         if IGNORE_TESTS:
             return
         n_species = 3
         jc = _make_jc(n_points=5, n_species=n_species)
         predictor = LinearPredictor(jc, np.zeros(n_species), np.zeros(n_species))
-        self.assertEqual(predictor.mean_jacobian_arr.shape, (n_species, n_species))
+        self.assertEqual(predictor.mean_jacobian_collection_arr.shape, (n_species, n_species))
 
     def test_mean_jacobian_value(self) -> None:
-        """mean_jacobian_arr equals element-wise mean of jacobian_arr."""
+        """mean_jacobian_collection_arr equals element-wise mean of jacobian_collection_arr."""
         if IGNORE_TESTS:
             return
-        jacobian_arr = np.array([[[1.0, 2.0], [3.0, 4.0]],
+        jacobian_collection_arr = np.array([[[1.0, 2.0], [3.0, 4.0]],
                                   [[5.0, 6.0], [7.0, 8.0]]])
         timepoint_arr = np.array([0.0, 1.0])
-        jc = _make_jc_from_arrays(jacobian_arr, timepoint_arr)
+        jc = _make_jc_from_arrays(jacobian_collection_arr, timepoint_arr)
         predictor = LinearPredictor(jc, np.zeros(2), np.zeros(2))
         expected = np.array([[3.0, 4.0], [5.0, 6.0]])
-        np.testing.assert_allclose(predictor.mean_jacobian_arr, expected)
+        np.testing.assert_allclose(predictor.mean_jacobian_collection_arr, expected)
 
 
 class TestLinearPredictorPredict(unittest.TestCase):
@@ -158,9 +158,9 @@ class TestLinearPredictorPredict(unittest.TestCase):
         # dx/dt = -k*x => x(t) = x0 * exp(-k*t)
         k = 0.3
         x0 = 5.0
-        jacobian_arr = np.full((3, 1, 1), -k)
+        jacobian_collection_arr = np.full((3, 1, 1), -k)
         timepoint_arr = np.array([0.0, 5.0, 10.0])
-        jc = _make_jc_from_arrays(jacobian_arr, timepoint_arr)
+        jc = _make_jc_from_arrays(jacobian_collection_arr, timepoint_arr)
         predictor = LinearPredictor(jc, np.array([x0]), np.array([0.0]))
         times = np.array([0.0, 2.0, 5.0])
         result = predictor.predict(times)
@@ -172,7 +172,7 @@ class TestLinearPredictorPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         lr = _make_lroadrunner(ANTIMONY_FORCED)
-        jc = JacobianCollection(lr)
+        jc = Trajectory(lr)
         initial_arr = np.array([0.0])
         forced_arr = np.array([0.1])
         predictor = LinearPredictor(jc, initial_arr, forced_arr)
@@ -196,7 +196,7 @@ class TestLinearPredictorPredict(unittest.TestCase):
         if IGNORE_TESTS:
             return
         lr = _make_lroadrunner(ANTIMONY_FORCED)
-        jc = JacobianCollection(lr)
+        jc = Trajectory(lr)
         predictor = LinearPredictor(jc, np.array([0.0]), np.array([0.1]))
         result = predictor.predict(jc.timepoint_arr, l_roadrunner=lr)
         self.assertIsInstance(result.mean_abs_error, float)
@@ -243,15 +243,15 @@ class TestLinearPredictorPredict(unittest.TestCase):
         end_time = 2646.0
         num_points = 100
         lr = LRoadrunner(sbml_str, start_time=0.0, end_time=end_time,
-                num_points=num_points)
-        jc = JacobianCollection(lr)
+                num_point=num_points)
+        jc = Trajectory(lr)
 
         # Compute initial state and forced input u = f(x0) - J_mean @ x0.
         rr = lr.getRoadrunner()
         rr.reset()
         x0_arr = np.array(rr.getFloatingSpeciesConcentrations())
         f0_arr = np.array(rr.getRatesOfChange())
-        j_mean_arr = np.mean(jc.jacobian_arr, axis=0)
+        j_mean_arr = np.mean(jc.jacobian_collection_arr, axis=0)
         forced_input_arr = f0_arr - j_mean_arr @ x0_arr
 
         predictor = LinearPredictor(jc, x0_arr, forced_input_arr)
@@ -377,14 +377,14 @@ class TestLinearPredictorPlot(unittest.TestCase):
         end_time = 40.0
         num_points = 100
         lr = LRoadrunner(sbml_str, start_time=0.0, end_time=end_time,
-                num_points=num_points)
-        jc = JacobianCollection(lr)
+                num_point=num_points)
+        jc = Trajectory(lr)
 
         rr = lr.getRoadrunner()
         rr.reset()
         x0_arr = np.array(rr.getFloatingSpeciesConcentrations())
         f0_arr = np.array(rr.getRatesOfChange())
-        j_mean_arr = np.mean(jc.jacobian_arr, axis=0)
+        j_mean_arr = np.mean(jc.jacobian_collection_arr, axis=0)
         forced_input_arr = f0_arr - j_mean_arr @ x0_arr
 
         predictor = LinearPredictor(jc, x0_arr, forced_input_arr)
