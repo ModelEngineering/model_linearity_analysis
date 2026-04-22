@@ -1020,5 +1020,89 @@ class TestTimecourse(unittest.TestCase):
         self.assertTrue(np.all(result.values >= 0.0))
 
 
+class TestSpeciesNames(unittest.TestCase):
+    """Tests for LRoadrunner.species_names property."""
+
+    def setUp(self) -> None:
+        self.lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+
+    def test_returns_list(self) -> None:
+        """species_names returns a list."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.species_names
+        self.assertIsInstance(result, list)
+
+    def test_elements_are_strings(self) -> None:
+        """species_names elements are all strings."""
+        if IGNORE_TESTS:
+            return
+        for name in self.lrr.species_names:
+            self.assertIsInstance(name, str)
+
+    def test_correct_species_for_antimony_model(self) -> None:
+        """species_names returns ['S1', 'S2'] for ANTIMONY_MODEL."""
+        if IGNORE_TESTS:
+            return
+        result = self.lrr.species_names
+        self.assertEqual(result, ["S1", "S2"])
+
+    def test_correct_species_for_production_model(self) -> None:
+        """species_names returns ['S1'] for PRODUCTION_MODEL."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0)
+        result = lrr.species_names
+        self.assertEqual(result, ["S1"])
+
+    def test_no_brackets_in_names(self) -> None:
+        """species_names strips any enclosing brackets from RoadRunner IDs."""
+        if IGNORE_TESTS:
+            return
+        for name in self.lrr.species_names:
+            self.assertFalse(name.startswith("["))
+            self.assertFalse(name.endswith("]"))
+
+    def test_is_cached(self) -> None:
+        """species_names returns the same list object on repeated access."""
+        if IGNORE_TESTS:
+            return
+        first = self.lrr.species_names
+        second = self.lrr.species_names
+        self.assertIs(first, second)
+
+
+class TestNumSpecies(unittest.TestCase):
+    """Tests for LRoadrunner.num_species property."""
+
+    def test_returns_int(self) -> None:
+        """num_species returns an int."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+        self.assertIsInstance(lrr.num_species, int)
+
+    def test_correct_count_antimony_model(self) -> None:
+        """num_species returns 2 for ANTIMONY_MODEL (S1, S2)."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+        self.assertEqual(lrr.num_species, 2)
+
+    def test_correct_count_production_model(self) -> None:
+        """num_species returns 1 for PRODUCTION_MODEL (S1)."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(PRODUCTION_MODEL, end_time=50.0)
+        self.assertEqual(lrr.num_species, 1)
+
+    def test_matches_species_names_length(self) -> None:
+        """num_species equals len(species_names)."""
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0)
+        self.assertEqual(lrr.num_species, len(lrr.species_names))
+
+
 if __name__ == "__main__":
     unittest.main()

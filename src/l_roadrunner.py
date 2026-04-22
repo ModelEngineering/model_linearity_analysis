@@ -19,7 +19,7 @@ import pandas as pd  # type: ignore
 import regex as re # type: ignore
 from scipy.optimize import minimize_scalar  # type: ignore
 import tellurium as te  # type: ignore
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
 DEFAULT_END_TIME = 10.0
 DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
@@ -89,6 +89,21 @@ class LRoadrunner(object):
         self._end_time: float = end_time if end_time is not None else np.nan
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
+        self._species_names: List[str] = []
+
+    @property
+    def species_names(self) -> list[str]:
+        """Get the list of floating species names in the model."""
+        if not self._species_names:
+            rr = self.getRoadrunner()
+            species_ids = rr.getFloatingSpeciesIds()
+            self._species_names = [s[1:-1] if s.startswith("[") and s.endswith("]") else s for s in species_ids]
+        return self._species_names
+    
+    @property
+    def num_species(self) -> int:
+        """Get the number of floating species in the model."""
+        return len(self.species_names)
 
     @property
     def start_time(self) -> float:
@@ -110,9 +125,7 @@ class LRoadrunner(object):
         """
         rr = self.getRoadrunner()
         result_arr = self.simulate(is_with_timepoints=True)
-        species_ids = rr.getFloatingSpeciesIds()
-        clean_ids = [s[1:-1] if s.startswith("[") and s.endswith("]") else s for s in species_ids]
-        df = pd.DataFrame(result_arr, columns=["time"] + clean_ids)
+        df = pd.DataFrame(result_arr, columns=["time"] + self.species_names)
         df = df.set_index("time")
         return df
 

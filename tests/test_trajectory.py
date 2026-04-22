@@ -849,6 +849,7 @@ class TestPredictLinear(unittest.TestCase):
         initial_state_arr = np.ones(n_species)
         forced_input_arr = np.zeros(n_species)
         result = self.trajectory.predictLinear(initial_state_arr, forced_input_arr)
+        import pdb; pdb.set_trace()
         self.assertEqual(result.shape, (n_points, n_species))
 
     def test_returns_ndarray(self) -> None:
