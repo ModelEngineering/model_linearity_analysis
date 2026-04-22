@@ -23,14 +23,14 @@ class MultipleLinearPredictor(object):
     condition for the next.
 
     Construction mirrors LinearPredictor: callers supply initial_value_arr and
-    forced_input_arr directly.  Use makeFromLRoadrunner to derive these arrays
+    forcing_input_arr directly.  Use makeFromLRoadrunner to derive these arrays
     automatically from a simulation.
     """
 
     def __init__(self,
             clustered_jacobian_collection: ClusteredJacobianCollection,
             initial_value_arr: np.ndarray,
-            forced_input_arr: np.ndarray,
+            forcing_input_arr: np.ndarray,
             l_roadrunner: Optional[LRoadrunner] = None,
             ) -> None:
         """
@@ -46,7 +46,7 @@ class MultipleLinearPredictor(object):
             - 2-D array of shape (n_clusters, n_species): a distinct initial
               concentration vector for each cluster.  n_clusters must equal the
               number of JacobianCollections in clustered_jacobian_collection.
-        forced_input_arr : np.ndarray
+        forcing_input_arr : np.ndarray
             Either:
             - 1-D array of shape (n_species,): the same forcing vector is
               reused for every cluster.
@@ -63,7 +63,7 @@ class MultipleLinearPredictor(object):
             If initial_value_arr is 2-D and its first dimension does not match
             the number of JacobianCollections.
         ValueError
-            If forced_input_arr is 2-D and its first dimension does not match
+            If forcing_input_arr is 2-D and its first dimension does not match
             the number of JacobianCollections.
         """
         n_clusters = len(clustered_jacobian_collection.jacobian_collections)
@@ -72,14 +72,14 @@ class MultipleLinearPredictor(object):
                 f"initial_value_arr has {initial_value_arr.shape[0]} rows but "
                 f"clustered_jacobian_collection has {n_clusters} clusters."
             )
-        if forced_input_arr.ndim == 2 and forced_input_arr.shape[0] != n_clusters:
+        if forcing_input_arr.ndim == 2 and forcing_input_arr.shape[0] != n_clusters:
             raise ValueError(
-                f"forced_input_arr has {forced_input_arr.shape[0]} rows but "
+                f"forcing_input_arr has {forcing_input_arr.shape[0]} rows but "
                 f"clustered_jacobian_collection has {n_clusters} clusters."
             )
         self.clustered_jacobian_collection = clustered_jacobian_collection
         self.initial_value_arr = initial_value_arr
-        self.forced_input_arr = forced_input_arr
+        self.forcing_input_arr = forcing_input_arr
         self.l_roadrunner = l_roadrunner
         if self.l_roadrunner is not None:
             self.species_names = self.l_roadrunner.getRoadrunner().getFloatingSpeciesIds()
@@ -99,9 +99,9 @@ class MultipleLinearPredictor(object):
         np.ndarray
             1-D array of shape (n_species,).
         """
-        if self.forced_input_arr.ndim == 1:
-            return self.forced_input_arr
-        return self.forced_input_arr[cluster_idx]
+        if self.forcing_input_arr.ndim == 1:
+            return self.forcing_input_arr
+        return self.forcing_input_arr[cluster_idx]
 
     def _getClusterStart(self, cluster_idx: int, current_x: np.ndarray) -> np.ndarray:
         """Return the starting state for the given cluster.
@@ -132,21 +132,21 @@ class MultipleLinearPredictor(object):
     def makeFromLRoadrunner(cls,
             clustered_jacobian_collection: ClusteredJacobianCollection,
             l_roadrunner: LRoadrunner,
-            is_per_cluster_forced_input: bool = False,
+            is_per_cluster_forcing_input: bool = False,
             ) -> "MultipleLinearPredictor":
         """Construct a MultipleLinearPredictor by deriving inputs from a simulation.
 
         Resets the model to obtain initial_value_arr, then computes forced input(s).
 
-        When is_per_cluster_forced_input is False (default), a single forcing
+        When is_per_cluster_forcing_input is False (default), a single forcing
         vector is computed at the initial state using the first cluster's mean
         Jacobian: u = f(x0) - J_mean_0 @ x0.
 
-        When is_per_cluster_forced_input is True, a per-cluster forcing vector is
+        When is_per_cluster_forcing_input is True, a per-cluster forcing vector is
         computed by propagating predicted states forward:
             u_i = f(x_i) - J_mean_i @ x_i
         where x_i is the predicted state at the start of cluster i.  The result
-        is a 2-D forced_input_arr of shape (n_clusters, n_species).
+        is a 2-D forcing_input_arr of shape (n_clusters, n_species).
 
         Parameters
         ----------
@@ -155,7 +155,7 @@ class MultipleLinearPredictor(object):
         l_roadrunner : LRoadrunner
             LRoadrunner instance used to obtain initial concentrations and
             instantaneous rates of change.
-        is_per_cluster_forced_input : bool
+        is_per_cluster_forcing_input : bool
             If True, compute a distinct forcing vector for each cluster.
             If False (default), compute one forcing vector at the initial state.
 
@@ -167,34 +167,34 @@ class MultipleLinearPredictor(object):
         rr.reset()
         initial_value_arr = np.array(rr.getFloatingSpeciesConcentrations())
         species_ids = rr.getFloatingSpeciesIds()
-        if not is_per_cluster_forced_input:
+        if not is_per_cluster_forcing_input:
             f_arr = np.array(rr.getRatesOfChange())
             first_jc = clustered_jacobian_collection.jacobian_collections[0]
-            forced_input_arr = f_arr - first_jc.jacobian_mean_arr @ initial_value_arr
+            forcing_input_arr = f_arr - first_jc.jacobian_mean_arr @ initial_value_arr
         else:
             current_x = initial_value_arr.copy()
-            forced_inputs: List[np.ndarray] = []
+            forcing_inputs: List[np.ndarray] = []
             for jc in clustered_jacobian_collection.jacobian_collections:
                 rr.reset()
                 for idx, sp_id in enumerate(species_ids):
                     rr[sp_id] = float(current_x[idx])
                 f_arr = np.array(rr.getRatesOfChange())
-                forced_inputs.append(f_arr - jc.jacobian_mean_arr @ current_x)
+                forcing_inputs.append(f_arr - jc.jacobian_mean_arr @ current_x)
                 duration = float(jc.timepoint_arr[-1] - jc.timepoint_arr[0])
-                lp = LinearPredictor(jc, current_x, forced_inputs[-1])
+                lp = LinearPredictor(jc, current_x, forcing_inputs[-1])
                 current_x = lp.predict(np.array([0.0, duration])).prediction_arr[-1]
-            forced_input_arr = np.array(forced_inputs)
+            forcing_input_arr = np.array(forcing_inputs)
 
         return cls(
                 clustered_jacobian_collection,
                 initial_value_arr,
-                forced_input_arr,
+                forcing_input_arr,
                 l_roadrunner)
 
     def predict(self) -> np.ndarray:
         """Predict floating species concentrations at the end of each cluster.
 
-        Uses the stored initial_value_arr and forced_input_arr.  For each cluster:
+        Uses the stored initial_value_arr and forcing_input_arr.  For each cluster:
         1. Build a LinearPredictor with the current state and the pre-computed
             forced input for that cluster.
         2. Predict concentrations at the last timepoint of the cluster.

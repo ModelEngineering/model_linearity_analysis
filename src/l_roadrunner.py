@@ -85,11 +85,36 @@ class LRoadrunner(object):
         # Verify the specification can be loaded as a model, to fail fast if the model is invalid. The loaded model is not stored, so this does not affect the state of the object or its getRoadrunner() method.
         self._loadModel(roadrunner_specification)
         self._start_time = start_time
-        self.num_points = num_point
+        self.num_point = num_point
         self._end_time: float = end_time if end_time is not None else np.nan
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
         self._species_names: List[str] = []
+
+    @classmethod
+    def makeBiomodel(cls, path:str, **kwargs) -> "LRoadrunner":
+        """
+        Create an LRoadrunner instance from a BioModels SBML file.
+
+        Parameters
+        ----------
+        path : str
+            Path to the SBML file.
+
+        Returns
+        -------
+        LRoadrunner
+            An instance of LRoadrunner initialized with the model from the specified SBML file.
+        """
+        END_TIME = "end_time"
+        with open(path, "r") as f:
+            sbml_str = f.read()
+        if not END_TIME in kwargs:
+            end_time = cls.endtime_dct.get(os.path.basename(path), None)
+        else:
+            end_time = kwargs[END_TIME]
+        kwargs[END_TIME] = end_time
+        return cls(sbml_str, **kwargs)
 
     @property
     def species_names(self) -> list[str]:
@@ -123,7 +148,6 @@ class LRoadrunner(object):
         pd.DataFrame
             A DataFrame containing the time course of the simulation, with columns for time and each floating species.
         """
-        rr = self.getRoadrunner()
         result_arr = self.simulate(is_with_timepoints=True)
         df = pd.DataFrame(result_arr, columns=["time"] + self.species_names)
         df = df.set_index("time")
@@ -134,10 +158,9 @@ class LRoadrunner(object):
         Get the initial state of the model as a 1-D array of floating species concentrations.
         """
         rr = self.getRoadrunner()
-        rr.reset()
         return np.array(rr.getFloatingSpeciesConcentrations())
     
-    def getForcedInputs(self) -> np.ndarray:
+    def getForcingInputs(self) -> np.ndarray:
         """
         Get the forced input timecourse of the model as a 1-D array of of size the number of floating species.
         Forced inputs are calculated as the difference between the rates of change and the Jacobian applied to the initial state, which is equivalent to the input that would need to be added to the system to make it perfectly linear with respect to the initial state.
@@ -400,7 +423,7 @@ class LRoadrunner(object):
         if is_with_timepoints:
             idx = 0
         try:
-            result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_points)
+            result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_point)
         except Exception as e:
             print(f"Error occurred while simulating: {e}")
             return np.array([]).reshape(0, 0)
@@ -427,7 +450,7 @@ class LRoadrunner(object):
         rr = self.getRoadrunner()
         if len(rr.getFloatingSpeciesIds()) == 0:
             raise ValueError("Model has no floating species; cannot compute Jacobian.")
-        result_arr = rr.simulate(self.start_time, self.end_time, self.num_points)
+        result_arr = rr.simulate(self.start_time, self.end_time, self.num_point)
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
 
         # For BIOMD7, fails on the first simulation
@@ -542,7 +565,7 @@ class LRoadrunner(object):
             try:
                 rr.reset()
                 try:
-                    result_arr = np.array(rr.simulate(self.start_time, end_time, self.num_points))
+                    result_arr = np.array(rr.simulate(self.start_time, end_time, self.num_point))
                 except Exception:
                     return 0.0
                 data_arr = result_arr[:, 1:]  # Exclude time column

@@ -8,9 +8,11 @@ import matplotlib.axes as maxes  # type: ignore
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 import seaborn as sns  # type: ignore
 from sklearn.cluster import KMeans  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
+from lmfit import Parameters, minimize as lmfit_minimize  # type: ignore
 from typing import List, Optional, Tuple, cast
 
 
@@ -54,7 +56,8 @@ class Trajectory(object):
                 eigenvector_collection_arr: np.ndarray = np.array([])) -> None:
         """Initialize the JacobianCollection with a new LRoadrunner instance."""
         self.l_roadrunner = l_roadrunner
-        self.num_species = self.jacobian_collection_arr[0].shape[1] if hasattr(self, "jacobian_collection_arr") else 0
+        self.num_species = self.l_roadrunner.num_species
+        self.num_point = self.l_roadrunner.num_point
         self._jacobian_mean_arr = np.array([])
         self._jacobian_std_arr = np.array([])
         self._diameter = np.nan
@@ -245,34 +248,108 @@ class Trajectory(object):
         result = np.sqrt(np.sum(diff_arr**2, axis=(1,2)))
         return result
     
-    def predictLinear(self, initial_state_arr: np.ndarray,
-            forced_input_arr: np.ndarray) -> np.ndarray:
+
+    def predictLinear(self, **kwargs) -> pd.DataFrame:
         """
         Predict the timecourse of species concentrations given an initial state and a timecourse of Jacobians
-        Using linear prediction.
+        Using linear prediction. If no values are given for initial state or forced input,
+        these are obtained from LRoadrunner.
 
         Parameters
         ----------
         initial_state_arr : np.ndarray
             1-D array of shape (num_species,) containing the initial concentrations of each species.
-        forced_input_arr : np.ndarray
-            1-D array of shape (num_timepoints,) containing the forcing inputs at each timepoint.
+        forcing_input_arr : np.ndarray
+            1-D array of shape (num_species,) containing constant forcing inputs for each species.
 
         Returns
         -------
         np.ndarray
-            2-D array of shape (num_timepoints, num_species) containing the predicted concentrations of each species at each timepoint.
+            2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
         """
+        arr = self._predictLinear(**kwargs)
+        df = pd.DataFrame(arr, columns=self.l_roadrunner.species_names)
+        df = df.set_index(self.timepoint_arr)
+        return df
+
+    def _predictLinear(self,
+            initial_state_arr: np.ndarray=cn.NULL_ARRAY,
+            forcing_input_arr: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
+        """
+        Predict the timecourse of species concentrations given an initial state and a timecourse of Jacobians
+        Using linear prediction. If no values are given for initial state or forced input,
+        these are obtained from LRoadrunner.
+
+        Parameters
+        ----------
+        initial_state_arr : np.ndarray
+            1-D array of shape (num_species,) containing the initial concentrations of each species.
+        forcing_input_arr : np.ndarray
+            1-D array of shape (num_species,) containing constant forcing inputs for each species.
+
+        Returns
+        -------
+        np.ndarray
+            2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
+        """
+        if np.array_equal(initial_state_arr, cn.NULL_ARRAY):
+            initial_state_arr = self.l_roadrunner.getInitialValues()
+        if np.array_equal(forcing_input_arr, cn.NULL_ARRAY):
+            forcing_input_arr = self.fitForcingInputs(initial_state_arr)
         ##
         def ode(t: float, x: np.ndarray) -> np.ndarray:
-            # Interpolate the Jacobian at time t using the mean Jacobian and the forcing input
-            return self.jacobian_mean_arr @ x + forced_input_arr
+            return self.jacobian_mean_arr @ x + forcing_input_arr
         ##
         sol = solve_ivp(ode,
                 (self.timepoint_arr[0], self.timepoint_arr[-1]),
                 initial_state_arr,
-                t_eval=self.timepoint_arr)
+                t_eval=self.timepoint_arr,
+                method='LSODA')
         return sol.y.T
+
+    def fitForcingInputs(self,
+            initial_state_arr: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
+        """
+        Find constant forcing inputs that minimise the prediction error of predictLinear
+        against the actual nonlinear simulation timecourse.
+
+        Uses lmfit least-squares optimisation to find a forcing input vector u of shape
+        (num_species,) such that predictLinear(initial_state_arr, u) is as close as
+        possible to l_roadrunner.simulate().
+
+        Parameters
+        ----------
+        initial_state_arr : np.ndarray
+            1-D array of shape (num_species,) of initial concentrations.
+            If omitted, l_roadrunner.getInitialValues() is used.
+
+        Returns
+        -------
+        np.ndarray
+            1-D array of shape (num_species,) containing the optimal forcing inputs.
+        """
+        if np.array_equal(initial_state_arr, cn.NULL_ARRAY):
+            initial_state_arr = self.l_roadrunner.getInitialValues()
+        actual_arr = self.l_roadrunner.simulate()
+        params = Parameters()
+        initial_forcing_input_arr = self.l_roadrunner.getForcingInputs()
+        for i in range(self.num_species):
+            params.add(f'u{i}', value=initial_forcing_input_arr[i])
+            #params.add(f'u{i}', value=0)
+        ##
+        def _residuals(params: Parameters) -> np.ndarray:
+            forcing_input_arr = np.array([params[f'u{i}'].value
+                    for i in range(self.num_species)])
+            predicted_arr = self._predictLinear(initial_state_arr, forcing_input_arr)
+            denom = np.abs(actual_arr.flatten())
+            numerator = (predicted_arr - actual_arr).flatten()
+            numerator = np.where(denom == 0, 0, numerator)
+            denom = np.where(denom == 0, 1, denom)
+            normalized_residuals = numerator / denom
+            return normalized_residuals
+        ##
+        result = lmfit_minimize(_residuals, params, method='leastsq')
+        return np.array([result.params[f'u{i}'].value for i in range(self.num_species)])  # type: ignore
 
     def plot(self,
             top_ax: Optional[plt.Axes] = None,   # type: ignore
@@ -459,7 +536,6 @@ class Trajectory(object):
             )
         return jcs
 
-    # FIXME: Partitioning method is questionable and occasionally errors
     def deprecatedsequentialPartition(self, n_cluster: int) -> List["Trajectory"]:
         """Partition the Jacobians into n_cluster contiguous time segments.
 

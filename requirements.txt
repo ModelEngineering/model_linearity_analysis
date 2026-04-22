@@ -3,6 +3,7 @@ brotli
 build
 coverage
 jupyterlab
+lmfit
 matplotlib
 nose2
 pandas

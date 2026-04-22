@@ -5,8 +5,8 @@ import os
 import sys
 import unittest
 from unittest.mock import patch, MagicMock
+import pandas as pd  # type: ignore
 import matplotlib # type: ignore
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
 
@@ -16,6 +16,8 @@ from trajectory import Trajectory, IVP_RELATIVE_TIMES  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
 IGNORE_TESTS = True
+if not IGNORE_TESTS:
+    matplotlib.use("Agg")
 
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
@@ -26,6 +28,10 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 BIOMD_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000038", "BIOMD0000000038_url.xml"
 )
+BIOMD8_PATH = os.path.join(
+    cn.BIOMODELS_DIR, "BIOMD0000000008", "BIOMD0000000008_url.xml"
+)
+BIOMD8_ENDTIME = 20.0
 BIOMD206_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
 )
@@ -37,13 +43,14 @@ def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints
     lr = MagicMock(spec=LRoadrunner)
     lr.makeJacobians.return_value = (jacobian_collection_arr, timepoints)
     lr.end_time = 5.0
+    lr.num_point = len(timepoints)
     return Trajectory(lr)
 
-def _make_trajectory(n_points: int = 5, n_species: int = 3) -> Trajectory:
+def _make_trajectory(n_point: int = 5, n_species: int = 3) -> Trajectory:
     """Return a JacobianCollection with deterministic values using a mock LRoadrunner."""
     rng = np.random.default_rng(42)
-    jacobian_collection_arr = rng.standard_normal((n_points, n_species, n_species))
-    timepoints = np.linspace(0, 10, n_points)
+    jacobian_collection_arr = rng.standard_normal((n_point, n_species, n_species))
+    timepoints = np.linspace(0, 10, n_point)
     return _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
 
 def _make_lroadrunner(antimony_str: str, end_time:float = 10.0, num_point:int = 11) -> LRoadrunner:
@@ -98,7 +105,7 @@ class TestGetTimes(unittest.TestCase):
         """getTimes returns all timepoints when none are duplicated."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=5)
+        jc = _make_trajectory(n_point=5)
         self.assertEqual(len(jc.getTimes()), 5)
 
 
@@ -109,7 +116,7 @@ class TestJacobianMeanArr(unittest.TestCase):
         """jacobian_mean_arr has shape (n_species, n_species)."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=5, n_species=3)
+        jc = _make_trajectory(n_point=5, n_species=3)
         self.assertEqual(jc.jacobian_mean_arr.shape, (3, 3))
 
     def test_known_value(self) -> None:
@@ -136,7 +143,7 @@ class TestJacobianMeanArr(unittest.TestCase):
         """jacobian_mean_arr returns the same object on repeated access."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=5, n_species=2)
+        jc = _make_trajectory(n_point=5, n_species=2)
         first = jc.jacobian_mean_arr
         second = jc.jacobian_mean_arr
         self.assertIs(first, second)
@@ -149,7 +156,7 @@ class TestJacobianStdArr(unittest.TestCase):
         """jacobian_std_arr has shape (n_species, n_species)."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=5, n_species=3)
+        jc = _make_trajectory(n_point=5, n_species=3)
         self.assertEqual(jc.jacobian_std_arr.shape, (3, 3))
 
     def test_known_value(self) -> None:
@@ -176,14 +183,14 @@ class TestJacobianStdArr(unittest.TestCase):
         """jacobian_std_arr is always non-negative."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=10, n_species=3)
+        jc = _make_trajectory(n_point=10, n_species=3)
         self.assertTrue(np.all(jc.jacobian_std_arr >= 0.0))
 
     def test_cached_on_second_access(self) -> None:
         """jacobian_std_arr returns the same object on repeated access."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=5, n_species=2)
+        jc = _make_trajectory(n_point=5, n_species=2)
         first = jc.jacobian_std_arr
         second = jc.jacobian_std_arr
         self.assertIs(first, second)
@@ -258,7 +265,7 @@ class TestCalculateDeviation(unittest.TestCase):
         """Result has shape (num_points,)."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=5, n_species=3)
+        jc = _make_trajectory(n_point=5, n_species=3)
         result = jc._calculateDeviation()
         self.assertEqual(result.shape, (5,))
 
@@ -784,7 +791,7 @@ class TestIvpSolutions(unittest.TestCase):
         """ivp_solutions returns a numpy ndarray."""
         if IGNORE_TESTS:
             return
-        jc = _make_trajectory(n_points=2, n_species=2)
+        jc = _make_trajectory(n_point=2, n_species=2)
         self.assertIsInstance(jc.ivp_solutions, np.ndarray)
 
     def test_shape(self) -> None:
@@ -792,7 +799,7 @@ class TestIvpSolutions(unittest.TestCase):
         if IGNORE_TESTS:
             return
         n_points, n_species = 4, 3
-        jc = _make_trajectory(n_points=n_points, n_species=n_species)
+        jc = _make_trajectory(n_point=n_points, n_species=n_species)
         result = jc.ivp_solutions
         self.assertEqual(result.shape, (n_points, n_species *len(IVP_RELATIVE_TIMES)))
 
@@ -835,7 +842,7 @@ class TestIvpSolutions(unittest.TestCase):
         self.assertTrue(all(result[1] <= result[0]))  # J with more negative eigenvalues should decay faster
 
 
-class TestPredictLinear(unittest.TestCase):
+class TestPredictLinearBasic(unittest.TestCase):
     """Tests for Trajectory.predictLinear."""
 
     def setUp(self) -> None:
@@ -843,21 +850,20 @@ class TestPredictLinear(unittest.TestCase):
 
     def test_output_shape(self) -> None:
         """Result has shape (num_timepoints, num_species)."""
-        #if IGNORE_TESTS:
-        #    return
-        n_points, n_species = 5, 3
+        if IGNORE_TESTS:
+            return
+        n_point, n_species = self.trajectory.num_point, self.trajectory.num_species
         initial_state_arr = np.ones(n_species)
-        forced_input_arr = np.zeros(n_species)
-        result = self.trajectory.predictLinear(initial_state_arr, forced_input_arr)
-        import pdb; pdb.set_trace()
-        self.assertEqual(result.shape, (n_points, n_species))
+        forcing_input_arr = np.zeros(n_species)
+        result = self.trajectory._predictLinear(initial_state_arr, forcing_input_arr)
+        self.assertEqual(result.shape, (n_point, n_species))
 
     def test_returns_ndarray(self) -> None:
         """predictLinear returns a numpy ndarray."""
         if IGNORE_TESTS:
             return
         trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=1.0)
-        result = trajectory.predictLinear(np.ones(2), np.zeros(2))
+        result = trajectory._predictLinear(np.ones(2), np.zeros(2))
         self.assertIsInstance(result, np.ndarray)
 
     def test_zero_initial_state_gives_zero_output(self) -> None:
@@ -867,7 +873,7 @@ class TestPredictLinear(unittest.TestCase):
         jacobian_collection_arr = np.tile(np.array([[-1.0, 0.0], [0.0, -2.0]]), (3, 1, 1))
         timepoints = np.linspace(0.0, 2.0, 3)
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = jc.predictLinear(np.zeros(2), np.zeros(2))
+        result = jc._predictLinear(np.zeros(2), np.zeros(2))
         np.testing.assert_allclose(result, np.zeros((3, 2)), atol=1e-10)
 
     def test_known_1x1_no_forcing(self) -> None:
@@ -882,7 +888,7 @@ class TestPredictLinear(unittest.TestCase):
         jacobian_collection_arr = np.tile(np.array([[-1.0]]), (5, 1, 1))
         timepoints = np.linspace(0.0, 2.0, 5)
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = jc.predictLinear(np.array([1.0]), np.array([0.0]))
+        result = jc._predictLinear(np.array([1.0]), np.array([0.0]))
         expected = np.exp(-timepoints).reshape(-1, 1)
         np.testing.assert_allclose(result, expected, atol=1e-3)
 
@@ -894,7 +900,7 @@ class TestPredictLinear(unittest.TestCase):
         jacobian_collection_arr = np.tile(np.array([[-1.0]]), (5, 1, 1))
         timepoints = np.linspace(0.0, 2.0, 5)
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = jc.predictLinear(np.array([1.0]), np.array([c]))
+        result = jc._predictLinear(np.array([1.0]), np.array([c]))
         expected = ((1.0 - c) * np.exp(-timepoints) + c).reshape(-1, 1)
         np.testing.assert_allclose(result, expected, atol=1e-3)
 
@@ -906,8 +912,8 @@ class TestPredictLinear(unittest.TestCase):
         timepoints = np.linspace(0.0, 2.0, 5)
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
         initial_state_arr = np.array([1.0, 1.0])
-        result_no_forcing = jc.predictLinear(initial_state_arr, np.zeros(2))
-        result_with_forcing = jc.predictLinear(initial_state_arr, np.array([1.0, 0.0]))
+        result_no_forcing = jc._predictLinear(initial_state_arr, np.zeros(2))
+        result_with_forcing = jc._predictLinear(initial_state_arr, np.array([1.0, 0.0]))
         self.assertFalse(np.allclose(result_no_forcing, result_with_forcing))
 
     def test_first_row_matches_initial_state(self) -> None:
@@ -918,8 +924,78 @@ class TestPredictLinear(unittest.TestCase):
         timepoints = np.linspace(0.0, 2.0, 5)
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
         initial_state_arr = np.array([3.0, 5.0])
-        result = jc.predictLinear(initial_state_arr, np.zeros(2))
+        result = jc._predictLinear(initial_state_arr, np.zeros(2))
         np.testing.assert_allclose(result[0], initial_state_arr, atol=1e-5)
+
+
+class TestPredictLinearBioModel(unittest.TestCase):
+    """Advanced tests for Trajectory.predictLinear."""
+
+    def setUp(self) -> None:
+        self.lr = LRoadrunner.makeBiomodel(BIOMD8_PATH,
+                start_time=0.0, end_time=2*BIOMD8_ENDTIME, num_point=30)
+        self.trajectory = Trajectory(self.lr)
+
+    def test_timecourse(self) -> None:
+        """predictLinear returns an ndarray with shape (num_points, num_species)."""
+        #if IGNORE_TESTS:
+        #    return
+        predicted_df = self.trajectory.predictLinear()
+        actual_df = self.lr.timecourse
+        df = (predicted_df - actual_df).abs()/actual_df
+        #df.plot(); plt.show()
+        for species_name in self.lr.species_names:
+            plt.plot(actual_df.index, actual_df[species_name], label=species_name);
+            plt.scatter(actual_df.index, predicted_df[species_name], label=species_name);
+        plt.legend();
+        plt.xlabel("time");
+        plt.ylabel("concentration");
+        plt.title("predictLinear vs actual timecourse");
+        plt.show();
+        self.assertIsInstance(predicted_df, pd.DataFrame)
+        self.assertEqual(predicted_df.shape, actual_df.shape)
+
+class TestFitForcingInputs(unittest.TestCase):
+    """Tests for Trajectory.fitForcingInputs."""
+
+    def setUp(self) -> None:
+        self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=5.0)
+
+    def test_returns_ndarray(self) -> None:
+        """fitForcingInputs returns a numpy ndarray."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitForcingInputs()
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_shape(self) -> None:
+        """fitForcingInputs returns array of shape (num_species,)."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitForcingInputs()
+        self.assertEqual(result.shape, (self.trajectory.num_species,))
+
+    def test_improves_prediction(self) -> None:
+        """Fitted forcing inputs produce prediction error no worse than zero forcing."""
+        if IGNORE_TESTS:
+            return
+        actual_arr = self.trajectory.l_roadrunner.simulate()
+        initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
+        zero_forcing_arr = np.zeros(self.trajectory.num_species)
+        fitted_forcing_arr = self.trajectory.fitForcingInputs(initial_state_arr)
+        predicted_zero_arr = self.trajectory._predictLinear(initial_state_arr, zero_forcing_arr)
+        predicted_fitted_arr = self.trajectory._predictLinear(initial_state_arr, fitted_forcing_arr)
+        mse_zero = float(np.mean((predicted_zero_arr - actual_arr)**2))
+        mse_fitted = float(np.mean((predicted_fitted_arr - actual_arr)**2))
+        self.assertLessEqual(mse_fitted, mse_zero)
+
+    def test_with_explicit_initial_state(self) -> None:
+        """fitForcingInputs accepts an explicit initial state and still returns correct shape."""
+        if IGNORE_TESTS:
+            return
+        initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
+        result = self.trajectory.fitForcingInputs(initial_state_arr)
+        self.assertEqual(result.shape, (self.trajectory.num_species,))
 
 
 if __name__ == "__main__":

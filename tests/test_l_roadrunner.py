@@ -69,7 +69,7 @@ class TestLRoadrunnerInit(unittest.TestCase):
             return
         rr = LRoadrunner(ANTIMONY_MODEL)
         self.assertEqual(rr.start_time, cn.START_TIME)
-        self.assertEqual(rr.num_points, cn.NUM_POINTS)
+        self.assertEqual(rr.num_point, cn.NUM_POINTS)
 
     def test_custom_timing_params_stored(self) -> None:
         """Custom start_time, end_time, and num_points are stored correctly."""
@@ -78,7 +78,7 @@ class TestLRoadrunnerInit(unittest.TestCase):
         rr = LRoadrunner(ANTIMONY_MODEL, start_time=1.0, end_time=5.0, num_point=20)
         self.assertEqual(rr.start_time, 1.0)
         self.assertEqual(rr._end_time, 5.0)
-        self.assertEqual(rr.num_points, 20)
+        self.assertEqual(rr.num_point, 20)
 
     def test_end_time_none_by_default(self) -> None:
         """_end_time is None when not explicitly provided."""
@@ -318,14 +318,14 @@ class TestMakeJacobians(unittest.TestCase):
             return
         jacobians, _ = self.rr.makeJacobians()
         n_species = len(self.rr.getRoadrunner().getFloatingSpeciesIds())
-        self.assertEqual(jacobians.shape, (self.rr.num_points, n_species, n_species))
+        self.assertEqual(jacobians.shape, (self.rr.num_point, n_species, n_species))
 
     def test_times_shape(self) -> None:
         """Times array has shape (num_points,)."""
         if IGNORE_TESTS:
             return
         _, times = self.rr.makeJacobians()
-        self.assertEqual(times.shape, (self.rr.num_points,))
+        self.assertEqual(times.shape, (self.rr.num_point,))
 
     def test_times_are_monotonically_increasing(self) -> None:
         """Timepoints are strictly increasing."""
@@ -505,7 +505,7 @@ class TestCalculateEndtimeCV(unittest.TestCase):
 
         def _median_cv(end_time: float) -> float:
             rr = lrr.getRoadrunner()
-            result_arr = np.array(rr.simulate(lrr.start_time, end_time, lrr.num_points))
+            result_arr = np.array(rr.simulate(lrr.start_time, end_time, lrr.num_point))
             data_arr = result_arr[:, 1:]
             cvs = []
             for col in range(data_arr.shape[1]):
@@ -864,14 +864,14 @@ class TestGetForcedInputs(unittest.TestCase):
         """getForcedInputs returns a numpy ndarray."""
         if IGNORE_TESTS:
             return
-        result = self.antimony_lrr.getForcedInputs()
+        result = self.antimony_lrr.getForcingInputs()
         self.assertIsInstance(result, np.ndarray)
 
     def test_shape_matches_species_count(self) -> None:
         """getForcedInputs returns a 1-D array with one entry per floating species."""
         if IGNORE_TESTS:
             return
-        result = self.antimony_lrr.getForcedInputs()
+        result = self.antimony_lrr.getForcingInputs()
         n_species = len(self.antimony_lrr.getRoadrunner().getFloatingSpeciesIds())
         self.assertEqual(result.shape, (n_species,))
 
@@ -879,21 +879,21 @@ class TestGetForcedInputs(unittest.TestCase):
         """ANTIMONY_MODEL is linear (dx/dt = J*x), so forced inputs are zero near t=0."""
         if IGNORE_TESTS:
             return
-        result = self.antimony_lrr_near0.getForcedInputs()
+        result = self.antimony_lrr_near0.getForcingInputs()
         np.testing.assert_array_almost_equal(result, np.zeros(2), decimal=3)
 
     def test_production_model_has_nonzero_forced_inputs(self) -> None:
         """PRODUCTION_MODEL has a constant production term k_in=1.0, so forced input ≈ 1.0 near t=0."""
         if IGNORE_TESTS:
             return
-        result = self.production_lrr_near0.getForcedInputs()
+        result = self.production_lrr_near0.getForcingInputs()
         self.assertAlmostEqual(float(result[0]), 1.0, places=3)
 
     def test_values_are_finite(self) -> None:
         """All forced input values are finite."""
         if IGNORE_TESTS:
             return
-        result = self.antimony_lrr.getForcedInputs()
+        result = self.antimony_lrr.getForcingInputs()
         self.assertTrue(np.all(np.isfinite(result)))
 
 
@@ -936,28 +936,28 @@ class TestBiomd8InitialValuesAndForcedInputs(unittest.TestCase):
         """getForcedInputs returns a numpy ndarray for BIOMD8."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.getForcedInputs()
+        result = self.lrr.getForcingInputs()
         self.assertIsInstance(result, np.ndarray)
 
     def test_get_forced_inputs_shape(self) -> None:
         """getForcedInputs returns a 1-D array of length 5 for BIOMD8."""
         #if IGNORE_TESTS:
         #    return
-        result = self.lrr.getForcedInputs()
+        result = self.lrr.getForcingInputs()
         self.assertEqual(result.shape, (BIOMD8_N_SPECIES,))
 
     def test_get_forced_inputs_nonzero(self) -> None:
         """getForcedInputs has at least one nonzero entry for the nonlinear BIOMD8."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.getForcedInputs()
+        result = self.lrr.getForcingInputs()
         self.assertGreater(np.max(np.abs(result)), 0.0)
 
     def test_get_forced_inputs_values_are_finite(self) -> None:
         """All forced input values are finite for BIOMD8."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.getForcedInputs()
+        result = self.lrr.getForcingInputs()
         self.assertTrue(np.all(np.isfinite(result)))
 
 
@@ -995,7 +995,7 @@ class TestTimecourse(unittest.TestCase):
             return
         result = self.lrr.timecourse
         n_species = len(self.lrr.getRoadrunner().getFloatingSpeciesIds())
-        self.assertEqual(result.shape, (self.lrr.num_points, n_species))
+        self.assertEqual(result.shape, (self.lrr.num_point, n_species))
 
     def test_columns_match_species_names(self) -> None:
         """timecourse columns match the floating species IDs."""

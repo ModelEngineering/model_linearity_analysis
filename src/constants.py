@@ -1,5 +1,6 @@
 '''Constants used in the project'''
 
+import numpy as np  # type: ignore
 import os
 import tellurium as te  # type: ignore
 
@@ -34,3 +35,6 @@ ENDTIME_SOURCE_STEADYSTATE = "steadystate"
 ENDTIME_SOURCE_MAX_MEDIAN_CV = "max_median_cv"
 ENDTIME_SOURCE_USER_SPECIFIED = "user_specified"
 COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
+
+# Common default values
+NULL_ARRAY = np.array([])
