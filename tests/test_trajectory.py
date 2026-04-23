@@ -25,7 +25,7 @@ S2 -> ; k2*S2
 k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
-BIOMD_PATH = os.path.join(
+BIOMD38_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000038", "BIOMD0000000038_url.xml"
 )
 BIOMD8_PATH = os.path.join(
@@ -411,7 +411,9 @@ class TestPlot(unittest.TestCase):
         """plot runs without error for BioModel BIOMD0000000038."""
         if IGNORE_TESTS:
             return
-        with open(BIOMD_PATH) as f:
+        if not os.path.exists(BIOMD38_PATH):
+            self.skipTest(f"SBML file not found at {BIOMD38_PATH}")
+        with open(BIOMD38_PATH) as f:
             sbml_str = f.read()
         lr = LRoadrunner(sbml_str, start_time=0.0, end_time=0.002, num_point=600)
         collection = Trajectory(lr)
