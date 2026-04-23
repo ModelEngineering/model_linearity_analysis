@@ -1,10 +1,11 @@
 """Scores prediction timecourses against true timecourses using absolute relative error (ARE)."""
 
+from typing import Dict, List, Optional  # type: ignore
+
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import Dict, List, Optional
 
 AGGREGATION_MEAN = "mean"
 AGGREGATION_MIN = "min"
@@ -25,7 +26,10 @@ def makePercentileAggregation(percentile: float) -> str:
 
 
 class Score:
-    """Scores prediction timecourses against true timecourses using ARE = (prediction - true) / true."""
+    """Scores prediction timecourses against true timecourses.
+
+    ARE = (prediction - true) / true.
+    """
 
     def __init__(self, description: str = "") -> None:
         """
@@ -66,7 +70,7 @@ class Score:
         return pd.DataFrame(are_arr, index=true_df.index, columns=true_df.columns)
 
     def _getCombinedARE(self) -> pd.DataFrame:
-        """Returns a single ARE DataFrame by concatenating all added test results along the time axis."""
+        """Returns a single ARE DataFrame by concatenating all added test results along time."""
         if len(self._are_dfs) == 0:
             return pd.DataFrame()
         return pd.concat(self._are_dfs, axis=0)
@@ -87,7 +91,7 @@ class Score:
         raise ValueError(f"Unknown aggregation: {aggregation}")
 
     def aggregateByTime(self,
-              aggregations: List[str] = DEFAULT_AGGREGATIONS) -> pd.DataFrame:
+              aggregations: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Aggregates ARE across time for each species.
 
@@ -101,6 +105,8 @@ class Score:
         pd.DataFrame
             Index = species names, columns = aggregation names.
         """
+        if aggregations is None:
+            aggregations = DEFAULT_AGGREGATIONS
         combined_df = self._getCombinedARE()
         if combined_df.empty:
             return pd.DataFrame()
@@ -111,7 +117,7 @@ class Score:
         return pd.DataFrame(result_dct, index=combined_df.columns)
 
     def aggregateBySpecies(self,
-              aggregations: List[str] = DEFAULT_AGGREGATIONS) -> pd.DataFrame:
+            aggregations: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Aggregates ARE across species at each timepoint.
 
@@ -125,6 +131,8 @@ class Score:
         pd.DataFrame
             Index = timepoints, columns = aggregation names.
         """
+        if aggregations is None:
+            aggregations = DEFAULT_AGGREGATIONS
         combined_df = self._getCombinedARE()
         if combined_df.empty:
             return pd.DataFrame()
@@ -134,8 +142,8 @@ class Score:
                     combined_df.values.T, aggregation)
         return pd.DataFrame(result_dct, index=combined_df.index)
 
-    def plotTime(self, aggregations: List[str] = DEFAULT_AGGREGATIONS,
-              ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
+    def plotTime(self, aggregations: Optional[List[str]] = None,
+            ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
         """
         Constructs a time plot of species aggregations over time.
         x-axis = time, y-axis = ARE aggregated across species, one line per aggregation.
@@ -168,7 +176,7 @@ class Score:
         return fig
 
     def aggregateByPercentile(self,
-            percentiles: List[float] = DEFAULT_PERCENTILES) -> pd.DataFrame:
+            percentiles: Optional[List[float]] = None) -> pd.DataFrame:
         """
         Aggregates ARE by percentile across all timepoints and test results for each species.
 
@@ -182,10 +190,12 @@ class Score:
         pd.DataFrame
             Index = species names, columns = percentile labels (e.g., 'p50', 'p75', 'p95').
         """
+        if percentiles is None:
+            percentiles = DEFAULT_PERCENTILES
         aggregations = [makePercentileAggregation(p) for p in percentiles]
         return self.aggregateByTime(aggregations)
 
-    def plotPercentile(self, percentiles: List[float] = DEFAULT_PERCENTILES,
+    def plotPercentile(self, percentiles: Optional[List[float]] = None,
             ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
         """
         Bar plot of ARE at each percentile for every species.
@@ -217,7 +227,7 @@ class Score:
         plt.show()
         return fig
 
-    def plotSpecies(self, aggregations: List[str] = DEFAULT_AGGREGATIONS,
+    def plotSpecies(self, aggregations: Optional[List[str]] = None,
               ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
         """
         Constructs a bar plot of time aggregations over species.

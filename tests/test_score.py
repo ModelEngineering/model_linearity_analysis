@@ -71,7 +71,7 @@ class TestAddTestResult(unittest.TestCase):
         if IGNORE_TESTS:
             return
         score = _make_score()
-        np.testing.assert_allclose(score._are_dfs[0].values, 1.0)
+        np.testing.assert_allclose(score._are_dfs[0].values, 1.0)  # type: ignore
 
     def test_are_nan_when_true_zero(self) -> None:
         """ARE is NaN for entries where the true value is zero."""
@@ -140,35 +140,35 @@ class TestAggregateByTime(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self.score.aggregateByTime(["mean"])
-        np.testing.assert_allclose(result["mean"].values, 1.0)
+        np.testing.assert_allclose(result["mean"].values, 1.0)  # type: ignore
 
     def test_min_correct_for_constant_are(self) -> None:
         """Min aggregation returns 1.0 when ARE == 1.0 everywhere."""
         if IGNORE_TESTS:
             return
         result = self.score.aggregateByTime(["min"])
-        np.testing.assert_allclose(result["min"].values, 1.0)
+        np.testing.assert_allclose(result["min"].values, 1.0)  # type: ignore
 
     def test_max_correct_for_constant_are(self) -> None:
         """Max aggregation returns 1.0 when ARE == 1.0 everywhere."""
         if IGNORE_TESTS:
             return
         result = self.score.aggregateByTime(["max"])
-        np.testing.assert_allclose(result["max"].values, 1.0)
+        np.testing.assert_allclose(result["max"].values, 1.0)  # type: ignore
 
     def test_median_correct_for_constant_are(self) -> None:
         """Median aggregation returns 1.0 when ARE == 1.0 everywhere."""
         if IGNORE_TESTS:
             return
         result = self.score.aggregateByTime(["median"])
-        np.testing.assert_allclose(result["median"].values, 1.0)
+        np.testing.assert_allclose(result["median"].values, 1.0)  # type: ignore
 
     def test_percentile_correct_for_constant_are(self) -> None:
         """p50 aggregation returns 1.0 when ARE == 1.0 everywhere."""
         if IGNORE_TESTS:
             return
         result = self.score.aggregateByTime(["p50"])
-        np.testing.assert_allclose(result["p50"].values, 1.0)
+        np.testing.assert_allclose(result["p50"].values, 1.0)  # type: ignore
 
     def test_varying_are_values(self) -> None:
         """Aggregations are correct when ARE varies across time."""
@@ -180,9 +180,9 @@ class TestAggregateByTime(unittest.TestCase):
         score = Score()
         score.addTestResult(true_df, pred_df)
         result = score.aggregateByTime(["mean", "min", "max"])
-        self.assertAlmostEqual(result.loc['A', 'mean'], 1.0)
-        self.assertAlmostEqual(result.loc['A', 'min'], 0.0)
-        self.assertAlmostEqual(result.loc['A', 'max'], 2.0)
+        self.assertAlmostEqual(result.loc['A', 'mean'], 1.0)  # type: ignore
+        self.assertAlmostEqual(result.loc['A', 'min'], 0.0)  # type: ignore
+        self.assertAlmostEqual(result.loc['A', 'max'], 2.0)  # type: ignore
 
     def test_empty_score_returns_empty_dataframe(self) -> None:
         """Returns an empty DataFrame when no test results have been added."""
@@ -212,7 +212,7 @@ class TestAggregateByTime(unittest.TestCase):
         score.addTestResult(true_df, pred1_df)
         score.addTestResult(true_df, pred2_df)
         result = score.aggregateByTime(["mean"])
-        self.assertAlmostEqual(result.loc['A', 'mean'], 2.5)
+        self.assertAlmostEqual(result.loc['A', 'mean'], 2.5)  # type: ignore
 
 
 class TestAggregateBySpecies(unittest.TestCase):
@@ -248,7 +248,7 @@ class TestAggregateBySpecies(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self.score.aggregateBySpecies(["mean"])
-        np.testing.assert_allclose(result["mean"].values, 1.0)
+        np.testing.assert_allclose(result["mean"].values, 1.0)  # type: ignore
 
     def test_varying_are_across_species(self) -> None:
         """Aggregations are correct when ARE varies across species."""
@@ -260,9 +260,9 @@ class TestAggregateBySpecies(unittest.TestCase):
         score = Score()
         score.addTestResult(true_df, pred_df)
         result = score.aggregateBySpecies(["mean", "min", "max"])
-        self.assertAlmostEqual(result.loc[0.0, 'mean'], 1.0)
-        self.assertAlmostEqual(result.loc[0.0, 'min'], 0.0)
-        self.assertAlmostEqual(result.loc[0.0, 'max'], 2.0)
+        self.assertAlmostEqual(result.loc[0.0, 'mean'], 1.0)  # type: ignore
+        self.assertAlmostEqual(result.loc[0.0, 'min'], 0.0)  # type: ignore
+        self.assertAlmostEqual(result.loc[0.0, 'max'], 2.0)  # type: ignore
 
     def test_empty_score_returns_empty_dataframe(self) -> None:
         """Returns an empty DataFrame when no test results have been added."""
@@ -282,7 +282,7 @@ class TestAggregateBySpecies(unittest.TestCase):
         score.addTestResult(true_df, pred_df)
         # ARE_A=NaN, ARE_B=1.0 → nanmean at t=0 = 1.0
         result = score.aggregateBySpecies(["mean"])
-        self.assertAlmostEqual(result.loc[0.0, 'mean'], 1.0)
+        self.assertAlmostEqual(result.loc[0.0, 'mean'], 1.0)  # type: ignore
 
 
 class TestPlotTime(unittest.TestCase):
@@ -451,7 +451,7 @@ class TestAggregateByPercentile(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self.score.aggregateByPercentile([50.0, 75.0, 0.95])
-        np.testing.assert_allclose(result.values, 1.0)
+        np.testing.assert_allclose(result.values, 1.0)  # type: ignore
 
     def test_percentile_ordering(self) -> None:
         """Lower percentile returns a lower or equal value than a higher percentile."""
@@ -463,7 +463,7 @@ class TestAggregateByPercentile(unittest.TestCase):
         score = Score()
         score.addTestResult(true_df, pred_df)
         result = score.aggregateByPercentile([50.0, 95.0])
-        self.assertLessEqual(result.loc['A', 'p50'], result.loc['A', 'p95'])
+        self.assertLessEqual(result.loc['A', 'p50'], result.loc['A', 'p95'])  # type: ignore
 
     def test_p50_equals_median(self) -> None:
         """p50 aggregation matches the median aggregation."""
@@ -475,7 +475,7 @@ class TestAggregateByPercentile(unittest.TestCase):
         score.addTestResult(true_df, pred_df)
         p50 = score.aggregateByPercentile([50.0]).loc['A', 'p50']
         median = score.aggregateByTime(["median"]).loc['A', 'median']
-        self.assertAlmostEqual(p50, median)
+        self.assertAlmostEqual(p50, median)  # type: ignore
 
     def test_empty_score_returns_empty_dataframe(self) -> None:
         """Returns an empty DataFrame when no test results have been added."""
