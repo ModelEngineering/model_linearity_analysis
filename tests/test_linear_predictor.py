@@ -39,6 +39,7 @@ def _make_jc_from_arrays(jacobian_collection_arr: np.ndarray, timepoint_arr: np.
     """Return a JacobianCollection from explicit arrays (no real simulation needed)."""
     lr = MagicMock(spec=LRoadrunner)
     lr.makeJacobians.return_value = (jacobian_collection_arr, timepoint_arr)
+    lr.num_point = timepoint_arr.shape[0]
     return Trajectory(lr)
 
 
@@ -215,6 +216,7 @@ class TestLinearPredictorPredict(unittest.TestCase):
         jc = _make_jc(n_species=1, jacobian_val=0.0)
         lr = MagicMock(spec=LRoadrunner)
         lr.simulate.return_value = np.zeros((5, 1))
+        lr.num_point = 5
         predictor = LinearPredictor(jc, np.array([0.0]), np.array([0.0]))
         times = np.linspace(0.0, 4.0, 5)
         result = predictor.predict(times, l_roadrunner=lr)

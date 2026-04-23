@@ -90,6 +90,7 @@ class LRoadrunner(object):
         self._sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
         self._species_names: List[str] = []
+        self._timecourse = pd.DataFrame()
 
     @classmethod
     def makeBiomodel(cls, path:str, **kwargs) -> "LRoadrunner":
@@ -138,6 +139,7 @@ class LRoadrunner(object):
     def start_time(self, start_time: float) -> None:
         self._start_time = start_time
 
+    # FIXME: Ensure is same as for Jacobian
     @property
     def timecourse(self) -> pd.DataFrame:
         """
@@ -148,16 +150,19 @@ class LRoadrunner(object):
         pd.DataFrame
             A DataFrame containing the time course of the simulation, with columns for time and each floating species.
         """
-        result_arr = self.simulate(is_with_timepoints=True)
-        df = pd.DataFrame(result_arr, columns=["time"] + self.species_names)
-        df = df.set_index("time")
-        return df
+        if self._timecourse.empty:
+            result_arr = self.simulate(is_with_timepoints=True)
+            df = pd.DataFrame(result_arr, columns=["time"] + self.species_names)
+            df = df.set_index("time")
+            self._timecourse = df
+        return self._timecourse
 
     def getInitialValues(self) -> np.ndarray:
         """
         Get the initial state of the model as a 1-D array of floating species concentrations.
         """
         rr = self.getRoadrunner()
+        rr.simulate(0, self.start_time + 1e-6, 2)
         return np.array(rr.getFloatingSpeciesConcentrations())
     
     def getForcingInputs(self) -> np.ndarray:
@@ -463,6 +468,7 @@ class LRoadrunner(object):
             else:
                 rr.simulate(times_arr[i - 1], t, 2)
             jacobians.append(np.array(rr.getFullJacobian()).copy())
+        _ = self.timecourse  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
         return np.array(jacobians), times_arr
 
     def _calculateEndtimeJacobian(self) -> float:

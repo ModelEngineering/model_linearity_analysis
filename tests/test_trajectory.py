@@ -15,7 +15,7 @@ import src.constants as cn
 from trajectory import Trajectory, IVP_RELATIVE_TIMES  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
-IGNORE_TESTS = True
+IGNORE_TESTS = False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
 
@@ -938,12 +938,11 @@ class TestPredictLinearBioModel(unittest.TestCase):
 
     def test_timecourse(self) -> None:
         """predictLinear returns an ndarray with shape (num_points, num_species)."""
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         predicted_df = self.trajectory.predictLinear()
         actual_df = self.lr.timecourse
         df = (predicted_df - actual_df).abs()/actual_df
-        #df.plot(); plt.show()
         for species_name in self.lr.species_names:
             plt.plot(actual_df.index, actual_df[species_name], label=species_name);
             plt.scatter(actual_df.index, predicted_df[species_name], label=species_name);
