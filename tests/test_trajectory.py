@@ -1,4 +1,4 @@
-"""Tests for JacobianCollection class."""
+"""Tests for Trajectory class."""
 from src.l_roadrunner import LRoadrunner  # type: ignore
 
 import os
@@ -36,6 +36,8 @@ BIOMD206_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
 )
 BIOMD206_ENDTIME = 15.0
+BIOMODEL_NAMES = ["BIOMD0000000038", "BIOMD0000000008", "BIOMD0000000054"]
+BIOMODEL_NAMES = ["BIOMD0000000008", "BIOMD0000000054", "BIOMD0000000181"]
 
 
 def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints: np.ndarray) -> Trajectory:
@@ -1069,7 +1071,46 @@ class TestFitJacobian(unittest.TestCase):
         mse_fitted = float(np.mean((fitted_pred_arr - actual_arr) ** 2))
         self.assertLessEqual(mse_fitted, mse_mean + 1e-6)
 
-    # Add a test on BioModels
+class TestBiomodelsFit(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self.lr_dct: dict[str, LRoadrunner] = {} # Dictionary of LRoadrunner instances for different BioModels
+        for model_name in BIOMODEL_NAMES:
+            model_path = os.path.join(cn.BIOMODELS_DIR, model_name, f"{model_name}_url.xml")
+            if not os.path.exists(model_path):
+                print(f"Warning: {model_name} not found at {model_path}. Skipping this model.")
+                continue
+            with open(model_path) as f:
+                sbml_str = f.read()
+            self.lr_dct[model_name] = LRoadrunner(sbml_str, start_time=0.0, end_time=10.0, num_point=100)
+
+    def test_improves_or_matches_prediction(self) -> None:
+        """Fitted Jacobian produces MSE no worse than the mean Jacobian."""
+        #if IGNORE_TESTS:
+        #    return
+        for model_name, lr in self.lr_dct.items():
+            with self.subTest(model=model_name):
+                trajectory = Trajectory(lr)
+                initial_state_arr = trajectory.l_roadrunner.getInitialValues()
+                forcing_input_arr = trajectory.l_roadrunner.getForcingInputs()
+                actual_arr = trajectory.l_roadrunner.simulate()
+                mean_pred_arr = trajectory._predictLinear(
+                        initial_state_arr=initial_state_arr,
+                        forcing_input_arr=forcing_input_arr,
+                        jacobian_arr=trajectory.jacobian_mean_arr)
+                fitted_jacobian_arr = trajectory.fitJacobian()
+                fitted_pred_arr = trajectory._predictLinear(
+                        initial_state_arr=initial_state_arr,
+                        forcing_input_arr=forcing_input_arr,
+                        jacobian_arr=fitted_jacobian_arr)
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    ratio_mean = np.where(actual_arr != 0,
+                            (mean_pred_arr - actual_arr) ** 2 / actual_arr**2, 0.0)
+                    ratio_fitted = np.where(actual_arr != 0,
+                            (fitted_pred_arr - actual_arr) ** 2 / actual_arr**2, 0.0)
+                mse_mean = float(np.mean(ratio_mean))
+                mse_fitted = float(np.mean(ratio_fitted))
+                self.assertLessEqual(mse_fitted, mse_mean + 1e-6)
 
 
 if __name__ == "__main__":

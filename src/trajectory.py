@@ -399,6 +399,9 @@ class Trajectory(object):
             numerator = np.where(denom == 0, 0, numerator)
             denom = np.where(denom == 0, 1, denom)
             normalized_residuals = numerator / denom
+            bad_idxs = [n for n, val in enumerate(normalized_residuals) if np.isnan(val) or np.isinf(val)]
+            if len(bad_idxs) > 0:
+                print("NaN or Inf in residuals:", normalized_residuals)
             return normalized_residuals
         ##
         result = lmfit_minimize(_residuals, params, method='leastsq')
