@@ -396,7 +396,6 @@ class TestMultipleLinearPredictorScoreSimpleModel(unittest.TestCase):
         self.assertTrue(np.isfinite(result_1.max_rae))
         predictor_3 = self._make_predictor_from_model(n_cluster=3, end_time=self.ENDTIME)
         result_3 = predictor_3.score()
-        import pdb; pdb.set_trace()
         self.assertTrue(np.isfinite(result_3.mean_rae))
         self.assertTrue(np.isfinite(result_3.max_rae))
 

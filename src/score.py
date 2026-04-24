@@ -1,5 +1,6 @@
 """Scores prediction timecourses against true timecourses using absolute relative error (ARE)."""
 
+import io  # type: ignore
 from typing import Dict, List, Optional  # type: ignore
 
 import matplotlib.figure as mfigure  # type: ignore
@@ -14,11 +15,22 @@ AGGREGATION_MEDIAN = "median"
 AGGREGATION_PERCENTILE_50 = "p50"
 AGGREGATION_PERCENTILE_75 = "p75"
 AGGREGATION_PERCENTILE_95 = "p95"
-DEFAULT_AGGREGATIONS = [AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX]
+DEFAULT_AGGREGATIONS = [AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX,
+        AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95]
 DEFAULT_PERCENTILES = [50.0, 75.0, 0.95]
+AGGREGATION_TYPE_TIME = "time"
+AGGREGATION_TYPE_SPECIES = "species"
+AGGREGATION_TYPE_ALL = "all"
+AGGREGATION_TYPE = "aggregation_type"
+SOURCE = "source"
 
+# Columns in serializaiton dataframe
+SERIALIZATION_COLUMNS = [AGGREGATION_TYPE, SOURCE]
+SERIALIZATION_COLUMNS += DEFAULT_AGGREGATIONS
 
-def makePercentileAggregation(percentile: float) -> str:
+SERIALIZATION_PATH = "score_serialization.csv"
+
+def _makePercentileAggregationStr(percentile: float) -> str:
     """Returns the aggregation string for the given percentile (e.g., 50.0 → 'p50')."""
     result =  f"p{percentile:g}"
     result = result.replace("p0.", "p")
@@ -31,7 +43,8 @@ class Score:
     ARE = (prediction - true) / true.
     """
 
-    def __init__(self, description: str = "") -> None:
+    def __init__(self, description: str = "",
+            serialization_path: str = SERIALIZATION_PATH) -> None:
         """
         Constructs an empty Score with descriptive information.
 
@@ -39,9 +52,15 @@ class Score:
         ----------
         description : str
             Descriptive label for this score.
+        serialization_path : Optional[str]
+            Path to a CSV file for persistence. If provided, serialize() writes here
+            and deserialize() reads from here.
         """
         self.description = description
+        self._serialization_path = serialization_path
+        # FIXME: Make this a dict
         self._are_dfs: List[pd.DataFrame] = []
+        self._serialization_dct: Dict[str, List] = {c: [] for c in SERIALIZATION_COLUMNS}
 
     def addTestResult(self, true_timecourse_df: pd.DataFrame,
             prediction_timecourse_df: pd.DataFrame) -> None:
@@ -58,9 +77,47 @@ class Score:
         """
         are_df = self._computeARE(true_timecourse_df, prediction_timecourse_df)
         self._are_dfs.append(are_df)
+        self.serialize()
+
+    def serialize(self) -> None:
+        """Writes the Score state to a CSV at _serialization_path; no-op if path is None."""
+        if self._serialization_path is None:
+            return
+        with open(self._serialization_path, 'w') as f:
+            f.write(f"# {self.description}\n")
+            if self._are_dfs:
+                combined_df = pd.concat(
+                        self._are_dfs, keys=range(len(self._are_dfs)),
+                        names=['result_idx', 'time'])
+                combined_df.to_csv(f)
+
+    @classmethod
+    def deserialize(cls, path: str) -> 'Score':
+        """Reconstructs a Score from a CSV written by serialize().
+
+        Parameters
+        ----------
+        path : str
+            Path to the CSV file previously written by serialize().
+
+        Returns
+        -------
+        Score
+            Restored Score with _serialization_path set to path.
+        """
+        with open(path, 'r') as f:
+            first_line = f.readline().strip()
+            remaining = f.read()
+        description = first_line[2:] if first_line.startswith('# ') else ""
+        score = cls(description=description, serialization_path=path)
+        if remaining.strip():
+            combined_df = pd.read_csv(io.StringIO(remaining), index_col=[0, 1])
+            for idx in sorted(combined_df.index.get_level_values('result_idx').unique()):
+                score._are_dfs.append(combined_df.loc[idx])
+        return score
 
     def _computeARE(self, true_df: pd.DataFrame,
-              prediction_df: pd.DataFrame) -> pd.DataFrame:
+            prediction_df: pd.DataFrame) -> pd.DataFrame:
         """Computes ARE = (prediction - true) / true; NaN where true == 0."""
         with np.errstate(divide='ignore', invalid='ignore'):
             are_arr = np.where(
@@ -91,7 +148,7 @@ class Score:
         raise ValueError(f"Unknown aggregation: {aggregation}")
 
     def aggregateByTime(self,
-              aggregations: Optional[List[str]] = None) -> pd.DataFrame:
+            aggregations: Optional[List[str]] = None) -> pd.DataFrame:
         """
         Aggregates ARE across time for each species.
 
@@ -192,7 +249,7 @@ class Score:
         """
         if percentiles is None:
             percentiles = DEFAULT_PERCENTILES
-        aggregations = [makePercentileAggregation(p) for p in percentiles]
+        aggregations = [_makePercentileAggregationStr(p) for p in percentiles]
         return self.aggregateByTime(aggregations)
 
     def plotPercentile(self, percentiles: Optional[List[float]] = None,
@@ -228,7 +285,7 @@ class Score:
         return fig
 
     def plotSpecies(self, aggregations: Optional[List[str]] = None,
-              ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
+            ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
         """
         Constructs a bar plot of time aggregations over species.
         x-axis = species, y-axis = ARE aggregated across time, grouped bars per aggregation.

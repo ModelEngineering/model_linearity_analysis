@@ -68,6 +68,7 @@ class Trajectory(object):
         if self.num_jacobian == 0:
             raise ValueError("JacobianCollection initialized with no Jacobians.")
         self._cost_mat = NULL_COST*np.ones((self.num_jacobian, self.num_jacobian))  # Placeholder value indicating uninitialized cost matrix
+        self._fitted_jacobian_arr = cn.NULL_ARRAY
 
     def getCost(self, istart: int, iend: int) -> float:
         """Get the cost of a segment of Jacobians from index i to j (inclusive).
@@ -267,6 +268,7 @@ class Trajectory(object):
         np.ndarray
             2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
         """
+        # FIXME: Use fitted Jacobian by default.
         arr = self._predictLinear(**kwargs)
         df = pd.DataFrame(arr, columns=self.l_roadrunner.species_names)
         df = df.set_index(self.timepoint_arr)
@@ -274,7 +276,8 @@ class Trajectory(object):
 
     def _predictLinear(self,
             initial_state_arr: np.ndarray=cn.NULL_ARRAY,
-            forcing_input_arr: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
+            forcing_input_arr: np.ndarray = cn.NULL_ARRAY,
+            jacobian_arr: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
         """
         Predict the timecourse of species concentrations given an initial state and a timecourse of Jacobians
         Using linear prediction. If no values are given for initial state or forced input,
@@ -286,6 +289,9 @@ class Trajectory(object):
             1-D array of shape (num_species,) containing the initial concentrations of each species.
         forcing_input_arr : np.ndarray
             1-D array of shape (num_species,) containing constant forcing inputs for each species.
+        jacobian_arr : np.ndarray
+            2-D array of shape (num_species, num_species) to use as the Jacobian. If omitted,
+            self.jacobian_mean_arr is used.
 
         Returns
         -------
@@ -296,9 +302,11 @@ class Trajectory(object):
             initial_state_arr = self.l_roadrunner.getInitialValues()
         if np.array_equal(forcing_input_arr, cn.NULL_ARRAY):
             forcing_input_arr = self.fitForcingInputs(initial_state_arr)
+        if np.array_equal(jacobian_arr, cn.NULL_ARRAY):
+            jacobian_arr = self.fitJacobian()
         ##
         def ode(t: float, x: np.ndarray) -> np.ndarray:
-            return self.jacobian_mean_arr @ x + forcing_input_arr
+            return jacobian_arr @ x + forcing_input_arr
         ##
         sol = solve_ivp(ode,
                 (self.timepoint_arr[0], self.timepoint_arr[-1]),
@@ -335,7 +343,6 @@ class Trajectory(object):
         initial_forcing_input_arr = self.l_roadrunner.getForcingInputs()
         for i in range(self.num_species):
             params.add(f'u{i}', value=initial_forcing_input_arr[i])
-            #params.add(f'u{i}', value=0)
         ##
         def _residuals(params: Parameters) -> np.ndarray:
             forcing_input_arr = np.array([params[f'u{i}'].value
@@ -350,6 +357,56 @@ class Trajectory(object):
         ##
         result = lmfit_minimize(_residuals, params, method='leastsq')
         return np.array([result.params[f'u{i}'].value for i in range(self.num_species)])  # type: ignore
+
+    def fitJacobian(self) -> np.ndarray:
+        """
+        Fit the diagonal of the mean Jacobian to minimise the squared prediction error
+        of predictLinear against the actual nonlinear simulation timecourse.
+
+        Holds all off-diagonal entries of jacobian_mean_arr fixed and uses
+        lmfit least-squares to find diagonal values d[i] such that
+        _predictLinear(initial_state_arr, forcing_input_arr, fitted_jacobian_arr)
+        best matches l_roadrunner.simulate().  Forcing inputs are taken from
+        l_roadrunner.getForcingInputs() and the initial state from
+        l_roadrunner.getInitialValues().
+
+        Returns
+        -------
+        np.ndarray
+            2-D array of shape (num_species, num_species) — the mean Jacobian
+            with its diagonal replaced by the optimised values.
+        """
+        if not np.array_equal(self._fitted_jacobian_arr , cn.NULL_ARRAY):
+            return self._fitted_jacobian_arr
+        # Calculate the fitted jacobian_arr
+        initial_state_arr = self.l_roadrunner.getInitialValues()
+        forcing_input_arr = self.l_roadrunner.getForcingInputs()
+        # Use timecourse?
+        actual_arr = self.l_roadrunner.simulate()
+        base_jacobian_arr = self.jacobian_mean_arr.copy()
+        params = Parameters()
+        for i in range(self.num_species):
+            params.add(f'd{i}', value=base_jacobian_arr[i, i])
+        ##
+        def _residuals(params: Parameters) -> np.ndarray:
+            fitted_jacobian_arr = base_jacobian_arr.copy()
+            for i in range(self.num_species):
+                fitted_jacobian_arr[i, i] = params[f'd{i}'].value
+            predicted_arr = self._predictLinear(
+                    initial_state_arr, forcing_input_arr, fitted_jacobian_arr)
+            denom = np.abs(actual_arr.flatten())
+            numerator = (predicted_arr - actual_arr).flatten()
+            numerator = np.where(denom == 0, 0, numerator)
+            denom = np.where(denom == 0, 1, denom)
+            normalized_residuals = numerator / denom
+            return normalized_residuals
+        ##
+        result = lmfit_minimize(_residuals, params, method='leastsq')
+        fitted_jacobian_arr = base_jacobian_arr.copy()
+        for i in range(self.num_species):
+            fitted_jacobian_arr[i, i] = result.params[f'd{i}'].value  # type: ignore
+        self._fitted_jacobian_arr = fitted_jacobian_arr
+        return self._fitted_jacobian_arr
 
     def plot(self,
             top_ax: Optional[plt.Axes] = None,   # type: ignore

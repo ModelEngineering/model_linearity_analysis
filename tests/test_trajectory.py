@@ -44,6 +44,13 @@ def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints
     lr.makeJacobians.return_value = (jacobian_collection_arr, timepoints)
     lr.end_time = 5.0
     lr.num_point = len(timepoints)
+    if len(jacobian_collection_arr) == 0:
+        num_species = 0
+    else:
+        num_species = jacobian_collection_arr.shape[1]
+    lr.simulate.return_value = np.zeros((len(timepoints), num_species))
+    lr.getForcingInputs.return_value = np.zeros(num_species)
+    lr.getInitialValues.return_value = np.zeros(num_species)
     return Trajectory(lr)
 
 def _make_trajectory(n_point: int = 5, n_species: int = 3) -> Trajectory:
@@ -57,9 +64,9 @@ def _make_lroadrunner(antimony_str: str, end_time:float = 10.0, num_point:int = 
     """Return a real LRoadrunner for the given Antimony model."""
     return LRoadrunner(antimony_str, start_time=0.0, end_time=end_time, num_point=num_point)
 
-def _make_trajectory_from_model(antimony_str: str, end_time:float = 10.0) -> Trajectory:
+def _make_trajectory_from_model(antimony_str: str, end_time:float = 10.0, num_point:int = 11) -> Trajectory:
     """Return a MultipleLinearPredictor built from a real Antimony model."""
-    lr = _make_lroadrunner(antimony_str, end_time=end_time)
+    lr = _make_lroadrunner(antimony_str, end_time=end_time, num_point=num_point)
     jc = Trajectory(lr)
     return jc
 
@@ -876,8 +883,8 @@ class TestPredictLinearBasic(unittest.TestCase):
             return
         jacobian_collection_arr = np.tile(np.array([[-1.0, 0.0], [0.0, -2.0]]), (3, 1, 1))
         timepoints = np.linspace(0.0, 2.0, 3)
-        jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = jc._predictLinear(np.zeros(2), np.zeros(2))
+        trajectory = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
+        result = trajectory._predictLinear(np.zeros(2), np.zeros(2))
         np.testing.assert_allclose(result, np.zeros((3, 2)), atol=1e-10)
 
     def test_known_1x1_no_forcing(self) -> None:
@@ -986,13 +993,19 @@ class TestFitForcingInputs(unittest.TestCase):
             return
         actual_arr = self.trajectory.l_roadrunner.simulate()
         initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
-        zero_forcing_arr = np.zeros(self.trajectory.num_species)
+        default_forcing_arr = self.trajectory.l_roadrunner.getForcingInputs()
         fitted_forcing_arr = self.trajectory.fitForcingInputs(initial_state_arr)
-        predicted_zero_arr = self.trajectory._predictLinear(initial_state_arr, zero_forcing_arr)
-        predicted_fitted_arr = self.trajectory._predictLinear(initial_state_arr, fitted_forcing_arr)
-        mse_zero = float(np.mean((predicted_zero_arr - actual_arr)**2))
+        predicted_zero_arr = self.trajectory._predictLinear(
+                initial_state_arr=initial_state_arr,
+                forcing_input_arr=default_forcing_arr,
+                jacobian_arr=self.trajectory.jacobian_mean_arr)
+        predicted_fitted_arr = self.trajectory._predictLinear(
+                initial_state_arr=initial_state_arr,
+                forcing_input_arr=fitted_forcing_arr,
+                jacobian_arr=self.trajectory.jacobian_mean_arr)
+        mse_default = float(np.mean((predicted_zero_arr - actual_arr)**2))
         mse_fitted = float(np.mean((predicted_fitted_arr - actual_arr)**2))
-        self.assertLessEqual(np.abs(mse_fitted - mse_zero), 1e-5)
+        self.assertGreaterEqual(mse_default - mse_fitted, 0)
 
     def test_with_explicit_initial_state(self) -> None:
         """fitForcingInputs accepts an explicit initial state and still returns correct shape."""
@@ -1001,6 +1014,62 @@ class TestFitForcingInputs(unittest.TestCase):
         initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
         result = self.trajectory.fitForcingInputs(initial_state_arr)
         self.assertEqual(result.shape, (self.trajectory.num_species,))
+
+
+class TestFitJacobian(unittest.TestCase):
+    """Tests for Trajectory.fitJacobian."""
+
+    def setUp(self) -> None:
+        self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=5.0, num_point=100)
+
+    def test_returns_ndarray(self) -> None:
+        """fitJacobian returns a numpy ndarray."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian()
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_shape(self) -> None:
+        """fitJacobian returns array of shape (num_species, num_species)."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian()
+        n = self.trajectory.num_species
+        self.assertEqual(result.shape, (n, n))
+
+    def test_off_diagonals_unchanged(self) -> None:
+        """Off-diagonal entries equal those of the mean Jacobian."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian()
+        mean = self.trajectory.jacobian_mean_arr
+        n = self.trajectory.num_species
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    self.assertAlmostEqual(result[i, j], mean[i, j], places=10)
+
+    def test_improves_or_matches_prediction(self) -> None:
+        """Fitted Jacobian produces MSE no worse than the mean Jacobian."""
+        if IGNORE_TESTS:
+            return
+        initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
+        forcing_input_arr = self.trajectory.l_roadrunner.getForcingInputs()
+        actual_arr = self.trajectory.l_roadrunner.simulate()
+        mean_pred_arr = self.trajectory._predictLinear(
+                initial_state_arr=initial_state_arr,
+                forcing_input_arr=forcing_input_arr,
+                jacobian_arr=self.trajectory.jacobian_mean_arr)
+        fitted_jacobian_arr = self.trajectory.fitJacobian()
+        fitted_pred_arr = self.trajectory._predictLinear(
+                initial_state_arr=initial_state_arr,
+                forcing_input_arr=forcing_input_arr,
+                jacobian_arr=fitted_jacobian_arr)
+        mse_mean = float(np.mean((mean_pred_arr - actual_arr) ** 2))
+        mse_fitted = float(np.mean((fitted_pred_arr - actual_arr) ** 2))
+        self.assertLessEqual(mse_fitted, mse_mean + 1e-6)
+
+    # Add a test on BioModels
 
 
 if __name__ == "__main__":
