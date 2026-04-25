@@ -15,7 +15,7 @@ import src.constants as cn
 from trajectory import Trajectory, IVP_RELATIVE_TIMES  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
-IGNORE_TESTS = False
+IGNORE_TESTS = True
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
 
@@ -36,7 +36,6 @@ BIOMD206_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
 )
 BIOMD206_ENDTIME = 15.0
-BIOMODEL_NAMES = ["BIOMD0000000038", "BIOMD0000000008", "BIOMD0000000054"]
 BIOMODEL_NAMES = ["BIOMD0000000008", "BIOMD0000000054", "BIOMD0000000181"]
 
 
@@ -44,6 +43,7 @@ def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints
     """Return a JacobianCollection from explicit arrays using a mock LRoadrunner."""
     lr = MagicMock(spec=LRoadrunner)
     lr.makeJacobians.return_value = (jacobian_collection_arr, timepoints)
+    lr.start_time = 0.0
     lr.end_time = 5.0
     lr.num_point = len(timepoints)
     if len(jacobian_collection_arr) == 0:

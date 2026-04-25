@@ -2,6 +2,7 @@
 
 import src.constants as cn
 from src.l_roadrunner import LRoadrunner, NULL_L_ROADRUNNER  # type: ignore
+import src.utils as utils
 
 import collections
 import matplotlib.axes as maxes  # type: ignore
@@ -376,6 +377,11 @@ class Trajectory(object):
             2-D array of shape (num_species, num_species) — the mean Jacobian
             with its diagonal replaced by the optimised values.
         """
+        LARGE_RESIDUAL_VALUE = 1e10
+        # Adjust the initial jacobian so that predictions are bounded.
+        base_jacobian_arr = utils.adjustJacobian(self.jacobian_mean_arr,
+                time=self.l_roadrunner.end_time - self.l_roadrunner.start_time)
+        #
         if not np.array_equal(self._fitted_jacobian_arr , cn.NULL_ARRAY):
             return self._fitted_jacobian_arr
         # Calculate the fitted jacobian_arr
@@ -383,7 +389,6 @@ class Trajectory(object):
         forcing_input_arr = self.l_roadrunner.getForcingInputs()
         # Use timecourse?
         actual_arr = self.l_roadrunner.simulate()
-        base_jacobian_arr = self.jacobian_mean_arr.copy()
         params = Parameters()
         for i in range(self.num_species):
             params.add(f'd{i}', value=base_jacobian_arr[i, i])
@@ -399,9 +404,10 @@ class Trajectory(object):
             numerator = np.where(denom == 0, 0, numerator)
             denom = np.where(denom == 0, 1, denom)
             normalized_residuals = numerator / denom
-            bad_idxs = [n for n, val in enumerate(normalized_residuals) if np.isnan(val) or np.isinf(val)]
-            if len(bad_idxs) > 0:
-                print("NaN or Inf in residuals:", normalized_residuals)
+            # Handle possible np.nan or np.inf values in the normalized residuals
+            sel = np.isnan(normalized_residuals) | np.isinf(normalized_residuals)
+            if len(sel) > 0:
+                normalized_residuals[sel] = LARGE_RESIDUAL_VALUE
             return normalized_residuals
         ##
         result = lmfit_minimize(_residuals, params, method='leastsq')
