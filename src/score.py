@@ -3,21 +3,25 @@
 import io  # type: ignore
 from typing import Dict, List, Optional  # type: ignore
 
+from collections import namedtuple  # type: ignore
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
+from typing import List
 
+AGGREGATION_DESCRIPTION = "description"
 AGGREGATION_MEAN = "mean"
 AGGREGATION_MIN = "min"
 AGGREGATION_MAX = "max"
 AGGREGATION_MEDIAN = "median"
-AGGREGATION_PERCENTILE_50 = "p50"
+AGGREGATION_PERCENTILE_99 = "p99"
 AGGREGATION_PERCENTILE_75 = "p75"
 AGGREGATION_PERCENTILE_95 = "p95"
+AGGREGATION_COUNT = "count"
 DEFAULT_AGGREGATIONS = [AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX,
         AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95]
-DEFAULT_PERCENTILES = [50.0, 75.0, 0.95]
+DEFAULT_PERCENTILES = [99.0, 75.0, 0.95]
 AGGREGATION_TYPE_TIME = "time"
 AGGREGATION_TYPE_SPECIES = "species"
 AGGREGATION_TYPE_ALL = "all"
@@ -27,11 +31,18 @@ SOURCE = "source"
 # Columns in serializaiton dataframe
 SERIALIZATION_COLUMNS = [AGGREGATION_TYPE, SOURCE]
 SERIALIZATION_COLUMNS += DEFAULT_AGGREGATIONS
-
 SERIALIZATION_PATH = "score_serialization.csv"
 
+
+ScoreInfo = namedtuple("ScoreInfo", [ # type: ignore
+        AGGREGATION_DESCRIPTION,
+        AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX,
+        AGGREGATION_MEDIAN,
+        AGGREGATION_PERCENTILE_99, AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95,
+        AGGREGATION_COUNT])
+
 def _makePercentileAggregationStr(percentile: float) -> str:
-    """Returns the aggregation string for the given percentile (e.g., 50.0 → 'p50')."""
+    """Returns the aggregation string for the given percentile (e.g., 99.0 → 'p99')."""
     result =  f"p{percentile:g}"
     result = result.replace("p0.", "p")
     return result
@@ -118,12 +129,12 @@ class Score:
 
     def _computeARE(self, true_df: pd.DataFrame,
             prediction_df: pd.DataFrame) -> pd.DataFrame:
-        """Computes ARE = (prediction - true) / true; NaN where true == 0."""
+        """Computes ARE = abs(prediction - true) / true; NaN where true == 0."""
         with np.errstate(divide='ignore', invalid='ignore'):
             are_arr = np.where(
                     true_df.values == 0,
                     np.nan,
-                    (prediction_df.values - true_df.values) / true_df.values)
+                    np.abs(prediction_df.values - true_df.values) / true_df.values)
         return pd.DataFrame(are_arr, index=true_df.index, columns=true_df.columns)
 
     def _getCombinedARE(self) -> pd.DataFrame:
@@ -245,7 +256,7 @@ class Score:
         Returns
         -------
         pd.DataFrame
-            Index = species names, columns = percentile labels (e.g., 'p50', 'p75', 'p95').
+            Index = species names, columns = percentile labels (e.g., 'p99', 'p75', 'p95').
         """
         if percentiles is None:
             percentiles = DEFAULT_PERCENTILES
@@ -283,6 +294,58 @@ class Score:
         fig.tight_layout()
         plt.show()
         return fig
+
+    def makeScoreInfo(self, 
+            description: str,
+            true_timecourse_df: pd.DataFrame,
+            prediction_timecourse_df: pd.DataFrame) -> List[ScoreInfo]:
+        """Computes ScoreInfo by aggregating ARE across all timepoints and species.
+
+        Parameters
+        ----------
+        description : str
+            Descriptive label for this ScoreInfo.
+            Provides ScoreInfo for the model and each species
+        true_timecourse_df : pd.DataFrame
+            True timecourse with timepoints as index and species as columns.
+        prediction_timecourse_df : pd.DataFrame
+            Prediction timecourse with same structure as true_timecourse_df.
+
+        Returns
+        -------
+        ScoreInfo
+            Named tuple with ARE statistics (mean, min, max, median, p99, p75, p95, count)
+            computed over all non-NaN ARE values.
+        """
+        are_df = self._computeARE(true_timecourse_df, prediction_timecourse_df)
+        are_arr = are_df.values.flatten()
+        count = int(np.sum(~np.isnan(are_arr)))
+        score_info = ScoreInfo(  # type: ignore
+                description=description + "/model",
+                mean=float(np.nanmean(are_arr)),
+                min=float(np.nanmin(are_arr)),
+                max=float(np.nanmax(are_arr)),
+                median=float(np.nanmedian(are_arr)),
+                p99=float(np.nanpercentile(are_arr, 99)),
+                p75=float(np.nanpercentile(are_arr, 75)),
+                p95=float(np.nanpercentile(are_arr, 95)),
+                count=count)
+        score_infos = [score_info]
+        for species in are_df.columns:
+            species_arr = are_df[species].values
+            species_count = int(np.sum(~np.isnan(species_arr)))
+            species_score_info = ScoreInfo(  # type: ignore
+                    description=description + f"/species/{species}",
+                    mean=float(np.nanmean(species_arr)), # type: ignore
+                    min=float(np.nanmin(species_arr)), # type: ignore
+                    max=float(np.nanmax(species_arr)), # type: ignore
+                    median=float(np.nanmedian(species_arr)), # type: ignore
+                    p99=float(np.nanpercentile(species_arr, 99)), # type: ignore
+                    p75=float(np.nanpercentile(species_arr, 75)), # type: ignore
+                    p95=float(np.nanpercentile(species_arr, 95)), # type: ignore
+                    count=species_count)
+            score_infos.append(species_score_info)
+        return score_infos
 
     def plotSpecies(self, aggregations: Optional[List[str]] = None,
             ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore

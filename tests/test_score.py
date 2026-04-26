@@ -13,9 +13,21 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from score import (Score, DEFAULT_AGGREGATIONS,  # type: ignore
+import src.constants as cn  # type: ignore
+from l_roadrunner import LRoadrunner  # type: ignore
+from trajectory import Trajectory  # type: ignore
+from score import (Score, ScoreInfo, DEFAULT_AGGREGATIONS,  # type: ignore
         _makePercentileAggregationStr, DEFAULT_PERCENTILES,
-        AGGREGATION_PERCENTILE_95, AGGREGATION_PERCENTILE_50, AGGREGATION_PERCENTILE_75)
+        AGGREGATION_PERCENTILE_95, AGGREGATION_PERCENTILE_99, AGGREGATION_PERCENTILE_75)
+
+BIOMODELS_DIR = cn.BIOMODELS_DIR
+HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
+
+def _make_biomodel_l_roadrunner(model_id: str, end_time: float,
+        num_point: int = 10) -> LRoadrunner:
+    """Return an LRoadrunner for the given BioModel ID and end time."""
+    path = os.path.join(BIOMODELS_DIR, model_id, f"{model_id}_url.xml")
+    return LRoadrunner.makeBiomodel(path, end_time=end_time, num_point=num_point)
 
 IGNORE_TESTS = False
 if not IGNORE_TESTS:
@@ -166,11 +178,11 @@ class TestAggregateByTime(unittest.TestCase):
         np.testing.assert_allclose(result["median"].values, 1.0)  # type: ignore
 
     def test_percentile_correct_for_constant_are(self) -> None:
-        """p50 aggregation returns 1.0 when ARE == 1.0 everywhere."""
+        """p99 aggregation returns 1.0 when ARE == 1.0 everywhere."""
         if IGNORE_TESTS:
             return
-        result = self.score.aggregateByTime(["p50"])
-        np.testing.assert_allclose(result["p50"].values, 1.0)  # type: ignore
+        result = self.score.aggregateByTime(["p99"])
+        np.testing.assert_allclose(result["p99"].values, 1.0)  # type: ignore
 
     def test_varying_are_values(self) -> None:
         """Aggregations are correct when ARE varies across time."""
@@ -402,7 +414,7 @@ class TestMakePercentileAggregation(unittest.TestCase):
         """Whole-number percentile produces a compact label with no trailing zero."""
         if IGNORE_TESTS:
             return
-        self.assertEqual(_makePercentileAggregationStr(50.0), "p50")
+        self.assertEqual(_makePercentileAggregationStr(99.0), "p99")
 
     def test_fractional_percentile(self) -> None:
         """Fractional percentile preserves the decimal portion."""
@@ -415,7 +427,7 @@ class TestMakePercentileAggregation(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertEqual(AGGREGATION_PERCENTILE_95, "p95")
-        self.assertEqual(AGGREGATION_PERCENTILE_50, "p50")
+        self.assertEqual(AGGREGATION_PERCENTILE_99, "p99")
         self.assertEqual(AGGREGATION_PERCENTILE_75, "p75")
 
 
@@ -436,15 +448,15 @@ class TestAggregateByPercentile(unittest.TestCase):
         """Index contains species names."""
         if IGNORE_TESTS:
             return
-        result = self.score.aggregateByPercentile([50.0])
+        result = self.score.aggregateByPercentile([99.0])
         self.assertEqual(list(result.index), ['A', 'B'])
 
     def test_columns_are_percentile_labels(self) -> None:
         """Columns match the percentile labels produced by makePercentileAggregation."""
         if IGNORE_TESTS:
             return
-        result = self.score.aggregateByPercentile([50.0, 75.0, 0.95])
-        self.assertIn("p50", result.columns)
+        result = self.score.aggregateByPercentile([99.0, 75.0, 0.95])
+        self.assertIn("p99", result.columns)
         self.assertIn("p75", result.columns)
         self.assertIn("p95", result.columns)
 
@@ -452,32 +464,32 @@ class TestAggregateByPercentile(unittest.TestCase):
         """All percentiles equal 1.0 when ARE == 1.0 everywhere."""
         if IGNORE_TESTS:
             return
-        result = self.score.aggregateByPercentile([50.0, 75.0, 0.95])
+        result = self.score.aggregateByPercentile([99.0, 75.0, 0.95])
         np.testing.assert_allclose(result.values, 1.0)  # type: ignore
 
     def test_percentile_ordering(self) -> None:
         """Lower percentile returns a lower or equal value than a higher percentile."""
         if IGNORE_TESTS:
             return
-        # ARE_A = [0, 1, 2, 3, 4] → p50 < p95
+        # ARE_A = [0, 1, 2, 3, 4] → p75 < p99
         true_df = pd.DataFrame({'A': [1.0] * 5}, index=range(5))
         pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0, 5.0]}, index=range(5))
         score = Score()
         score.addTestResult(true_df, pred_df)
-        result = score.aggregateByPercentile([50.0, 95.0])
-        self.assertLessEqual(result.loc['A', 'p50'], result.loc['A', 'p95'])  # type: ignore
+        result = score.aggregateByPercentile([75.0, 99.0])
+        self.assertLessEqual(result.loc['A', 'p75'], result.loc['A', 'p99'])  # type: ignore
 
-    def test_p50_equals_median(self) -> None:
-        """p50 aggregation matches the median aggregation."""
+    def test_p99_greater_equal_p75(self) -> None:
+        """p99 is greater than or equal to p75 for any distribution."""
         if IGNORE_TESTS:
             return
         true_df = pd.DataFrame({'A': [1.0, 1.0, 1.0]}, index=[0.0, 1.0, 2.0])
         pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0]}, index=[0.0, 1.0, 2.0])
         score = Score()
         score.addTestResult(true_df, pred_df)
-        p50 = score.aggregateByPercentile([50.0]).loc['A', 'p50']
-        median = score.aggregateByTime(["median"]).loc['A', 'median']
-        self.assertAlmostEqual(p50, median)  # type: ignore
+        p99 = score.aggregateByPercentile([99.0]).loc['A', 'p99']
+        p75 = score.aggregateByPercentile([75.0]).loc['A', 'p75']
+        self.assertGreaterEqual(p99, p75)  # type: ignore
 
     def test_empty_score_returns_empty_dataframe(self) -> None:
         """Returns an empty DataFrame when no test results have been added."""
@@ -647,6 +659,235 @@ class TestSerializeDeserialize(unittest.TestCase):
         original_agg = score.aggregateByTime(["mean"])
         restored_agg = restored.aggregateByTime(["mean"])
         np.testing.assert_allclose(original_agg.values, restored_agg.values)  # type: ignore
+
+
+class TestMakeScoreInfo(unittest.TestCase):
+    """Tests for Score.makeScoreInfo."""
+
+    def setUp(self) -> None:
+        self.score = Score()
+
+    def test_returns_score_info(self) -> None:
+        """makeScoreInfo returns a ScoreInfo namedtuple."""
+        if IGNORE_TESTS:
+            return
+        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)[0]
+        self.assertIsInstance(result, ScoreInfo)
+
+    def test_constant_are_mean(self) -> None:
+        """Mean equals 1.0 when ARE == 1.0 everywhere."""
+        if IGNORE_TESTS:
+            return
+        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)[0]
+        self.assertAlmostEqual(result.mean, 1.0)
+
+    def test_constant_are_min_max(self) -> None:
+        """Min and max both equal 1.0 when ARE == 1.0 everywhere."""
+        if IGNORE_TESTS:
+            return
+        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)[0]
+        self.assertAlmostEqual(result.min, 1.0)
+        self.assertAlmostEqual(result.max, 1.0)
+
+    def test_constant_are_percentiles(self) -> None:
+        """p99, p75, p95 all equal 1.0 when ARE == 1.0 everywhere."""
+        if IGNORE_TESTS:
+            return
+        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)[0]
+        self.assertAlmostEqual(result.p99, 1.0)
+        self.assertAlmostEqual(result.p75, 1.0)
+        self.assertAlmostEqual(result.p95, 1.0)
+
+    def test_count_excludes_nan(self) -> None:
+        """Count reflects only non-NaN ARE values (zero true values are excluded)."""
+        if IGNORE_TESTS:
+            return
+        true_df = pd.DataFrame({'A': [0.0, 1.0], 'B': [1.0, 1.0]}, index=[0.0, 1.0])
+        pred_df = pd.DataFrame({'A': [1.0, 2.0], 'B': [2.0, 2.0]}, index=[0.0, 1.0])
+        result = self.score.makeScoreInfo("", true_df, pred_df)[0]
+        self.assertEqual(result.count, 3)
+
+    def test_count_all_valid(self) -> None:
+        """Count equals total cells when no true values are zero."""
+        if IGNORE_TESTS:
+            return
+        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)[0]
+        self.assertEqual(result.count, TRUE_DF.size)
+
+    def test_varying_are_aggregations(self) -> None:
+        """Aggregations are correct for varying ARE values."""
+        if IGNORE_TESTS:
+            return
+        # ARE values: [0, 1, 2] across all cells
+        true_df = pd.DataFrame({'A': [1.0, 1.0, 1.0]}, index=[0.0, 1.0, 2.0])
+        pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0]}, index=[0.0, 1.0, 2.0])
+        result = self.score.makeScoreInfo("", true_df, pred_df)[0]
+        self.assertAlmostEqual(result.mean, 1.0)
+        self.assertAlmostEqual(result.min, 0.0)
+        self.assertAlmostEqual(result.max, 2.0)
+        self.assertAlmostEqual(result.median, 1.0)
+
+    def test_p99_greater_equal_p75(self) -> None:
+        """p99 is greater than or equal to p75 for any distribution."""
+        if IGNORE_TESTS:
+            return
+        true_df = pd.DataFrame({'A': [1.0, 1.0, 1.0]}, index=[0.0, 1.0, 2.0])
+        pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0]}, index=[0.0, 1.0, 2.0])
+        result = self.score.makeScoreInfo("", true_df, pred_df)[0]
+        self.assertGreaterEqual(result.p99, result.p75)
+
+
+class TestMakeScoreInfoList(unittest.TestCase):
+    """Tests for the full list returned by Score.makeScoreInfo."""
+
+    def setUp(self) -> None:
+        self.score = Score()
+        self.result = self.score.makeScoreInfo("mymodel", TRUE_DF, PRED_DF)
+
+    def test_list_length_is_one_plus_num_species(self) -> None:
+        """List has one model entry plus one entry per species."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(len(self.result), 1 + len(TRUE_DF.columns))
+
+    def test_returns_list(self) -> None:
+        """Return value is a list."""
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.result, list)
+
+    def test_all_elements_are_score_info(self) -> None:
+        """Every element in the list is a ScoreInfo namedtuple."""
+        if IGNORE_TESTS:
+            return
+        for item in self.result:
+            self.assertIsInstance(item, ScoreInfo)
+
+    def test_first_element_description_ends_with_model(self) -> None:
+        """First element description ends with '/model'."""
+        if IGNORE_TESTS:
+            return
+        self.assertTrue(self.result[0].description.endswith("/model"))
+
+    def test_first_element_description_contains_provided_label(self) -> None:
+        """First element description starts with the provided label."""
+        if IGNORE_TESTS:
+            return
+        self.assertTrue(self.result[0].description.startswith("mymodel"))
+
+    def test_species_element_descriptions_contain_species_name(self) -> None:
+        """Each species element description contains the species name."""
+        if IGNORE_TESTS:
+            return
+        for i, species in enumerate(TRUE_DF.columns):
+            self.assertIn(species, self.result[i + 1].description)
+
+    def test_species_element_descriptions_end_with_species_path(self) -> None:
+        """Each species element description ends with '/species/<name>'."""
+        if IGNORE_TESTS:
+            return
+        for i, species in enumerate(TRUE_DF.columns):
+            self.assertTrue(self.result[i + 1].description.endswith(
+                    f"/species/{species}"))
+
+    def test_model_element_count_equals_total_valid_cells(self) -> None:
+        """Model-level count equals total non-NaN cells across all species."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(self.result[0].count, TRUE_DF.size)
+
+    def test_species_element_count_equals_num_timepoints(self) -> None:
+        """Each species-level count equals the number of timepoints."""
+        if IGNORE_TESTS:
+            return
+        for i in range(len(TRUE_DF.columns)):
+            self.assertEqual(self.result[i + 1].count, len(TRUE_DF))
+
+    def test_species_element_mean_matches_species_are(self) -> None:
+        """Species-level mean equals 1.0 for each species when ARE == 1.0 everywhere."""
+        if IGNORE_TESTS:
+            return
+        for i in range(len(TRUE_DF.columns)):
+            self.assertAlmostEqual(self.result[i + 1].mean, 1.0)
+
+    def test_species_elements_match_per_species_are(self) -> None:
+        """Species-level stats reflect per-species ARE, not the cross-species mean."""
+        if IGNORE_TESTS:
+            return
+        # ARE_A=[0,1,2], ARE_B=[0,0,0]: means should differ across the two species.
+        true_df = pd.DataFrame({'A': [1.0, 1.0, 1.0], 'B': [1.0, 1.0, 1.0]},
+                index=[0.0, 1.0, 2.0])
+        pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0], 'B': [1.0, 1.0, 1.0]},
+                index=[0.0, 1.0, 2.0])
+        score = Score()
+        result = score.makeScoreInfo("x", true_df, pred_df)
+        # result[1] is species A: ARE=[0,1,2] → mean=1
+        self.assertAlmostEqual(result[1].mean, 1.0)
+        # result[2] is species B: ARE=[0,0,0] → mean=0
+        self.assertAlmostEqual(result[2].mean, 0.0)
+
+    def test_single_species_list_has_two_elements(self) -> None:
+        """One-species DataFrame → list of length 2."""
+        if IGNORE_TESTS:
+            return
+        true_df = pd.DataFrame({'X': [1.0, 2.0]}, index=[0.0, 1.0])
+        pred_df = pd.DataFrame({'X': [2.0, 4.0]}, index=[0.0, 1.0])
+        score = Score()
+        result = score.makeScoreInfo("z", true_df, pred_df)
+        self.assertEqual(len(result), 2)
+
+    def test_nan_excluded_from_species_count(self) -> None:
+        """Species count excludes NaN entries (zero true values)."""
+        if IGNORE_TESTS:
+            return
+        true_df = pd.DataFrame({'A': [0.0, 1.0, 1.0]}, index=[0.0, 1.0, 2.0])
+        pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0]}, index=[0.0, 1.0, 2.0])
+        score = Score()
+        result = score.makeScoreInfo("q", true_df, pred_df)
+        self.assertEqual(result[1].count, 2)
+
+
+class TestMakeScoreInfoBiomodels(unittest.TestCase):
+    """Tests for Score.makeScoreInfo count using real BioModels."""
+
+    def _check_score_info(self, model_id: str, end_time: float) -> None:
+        """Assert count equals number of non-zero cells in the true timecourse."""
+        if IGNORE_TESTS:
+            return
+        if not HAS_BIOMODELS:
+            self.skipTest("BioModels data not available")
+        l_roadrunner = _make_biomodel_l_roadrunner(model_id, end_time)
+        true_df = l_roadrunner.timecourse
+        trajectory = Trajectory(l_roadrunner)
+        pred_df = trajectory.predictLinear()
+        score = Score()
+        score_info = score.makeScoreInfo(description=model_id,
+                true_timecourse_df=true_df,
+                prediction_timecourse_df=pred_df)[0]
+        self.assertIsInstance(score_info, ScoreInfo)
+        self.assertLessEqual(score_info.median, score_info.p75)
+        self.assertLessEqual(score_info.p75, score_info.p95)
+        self.assertLessEqual(score_info.p95, score_info.p99)
+        expected_count = int(np.sum(true_df.values != 0))
+        self.assertEqual(score_info.count, expected_count)
+
+    def test_count_biomd8(self) -> None:
+        """Count equals non-zero cell count for BIOMD0000000008."""
+        if IGNORE_TESTS:
+            return
+        self._check_score_info("BIOMD0000000008", end_time=0.003)
+
+    def test_count_biomd54(self) -> None:
+        """Count equals non-zero cell count for BIOMD0000000054."""
+        if IGNORE_TESTS:
+            return
+        self._check_score_info("BIOMD0000000054", end_time=10.0)
+
+    def test_count_biomd206(self) -> None:
+        """Count equals non-zero cell count for BIOMD0000000206."""
+        if IGNORE_TESTS:
+            return
+        self._check_score_info("BIOMD0000000206", end_time=15.0)
 
 
 if __name__ == "__main__":

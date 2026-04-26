@@ -93,7 +93,8 @@ class LRoadrunner(object):
         self._timecourse = pd.DataFrame()
 
     @classmethod
-    def makeBiomodel(cls, path:str, **kwargs) -> "LRoadrunner":
+    def makeBiomodel(cls, path:str = "", model_id: str = "",
+            model_num: int = 0, **kwargs) -> "LRoadrunner":
         """
         Create an LRoadrunner instance from a BioModels SBML file.
 
@@ -101,12 +102,26 @@ class LRoadrunner(object):
         ----------
         path : str
             Path to the SBML file.
+        model_id : str
+            ID of the BioModel to load.
+        model_num : int
+            Number of the model to load.
 
         Returns
         -------
         LRoadrunner
             An instance of LRoadrunner initialized with the model from the specified SBML file.
         """
+        if len(path) == 0:
+            if len(model_id) == 0:
+                if model_num <= 0:
+                    raise ValueError("Must provide at least one of path, model_id, or model_num to load a BioModel.")
+                else:
+                    model_id = f"BIOMD{model_num:010d}"
+            else:
+                if not model_id.startswith("BIOMD"):
+                    raise ValueError("model_id must start with 'BIOMD'.")
+            path = os.path.join(cn.BIOMODELS_DIR, model_id, f"{model_id}_url.xml")
         END_TIME = "end_time"
         with open(path, "r") as f:
             sbml_str = f.read()
@@ -139,7 +154,6 @@ class LRoadrunner(object):
     def start_time(self, start_time: float) -> None:
         self._start_time = start_time
 
-    # FIXME: Ensure is same as for Jacobian
     @property
     def timecourse(self) -> pd.DataFrame:
         """

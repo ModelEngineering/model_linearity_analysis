@@ -1104,5 +1104,84 @@ class TestNumSpecies(unittest.TestCase):
         self.assertEqual(lrr.num_species, len(lrr.species_names))
 
 
+class TestMakeBiomodel(unittest.TestCase):
+    """Tests for LRoadrunner.makeBiomodel — error cases that do not need BioModels data."""
+
+    def test_no_path_no_id_no_num_raises_value_error(self) -> None:
+        """All three identifiers omitted → ValueError."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            LRoadrunner.makeBiomodel()
+
+    def test_model_id_without_biomd_prefix_raises(self) -> None:
+        """model_id that does not start with 'BIOMD' → ValueError."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            LRoadrunner.makeBiomodel(model_id="FOO0000000008")
+
+    def test_model_num_zero_with_no_path_no_id_raises(self) -> None:
+        """model_num=0 with no path or model_id → ValueError."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            LRoadrunner.makeBiomodel(model_num=0)
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestMakeBiomodelWithData(unittest.TestCase):
+    """Tests for LRoadrunner.makeBiomodel that require BioModels data."""
+
+    def test_model_num_returns_lroadrunner(self) -> None:
+        """model_num=8 → returns an LRoadrunner instance."""
+        if IGNORE_TESTS:
+            return
+        l_roadrunner = LRoadrunner.makeBiomodel(model_num=8, end_time=20.0,
+                num_point=5)
+        self.assertIsInstance(l_roadrunner, LRoadrunner)
+
+    def test_model_id_returns_lroadrunner(self) -> None:
+        """model_id='BIOMD0000000008' → returns an LRoadrunner instance."""
+        if IGNORE_TESTS:
+            return
+        l_roadrunner = LRoadrunner.makeBiomodel(model_id="BIOMD0000000008",
+                end_time=20.0, num_point=5)
+        self.assertIsInstance(l_roadrunner, LRoadrunner)
+
+    def test_explicit_path_returns_lroadrunner(self) -> None:
+        """Explicit path → returns an LRoadrunner instance."""
+        if IGNORE_TESTS:
+            return
+        l_roadrunner = LRoadrunner.makeBiomodel(path=BIOMD8_SBML, end_time=20.0,
+                num_point=5)
+        self.assertIsInstance(l_roadrunner, LRoadrunner)
+
+    def test_end_time_kwarg_overrides_lookup(self) -> None:
+        """end_time kwarg takes precedence over the endtime_dct lookup."""
+        if IGNORE_TESTS:
+            return
+        l_roadrunner = LRoadrunner.makeBiomodel(path=BIOMD8_SBML, end_time=42.0,
+                num_point=5)
+        self.assertAlmostEqual(l_roadrunner._end_time, 42.0)
+
+    def test_model_num_has_species(self) -> None:
+        """Model loaded via model_num has at least one floating species."""
+        if IGNORE_TESTS:
+            return
+        l_roadrunner = LRoadrunner.makeBiomodel(model_num=8, end_time=20.0,
+                num_point=5)
+        self.assertGreater(len(l_roadrunner.species_names), 0)
+
+    def test_model_num_equals_model_id(self) -> None:
+        """Loading by model_num=8 and model_id='BIOMD0000000008' give the same species."""
+        if IGNORE_TESTS:
+            return
+        lr_num = LRoadrunner.makeBiomodel(model_num=8, end_time=20.0, num_point=5)
+        lr_id = LRoadrunner.makeBiomodel(model_id="BIOMD0000000008", end_time=20.0,
+                num_point=5)
+        self.assertEqual(lr_num.species_names, lr_id.species_names)
+
+
 if __name__ == "__main__":
     unittest.main()

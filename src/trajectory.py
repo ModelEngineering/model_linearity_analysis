@@ -71,6 +71,31 @@ class Trajectory(object):
         self._cost_mat = NULL_COST*np.ones((self.num_jacobian, self.num_jacobian))  # Placeholder value indicating uninitialized cost matrix
         self._fitted_jacobian_arr = cn.NULL_ARRAY
 
+    @classmethod
+    def makeBiomodel(cls, path:str = "", model_name: str = "",
+            model_num: int = 0, **kwargs) -> 'Trajectory':
+        """
+        Create a Trajectory instance from a BioModels SBML file.
+
+        Parameters
+        ----------
+        path : str
+            Path to the SBML file.
+        model_name : str
+            Name of the BioModel to load.
+        model_num : int
+            Number of the model to load.
+        kwargs: Additional keyword arguments to pass to LRoadrunner.makeBiomodel() to specify the trajectory
+
+        Returns
+        -------
+        Trajectory
+            An instance of Trajectory initialized with the model from the specified SBML file. 
+        """
+        l_roadrunner = LRoadrunner.makeBiomodel(path=path, model_id=model_name,
+                model_num=model_num, **kwargs)
+        return Trajectory(l_roadrunner)
+
     def getCost(self, istart: int, iend: int) -> float:
         """Get the cost of a segment of Jacobians from index i to j (inclusive).
 
@@ -269,7 +294,6 @@ class Trajectory(object):
         np.ndarray
             2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
         """
-        # FIXME: Use fitted Jacobian by default.
         arr = self._predictLinear(**kwargs)
         df = pd.DataFrame(arr, columns=self.l_roadrunner.species_names)
         df = df.set_index(self.timepoint_arr)
@@ -635,7 +659,6 @@ class Trajectory(object):
                 f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_point})."
             )
         cost = np.zeros((n_point, n_point))
-        # FIXME: Including timepoint in JacobianCollection.fromArrays() is inefficient since it will be repeated for each cost calculation --- IGNORE ---
         for i in range(n_point):
             for j in range(i, n_point):
                 jc = Trajectory.fromArrays(

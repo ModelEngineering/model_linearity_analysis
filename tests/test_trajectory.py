@@ -15,7 +15,7 @@ import src.constants as cn
 from trajectory import Trajectory, IVP_RELATIVE_TIMES  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
-IGNORE_TESTS = True
+IGNORE_TESTS = False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
 
@@ -36,7 +36,7 @@ BIOMD206_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
 )
 BIOMD206_ENDTIME = 15.0
-BIOMODEL_NAMES = ["BIOMD0000000008", "BIOMD0000000054", "BIOMD0000000181"]
+BIOMODEL_NAMES = ["BIOMD0000000008", "BIOMD0000000054", "BIOMD0000000181", "BIOMD0000000206"]
 
 
 def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints: np.ndarray) -> Trajectory:
@@ -1111,6 +1111,86 @@ class TestBiomodelsFit(unittest.TestCase):
                 mse_mean = float(np.mean(ratio_mean))
                 mse_fitted = float(np.mean(ratio_fitted))
                 self.assertLessEqual(mse_fitted, mse_mean + 1e-6)
+
+
+HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
+
+
+class TestMakeBiomodel(unittest.TestCase):
+    """Tests for Trajectory.makeBiomodel — error cases that do not need BioModels data."""
+
+    def test_no_path_no_id_no_num_raises_value_error(self) -> None:
+        """All three identifiers omitted → ValueError propagated from LRoadrunner.makeBiomodel."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            Trajectory.makeBiomodel()
+
+    def test_model_id_without_biomd_prefix_raises(self) -> None:
+        """model_id that does not start with 'BIOMD' → ValueError."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            Trajectory.makeBiomodel(model_name="FOO0000000008")
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestMakeBiomodelWithData(unittest.TestCase):
+    """Tests for Trajectory.makeBiomodel that require BioModels data."""
+    NUM_POINT = 5
+
+    def test_model_num_returns_trajectory(self) -> None:
+        """model_num=8 → returns a Trajectory instance."""
+        if IGNORE_TESTS:
+            return
+        trajectory = Trajectory.makeBiomodel(model_num=8, end_time=BIOMD8_ENDTIME,
+                num_point=self.NUM_POINT)
+        self.assertIsInstance(trajectory, Trajectory)
+
+    def test_model_name_returns_trajectory(self) -> None:
+        """model_name='BIOMD0000000008' → returns a Trajectory instance."""
+        if IGNORE_TESTS:
+            return
+        trajectory = Trajectory.makeBiomodel(model_name="BIOMD0000000008",
+                end_time=BIOMD8_ENDTIME, num_point=self.NUM_POINT)
+        self.assertIsInstance(trajectory, Trajectory)
+
+    def test_explicit_path_returns_trajectory(self) -> None:
+        """Explicit path → returns a Trajectory instance."""
+        if IGNORE_TESTS:
+            return
+        trajectory = Trajectory.makeBiomodel(path=BIOMD8_PATH,
+                end_time=BIOMD8_ENDTIME, num_point=self.NUM_POINT)
+        self.assertIsInstance(trajectory, Trajectory)
+
+    def test_jacobian_collection_has_correct_num_species(self) -> None:
+        """jacobian_collection_arr has n_species matching BIOMD8 (5 species)."""
+        if IGNORE_TESTS:
+            return
+        trajectory = Trajectory.makeBiomodel(path=BIOMD8_PATH,
+                end_time=BIOMD8_ENDTIME, num_point=self.NUM_POINT)
+        self.assertEqual(trajectory.jacobian_collection_arr.shape[1],
+                trajectory.num_species)
+
+    def test_jacobian_collection_has_correct_num_points(self) -> None:
+        """jacobian_collection_arr has the requested number of timepoints."""
+        if IGNORE_TESTS:
+            return
+        num_point = self.NUM_POINT
+        trajectory = Trajectory.makeBiomodel(path=BIOMD8_PATH,
+                end_time=BIOMD8_ENDTIME, num_point=num_point)
+        self.assertEqual(trajectory.jacobian_collection_arr.shape[0], num_point)
+
+    def test_model_num_and_explicit_path_give_same_species(self) -> None:
+        """Loading by model_num=8 and by explicit path give the same species names."""
+        if IGNORE_TESTS:
+            return
+        traj_num = Trajectory.makeBiomodel(model_num=8, end_time=BIOMD8_ENDTIME,
+                num_point=5)
+        traj_path = Trajectory.makeBiomodel(path=BIOMD8_PATH,
+                end_time=BIOMD8_ENDTIME, num_point=5)
+        self.assertEqual(traj_num.l_roadrunner.species_names,
+                traj_path.l_roadrunner.species_names)
 
 
 if __name__ == "__main__":
