@@ -480,7 +480,10 @@ class LRoadrunner(object):
                 rr.simulate(self.start_time, t2, 2)
             else:
                 rr.simulate(times_arr[i - 1], t, 2)
-            jacobians.append(np.array(rr.getFullJacobian()).copy())
+            try:
+                jacobians.append(np.array(rr.getFullJacobian()).copy())
+            except Exception as e:
+                print(f"Error occurred while fetching Jacobian at time {t}: {e}")
         _ = self.timecourse  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
         return np.array(jacobians), times_arr
 

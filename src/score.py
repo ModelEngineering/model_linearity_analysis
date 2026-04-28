@@ -1,83 +1,100 @@
 """Scores prediction timecourses against true timecourses using absolute relative error (ARE)."""
 
-import io  # type: ignore
-from typing import Dict, List, Optional  # type: ignore
+from src.dataframe_serializer import DataframeSerializer  # type: ignore
 
-from collections import namedtuple  # type: ignore
 import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List
+from typing import Dict, List, Optional  # type: ignore
 
 AGGREGATION_DESCRIPTION = "description"
 AGGREGATION_MEAN = "mean"
 AGGREGATION_MIN = "min"
 AGGREGATION_MAX = "max"
 AGGREGATION_MEDIAN = "median"
-AGGREGATION_PERCENTILE_99 = "p99"
+AGGREGATION_PERCENTILE_25 = "p25"
+AGGREGATION_PERCENTILE_30 = "p30"
 AGGREGATION_PERCENTILE_75 = "p75"
 AGGREGATION_PERCENTILE_95 = "p95"
+AGGREGATION_PERCENTILE_99 = "p99"
 AGGREGATION_COUNT = "count"
-DEFAULT_AGGREGATIONS = [AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX,
-        AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95]
-DEFAULT_PERCENTILES = [99.0, 75.0, 0.95]
-AGGREGATION_TYPE_TIME = "time"
-AGGREGATION_TYPE_SPECIES = "species"
-AGGREGATION_TYPE_ALL = "all"
 AGGREGATION_TYPE = "aggregation_type"
-SOURCE = "source"
-
-# Columns in serializaiton dataframe
-SERIALIZATION_COLUMNS = [AGGREGATION_TYPE, SOURCE]
-SERIALIZATION_COLUMNS += DEFAULT_AGGREGATIONS
+RESULT_IDX = "result_idx"
+DEFAULT_AGGREGATIONS = [AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX,
+        AGGREGATION_PERCENTILE_25, AGGREGATION_PERCENTILE_30,
+        AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95]
+DEFAULT_PERCENTILES = [25.0, 30.0, 75.0, 95.0, 99.0]
 SERIALIZATION_PATH = "score_serialization.csv"
 
-
-ScoreInfo = namedtuple("ScoreInfo", [ # type: ignore
-        AGGREGATION_DESCRIPTION,
-        AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX,
-        AGGREGATION_MEDIAN,
-        AGGREGATION_PERCENTILE_99, AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95,
-        AGGREGATION_COUNT])
-
-def _makePercentileAggregationStr(percentile: float) -> str:
-    """Returns the aggregation string for the given percentile (e.g., 99.0 → 'p99')."""
-    result =  f"p{percentile:g}"
-    result = result.replace("p0.", "p")
-    return result
+_SCOREINFO_COLS = [RESULT_IDX, AGGREGATION_DESCRIPTION, AGGREGATION_TYPE,
+        AGGREGATION_MEAN, AGGREGATION_MIN, AGGREGATION_MAX, AGGREGATION_MEDIAN,
+        AGGREGATION_PERCENTILE_25, AGGREGATION_PERCENTILE_30,
+        AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95,
+        AGGREGATION_PERCENTILE_99, AGGREGATION_COUNT]
+_PERCENTILE_ATTRS = {AGGREGATION_PERCENTILE_25, AGGREGATION_PERCENTILE_30,
+        AGGREGATION_PERCENTILE_75, AGGREGATION_PERCENTILE_95,
+        AGGREGATION_PERCENTILE_99}
 
 
+
+#########################################
+class ScoreInfo(object):
+
+    def __init__(self,
+            description: str = "",
+            aggregation_type: str = "",
+            mean: float = np.nan,
+            min: float = np.nan,
+            max: float = np.nan,
+            median: float = np.nan,
+            p25: float = np.nan,
+            p30: float = np.nan,
+            p75: float = np.nan,
+            p95: float = np.nan,
+            p99: float = np.nan,
+            count: int = -1) -> None:
+        self.description = description
+        self.aggregation_type = aggregation_type
+        self.mean = mean
+        self.min = min
+        self.max = max
+        self.median = median
+        self.p25 = p25
+        self.p30 = p30
+        self.p75 = p75
+        self.p95 = p95
+        self.p99 = p99
+        self.count = count
+
+
+#########################################
 class Score:
     """Scores prediction timecourses against true timecourses.
 
     ARE = (prediction - true) / true.
+    Results are stored as ScoreInfo objects and persisted to CSV.
     """
 
-    def __init__(self, description: str = "",
-            serialization_path: str = SERIALIZATION_PATH) -> None:
+    def __init__(self, serialization_path: str = SERIALIZATION_PATH) -> None:
         """
-        Constructs an empty Score with descriptive information.
-
         Parameters
         ----------
-        description : str
-            Descriptive label for this score.
-        serialization_path : Optional[str]
-            Path to a CSV file for persistence. If provided, serialize() writes here
-            and deserialize() reads from here.
+        serialization_path : str
+            Path to a CSV file for persistence.
         """
-        self.description = description
+        self._serializer = DataframeSerializer(serialization_path)
         self._serialization_path = serialization_path
-        # FIXME: Make this a dict
-        self._are_dfs: List[pd.DataFrame] = []
-        self._serialization_dct: Dict[str, List] = {c: [] for c in SERIALIZATION_COLUMNS}
+
+    @property
+    def score_df(self) -> pd.DataFrame:
+        return self._serializer.dataframe
 
     def addTestResult(self, true_timecourse_df: pd.DataFrame,
-            prediction_timecourse_df: pd.DataFrame) -> None:
+            prediction_timecourse_df: pd.DataFrame,
+            description: str = "") -> None:
         """
-        Adds a test result by computing ARE from true and prediction timecourses.
-        ARE = (prediction - true) / true; NaN where true == 0.
+        Adds a test result by computing ScoreInfo from true and prediction timecourses.
 
         Parameters
         ----------
@@ -85,22 +102,12 @@ class Score:
             True timecourse with timepoints as index and species as columns.
         prediction_timecourse_df : pd.DataFrame
             Prediction timecourse with same structure as true_timecourse_df.
+        description : str
+            Descriptive label for this test result.
         """
-        are_df = self._computeARE(true_timecourse_df, prediction_timecourse_df)
-        self._are_dfs.append(are_df)
-        self.serialize()
-
-    def serialize(self) -> None:
-        """Writes the Score state to a CSV at _serialization_path; no-op if path is None."""
-        if self._serialization_path is None:
-            return
-        with open(self._serialization_path, 'w') as f:
-            f.write(f"# {self.description}\n")
-            if self._are_dfs:
-                combined_df = pd.concat(
-                        self._are_dfs, keys=range(len(self._are_dfs)),
-                        names=['result_idx', 'time'])
-                combined_df.to_csv(f)
+        score_infos = self.makeScoreInfo(description, true_timecourse_df,
+                prediction_timecourse_df)
+        self._serializer.serialize([info.__dict__ for info in score_infos])
 
     @classmethod
     def deserialize(cls, path: str) -> 'Score':
@@ -116,15 +123,7 @@ class Score:
         Score
             Restored Score with _serialization_path set to path.
         """
-        with open(path, 'r') as f:
-            first_line = f.readline().strip()
-            remaining = f.read()
-        description = first_line[2:] if first_line.startswith('# ') else ""
-        score = cls(description=description, serialization_path=path)
-        if remaining.strip():
-            combined_df = pd.read_csv(io.StringIO(remaining), index_col=[0, 1])
-            for idx in sorted(combined_df.index.get_level_values('result_idx').unique()):
-                score._are_dfs.append(combined_df.loc[idx])
+        score = cls(serialization_path=path)
         return score
 
     def _computeARE(self, true_df: pd.DataFrame,
@@ -137,244 +136,110 @@ class Score:
                     np.abs(prediction_df.values - true_df.values) / true_df.values)
         return pd.DataFrame(are_arr, index=true_df.index, columns=true_df.columns)
 
-    def _getCombinedARE(self) -> pd.DataFrame:
-        """Returns a single ARE DataFrame by concatenating all added test results along time."""
-        if len(self._are_dfs) == 0:
-            return pd.DataFrame()
-        return pd.concat(self._are_dfs, axis=0)
-
-    def _applyAggregation(self, arr: np.ndarray, aggregation: str) -> np.ndarray:
-        """Applies the named aggregation to arr along axis 0."""
-        if aggregation == AGGREGATION_MEAN:
-            return np.nanmean(arr, axis=0)
-        if aggregation == AGGREGATION_MIN:
-            return np.nanmin(arr, axis=0)
-        if aggregation == AGGREGATION_MAX:
-            return np.nanmax(arr, axis=0)
-        if aggregation == AGGREGATION_MEDIAN:
-            return np.nanmedian(arr, axis=0)
-        if aggregation.startswith("p"):
-            percentile = float(aggregation[1:])
-            return np.nanpercentile(arr, percentile, axis=0)
-        raise ValueError(f"Unknown aggregation: {aggregation}")
-
-    def aggregateByTime(self,
-            aggregations: Optional[List[str]] = None) -> pd.DataFrame:
-        """
-        Aggregates ARE across time for each species.
+    def plot(self, is_model_aggregation: bool = True,
+            column_name: str = AGGREGATION_MEAN,
+            ax = None,
+            num_bin: int = 20) -> mfigure.Figure:  # type: ignore
+        """Bar plot of time aggregations over species.
 
         Parameters
         ----------
-        aggregations : List[str]
-            Aggregation functions. Supported: "mean", "min", "max", "median", "pN" (Nth percentile).
-
-        Returns
-        -------
-        pd.DataFrame
-            Index = species names, columns = aggregation names.
-        """
-        if aggregations is None:
-            aggregations = DEFAULT_AGGREGATIONS
-        combined_df = self._getCombinedARE()
-        if combined_df.empty:
-            return pd.DataFrame()
-        result_dct: Dict[str, np.ndarray] = {}
-        for aggregation in aggregations:
-            result_dct[aggregation] = self._applyAggregation(
-                    combined_df.values, aggregation)
-        return pd.DataFrame(result_dct, index=combined_df.columns)
-
-    def aggregateBySpecies(self,
-            aggregations: Optional[List[str]] = None) -> pd.DataFrame:
-        """
-        Aggregates ARE across species at each timepoint.
-
-        Parameters
-        ----------
-        aggregations : List[str]
-            Aggregation functions. Supported: "mean", "min", "max", "median", "pN" (Nth percentile).
-
-        Returns
-        -------
-        pd.DataFrame
-            Index = timepoints, columns = aggregation names.
-        """
-        if aggregations is None:
-            aggregations = DEFAULT_AGGREGATIONS
-        combined_df = self._getCombinedARE()
-        if combined_df.empty:
-            return pd.DataFrame()
-        result_dct: Dict[str, np.ndarray] = {}
-        for aggregation in aggregations:
-            result_dct[aggregation] = self._applyAggregation(
-                    combined_df.values.T, aggregation)
-        return pd.DataFrame(result_dct, index=combined_df.index)
-
-    def plotTime(self, aggregations: Optional[List[str]] = None,
-            ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
-        """
-        Constructs a time plot of species aggregations over time.
-        x-axis = time, y-axis = ARE aggregated across species, one line per aggregation.
-
-        Parameters
-        ----------
-        aggregations : List[str]
-            Aggregation functions to plot.
+        is_model_aggregation : bool
+            Whether to plot model-level aggregation (True) or species-level (False).
+        column_name : str
+            Name of the column to plot.
         ax : Optional[plt.Axes]
             Axes to draw on. A new figure is created if None.
+        num_bin : int
+            Number of bins for the histogram.
 
         Returns
         -------
         mfigure.Figure
         """
-        agg_df = self.aggregateBySpecies(aggregations)
+        if is_model_aggregation:
+            aggregation_type = "model"
+        else:
+            aggregation_type = "species"
+        if is_model_aggregation:
+            agg_df = self.score_df[self.score_df[AGGREGATION_TYPE] == "model"]
+        else:
+            agg_df = self.score_df[self.score_df[AGGREGATION_TYPE] != "model"]
+        arr = agg_df[column_name].values
+        #arr = np.min(arr, 1)
         if ax is None:
             fig, ax = plt.subplots()
         else:
             fig = ax.get_figure()
         assert isinstance(fig, mfigure.Figure)
-        for col in agg_df.columns:
-            ax.plot(agg_df.index, agg_df[col], label=col)
-        ax.set_xlabel("Time")
-        ax.set_ylabel("ARE")
-        ax.set_title(f"Species Aggregations over Time: {self.description}")
-        ax.legend()
+        ax.hist(arr, bins=num_bin)
+        ax.set_xlabel(f"{column_name} abs relative error")
+        ax.set_ylabel("count")
+        ax.set_title(aggregation_type)
         fig.tight_layout()
         plt.show()
         return fig
 
-    def aggregateByPercentile(self,
-            percentiles: Optional[List[float]] = None) -> pd.DataFrame:
-        """
-        Aggregates ARE by percentile across all timepoints and test results for each species.
-
-        Parameters
-        ----------
-        percentiles : List[float]
-            Percentile values in the range [0, 100].
-
-        Returns
-        -------
-        pd.DataFrame
-            Index = species names, columns = percentile labels (e.g., 'p99', 'p75', 'p95').
-        """
-        if percentiles is None:
-            percentiles = DEFAULT_PERCENTILES
-        aggregations = [_makePercentileAggregationStr(p) for p in percentiles]
-        return self.aggregateByTime(aggregations)
-
-    def plotPercentile(self, percentiles: Optional[List[float]] = None,
-            ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
-        """
-        Bar plot of ARE at each percentile for every species.
-        x-axis = species, y-axis = ARE, grouped bars per percentile.
-
-        Parameters
-        ----------
-        percentiles : List[float]
-            Percentile values in the range [0, 100].
-        ax : Optional[plt.Axes]
-            Axes to draw on. A new figure is created if None.
-
-        Returns
-        -------
-        mfigure.Figure
-        """
-        agg_df = self.aggregateByPercentile(percentiles)
-        if ax is None:
-            fig, ax = plt.subplots()
-        else:
-            fig = ax.get_figure()
-        assert isinstance(fig, mfigure.Figure)
-        agg_df.plot(kind='bar', ax=ax)
-        ax.set_xlabel("Species")
-        ax.set_ylabel("ARE")
-        ax.set_title(f"ARE Percentiles by Species: {self.description}")
-        ax.legend(title="Percentile")
-        fig.tight_layout()
-        plt.show()
-        return fig
-
-    def makeScoreInfo(self, 
+    def makeScoreInfo(self,
             description: str,
             true_timecourse_df: pd.DataFrame,
             prediction_timecourse_df: pd.DataFrame) -> List[ScoreInfo]:
-        """Computes ScoreInfo by aggregating ARE across all timepoints and species.
+        """Computes a list of ScoreInfo: one model-level and one per species.
 
         Parameters
         ----------
         description : str
-            Descriptive label for this ScoreInfo.
-            Provides ScoreInfo for the model and each species
+            Descriptive label stored in each ScoreInfo.
         true_timecourse_df : pd.DataFrame
             True timecourse with timepoints as index and species as columns.
         prediction_timecourse_df : pd.DataFrame
-            Prediction timecourse with same structure as true_timecourse_df.
+            Prediction timecourse with the same structure.
+
+        Returns
+        -------
+        List[ScoreInfo]
+            First element covers all species/timepoints (aggregation_type="model");
+            subsequent elements cover individual species.
+        """
+        are_df = self._computeARE(true_timecourse_df, prediction_timecourse_df)
+        # Model level aggregation
+        score_info = self._makeBasicScoreInfo(are_df)
+        score_info.description = description
+        score_info.aggregation_type = "model"
+        score_infos = [score_info]
+        # Species level aggregations
+        for species_name in are_df.columns:
+            species_are_df = pd.DataFrame(are_df[species_name])
+            score_info = self._makeBasicScoreInfo(species_are_df)
+            score_info.description = description
+            score_info.aggregation_type = species_name
+            score_infos.append(score_info)
+        return score_infos
+
+    def _makeBasicScoreInfo(self, are_df: pd.DataFrame) -> ScoreInfo:
+        """Computes a ScoreInfo from the DataFrame
+
+        Parameters
+        ----------
+        are_df : pd.DataFrame
+            DataFrame containing the ARE values.
 
         Returns
         -------
         ScoreInfo
-            Named tuple with ARE statistics (mean, min, max, median, p99, p75, p95, count)
-            computed over all non-NaN ARE values.
+            A ScoreInfo instance with the aggregated statistics.
         """
-        are_df = self._computeARE(true_timecourse_df, prediction_timecourse_df)
         are_arr = are_df.values.flatten()
         count = int(np.sum(~np.isnan(are_arr)))
-        score_info = ScoreInfo(  # type: ignore
-                description=description + "/model",
+        score_info = ScoreInfo(
                 mean=float(np.nanmean(are_arr)),
                 min=float(np.nanmin(are_arr)),
                 max=float(np.nanmax(are_arr)),
                 median=float(np.nanmedian(are_arr)),
-                p99=float(np.nanpercentile(are_arr, 99)),
+                p25=float(np.nanpercentile(are_arr, 25)),
+                p30=float(np.nanpercentile(are_arr, 30)),
                 p75=float(np.nanpercentile(are_arr, 75)),
                 p95=float(np.nanpercentile(are_arr, 95)),
+                p99=float(np.nanpercentile(are_arr, 99)),
                 count=count)
-        score_infos = [score_info]
-        for species in are_df.columns:
-            species_arr = are_df[species].values
-            species_count = int(np.sum(~np.isnan(species_arr)))
-            species_score_info = ScoreInfo(  # type: ignore
-                    description=description + f"/species/{species}",
-                    mean=float(np.nanmean(species_arr)), # type: ignore
-                    min=float(np.nanmin(species_arr)), # type: ignore
-                    max=float(np.nanmax(species_arr)), # type: ignore
-                    median=float(np.nanmedian(species_arr)), # type: ignore
-                    p99=float(np.nanpercentile(species_arr, 99)), # type: ignore
-                    p75=float(np.nanpercentile(species_arr, 75)), # type: ignore
-                    p95=float(np.nanpercentile(species_arr, 95)), # type: ignore
-                    count=species_count)
-            score_infos.append(species_score_info)
-        return score_infos
-
-    def plotSpecies(self, aggregations: Optional[List[str]] = None,
-            ax: Optional[plt.Axes] = None) -> mfigure.Figure:  # type: ignore
-        """
-        Constructs a bar plot of time aggregations over species.
-        x-axis = species, y-axis = ARE aggregated across time, grouped bars per aggregation.
-
-        Parameters
-        ----------
-        aggregations : List[str]
-            Aggregation functions to plot.
-        ax : Optional[plt.Axes]
-            Axes to draw on. A new figure is created if None.
-
-        Returns
-        -------
-        mfigure.Figure
-        """
-        agg_df = self.aggregateByTime(aggregations)
-        if ax is None:
-            fig, ax = plt.subplots()
-        else:
-            fig = ax.get_figure()
-        assert isinstance(fig, mfigure.Figure)
-        agg_df.plot(kind='bar', ax=ax)
-        ax.set_xlabel("Species")
-        ax.set_ylabel("ARE")
-        ax.set_title(f"Time Aggregations over Species: {self.description}")
-        ax.legend(title="Aggregation")
-        fig.tight_layout()
-        plt.show()
-        return fig
+        return score_info

@@ -32,11 +32,16 @@ BIOMD8_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000008", "BIOMD0000000008_url.xml"
 )
 BIOMD8_ENDTIME = 20.0
+BIOMD60_PATH = os.path.join(
+    cn.BIOMODELS_DIR, "BIOMD0000000060", "BIOMD0000000060_url.xml"
+)
+BIOMD60_ENDTIME = 10.0
 BIOMD206_PATH = os.path.join(
     cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
 )
 BIOMD206_ENDTIME = 15.0
-BIOMODEL_NAMES = ["BIOMD0000000008", "BIOMD0000000054", "BIOMD0000000181", "BIOMD0000000206"]
+BIOMODEL_NAMES = ["BIOMD0000000206", "BIOMD0000000054",
+        "BIOMD0000000181", "BIOMD0000000008"]
 
 
 def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints: np.ndarray) -> Trajectory:
@@ -1086,8 +1091,8 @@ class TestBiomodelsFit(unittest.TestCase):
 
     def test_improves_or_matches_prediction(self) -> None:
         """Fitted Jacobian produces MSE no worse than the mean Jacobian."""
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         for model_name, lr in self.lr_dct.items():
             with self.subTest(model=model_name):
                 trajectory = Trajectory(lr)
@@ -1191,6 +1196,125 @@ class TestMakeBiomodelWithData(unittest.TestCase):
                 end_time=BIOMD8_ENDTIME, num_point=5)
         self.assertEqual(traj_num.l_roadrunner.species_names,
                 traj_path.l_roadrunner.species_names)
+
+
+BIOMD1_PATH = os.path.join(
+        cn.BIOMODELS_DIR, "BIOMD0000000001", "BIOMD0000000001_url.xml"
+)
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestPredictLinearBiomd1(unittest.TestCase):
+    """Tests for Trajectory.predictLinear on BIOMD0000000001.
+
+    This model has large positive Jacobian eigenvalues that cause the matrix
+    exponential to overflow during integration, so all rows after t=0 are NaN.
+    The tests document that known behaviour and verify the shape contract.
+    """
+
+    def setUp(self) -> None:
+        if not os.path.exists(BIOMD1_PATH):
+            self.skipTest(f"BIOMD0000000001 not found at {BIOMD1_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(model_num=1)
+        self.pred_df = self.trajectory.predictLinear()
+
+    def test_returns_dataframe(self) -> None:
+        """predictLinear returns a pd.DataFrame."""
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.pred_df, pd.DataFrame)
+
+    def test_shape_matches_timecourse(self) -> None:
+        """Result shape matches the true timecourse shape."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(self.pred_df.shape,
+                self.trajectory.l_roadrunner.timecourse.shape)
+
+    def test_columns_match_species(self) -> None:
+        """Column names equal the model's species names."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(
+                list(self.pred_df.columns),
+                self.trajectory.l_roadrunner.species_names)
+
+    def test_first_row_is_not_nan(self) -> None:
+        """The t=0 row contains finite values (initial conditions are valid)."""
+        if IGNORE_TESTS:
+            return
+        self.assertFalse(np.any(np.isnan(self.pred_df.iloc[0].values)))
+
+    def test_prediction_contains_nan(self) -> None:
+        """predictLinear result contains NaN (overflow documented)."""
+        if IGNORE_TESTS:
+            return
+        self.assertTrue(np.any(np.isnan(self.pred_df.values)))
+        #
+        self.trajectory = Trajectory.makeBiomodel(model_num=1)
+        self.pred_df = self.trajectory.predictLinear(is_adjust_fitted_jacobian=True)
+        self.assertFalse(np.any(np.isnan(self.pred_df.values)))
+
+    def test_true_timecourse_has_no_nan(self) -> None:
+        """The true timecourse for BIOMD1 is well-formed; NaN is a prediction artefact."""
+        if IGNORE_TESTS:
+            return
+        self.assertFalse(np.any(
+                np.isnan(self.trajectory.l_roadrunner.timecourse.values)))
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestPredictLinearBiomd60(unittest.TestCase):
+    """Tests for Trajectory.predictLinear on BIOMD0000000060.
+
+    This model has 4 species with a near-zero eigenvalue (~-0.45) alongside
+    very negative ones (~-1913), making it stiff.  num_point is kept small (10)
+    to keep the test suite fast.
+    """
+
+    NUM_POINT = 10
+
+    def setUp(self) -> None:
+        if not os.path.exists(BIOMD60_PATH):
+            self.skipTest(f"BIOMD0000000060 not found at {BIOMD60_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD60_PATH, end_time=BIOMD60_ENDTIME,
+                num_point=self.NUM_POINT)
+        self.pred_df = self.trajectory.predictLinear()
+
+    def test_returns_dataframe(self) -> None:
+        """predictLinear returns a pd.DataFrame."""
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.pred_df, pd.DataFrame)
+
+    def test_shape_matches_timecourse(self) -> None:
+        """Result shape matches the true timecourse shape."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(self.pred_df.shape,
+                self.trajectory.l_roadrunner.timecourse.shape)
+
+    def test_columns_match_species(self) -> None:
+        """Column names equal the model's species names."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(
+                list(self.pred_df.columns),
+                self.trajectory.l_roadrunner.species_names)
+
+    def test_first_row_is_not_nan(self) -> None:
+        """The t=0 row contains finite values (initial conditions are valid)."""
+        if IGNORE_TESTS:
+            return
+        self.assertFalse(np.any(np.isnan(self.pred_df.iloc[0].values)))
+
+    def test_true_timecourse_has_no_nan(self) -> None:
+        """The true timecourse for BIOMD60 is well-formed."""
+        if IGNORE_TESTS:
+            return
+        self.assertFalse(np.any(
+                np.isnan(self.trajectory.l_roadrunner.timecourse.values)))
 
 
 if __name__ == "__main__":
