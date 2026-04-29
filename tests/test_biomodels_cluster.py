@@ -17,6 +17,8 @@ from l_roadrunner import LRoadrunner  # type: ignore
 IGNORE_TESTS = False
 HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
 TEST_MODEL = "BIOMD0000000001"
+FIRST_MODEL_NUM = 1
+LAST_MODEL_NUM = 10
 
 # Minimal SBML for a two-species decay used in unit tests that don't need
 # real BioModels data.
@@ -256,7 +258,7 @@ class TestClusterAnalysis(unittest.TestCase):
                 is_report=False,
                 is_sequential_partition=True,
                 diameter_metric=cn.DIAMETER_MAX_CV,
-                is_test=True,  # type: ignore
+                first_model_num=FIRST_MODEL_NUM, last_model_num=LAST_MODEL_NUM,
         )
         self.assertIsInstance(df, pd.DataFrame)
 
@@ -271,7 +273,7 @@ class TestClusterAnalysis(unittest.TestCase):
                 is_report=False,
                 is_sequential_partition=True,
                 diameter_metric=cn.DIAMETER_MAX_CV,
-                is_test=True,  # type: ignore
+                first_model_num=FIRST_MODEL_NUM, last_model_num=LAST_MODEL_NUM,
         )
         self.assertTrue(os.path.isfile(self._output_csv))
 
@@ -285,7 +287,7 @@ class TestClusterAnalysis(unittest.TestCase):
                 is_report=IGNORE_TESTS,
                 is_sequential_partition=True,
                 diameter_metric=cn.DIAMETER_MAX_CV,
-                is_test=True,
+                first_model_num=FIRST_MODEL_NUM, last_model_num=LAST_MODEL_NUM,
         )
         for col in [cn.COL_MAXCV, cn.COL_ENDTIME]:
             self.assertIn(col, df.columns)
@@ -301,7 +303,7 @@ class TestClusterAnalysis(unittest.TestCase):
                 is_report=IGNORE_TESTS,
                 is_sequential_partition=True,
                 diameter_metric=cn.DIAMETER_MAX_CV,
-                is_test=True,
+                first_model_num=FIRST_MODEL_NUM, last_model_num=LAST_MODEL_NUM,
         )
         if TEST_MODEL in df.index:
             self.fail(f"{TEST_MODEL} should have been excluded")

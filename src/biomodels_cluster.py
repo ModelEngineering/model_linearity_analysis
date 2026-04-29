@@ -96,7 +96,8 @@ class BiomodelsCluster:
         is_report: bool = True,
         is_sequential_partition: bool = True,
         diameter_metric: str = cn.DIAMETER_IVP,
-        is_test: bool = False,
+        first_model_num: int = 0,
+        last_model_num: int = int(1e9),
     ) -> pd.DataFrame:
         """
         For each model in BioModels, partition its Jacobians into n_cluster clusters and save
@@ -126,8 +127,10 @@ class BiomodelsCluster:
             Whether to use sequential partitioning instead of k-means clustering.
         diameter_metric : str
             The metric to use for calculating the diameter of each cluster.
-        is_test : bool
-            Whether to run in test mode.
+        first_model_num : int
+            The first model number to include (inclusive).
+        last_model_num : int
+            The last model number to include (inclusive).
 
         Returns
         -------
@@ -142,7 +145,8 @@ class BiomodelsCluster:
             excluded_models=excluded_models,
             existing_csv_path=output_data_file,
             is_report=is_report,
-            is_test=is_test,
+            first_model_num=first_model_num,
+            last_model_num=last_model_num,
         )
         existing_df = iterator._existing_df
         ##

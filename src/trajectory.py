@@ -473,6 +473,8 @@ class Trajectory(object):
             fitted_jacobian_arr[i, i] = result.params[f'd{i}'].value  # type: ignore
         if is_adjusted_result:
             self._fitted_jacobian_arr = utils.adjustJacobian(fitted_jacobian_arr, duration)
+            sel = np.isnan(self._fitted_jacobian_arr) | np.isinf(self._fitted_jacobian_arr)
+            self._fitted_jacobian_arr[sel] = 0.0
         else:
             self._fitted_jacobian_arr = fitted_jacobian_arr
         return self._fitted_jacobian_arr

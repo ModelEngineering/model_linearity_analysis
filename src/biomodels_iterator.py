@@ -7,15 +7,16 @@ import os
 import pandas as pd  # type: ignore
 from typing import Iterator, List, Optional, Tuple
 
-NUM_TEST_MODELS = 5
-
-
 ############################################
 class BiomodelsItem:
     """Represents a single BioModel with its associated file paths."""
 
-    def __init__(self, model_name: str, sbml_paths: List[str], sedml_paths: List[str],
-            existing_df: pd.DataFrame = pd.DataFrame()) -> None:
+    def __init__(self,
+            model_name: str,
+            sbml_paths: List[str],
+            sedml_paths: List[str],
+            existing_df: pd.DataFrame = pd.DataFrame(),
+            last_model_num: int = int(1e9)) -> None:
         """
         Initialize a BiomodelsItem.
 
@@ -34,9 +35,8 @@ class BiomodelsItem:
         self.model_name = model_name
         self.sbml_paths = sbml_paths
         self.sedml_paths = sedml_paths
-        if existing_df is None:
-            self.existing_df = pd.DataFrame()
-        else:
+        self.existing_df = pd.DataFrame()
+        if existing_df is not None:
             self.existing_df = existing_df
 
     def __repr__(self) -> str:
@@ -57,7 +57,8 @@ class BiomodelsIterator:
                 excluded_models: List[str] = [],
                 existing_csv_path: Optional[str] = None,
                 is_report: bool = True,
-                is_test: bool = False,
+                first_model_num: int = 0,
+                last_model_num: int = int(1e9)
                 ) -> None:
         """
         Initialize a BiomodelsIterator.
@@ -75,15 +76,18 @@ class BiomodelsIterator:
             Path to an existing CSV file containing processed models. If provided,
             models listed in this file will be added to the excluded_models list.
             The column cn.COL_MODEL_NAME will be used to identify processed models.
-        is_test : bool
-            Whether to run in test mode, which may limit the number of models processed or alter behavior
+        first_model_num : int
+            The first model number to include (inclusive).
+        last_model_num : int
+            The last model number to include (inclusive).
         """
         self.biomodels_dir = biomodels_dir
         self.excluded_models = excluded_models
         self._is_report = is_report
         self._existing_csv_path = existing_csv_path
         self._existing_df, self._processed_models = self._getProcessedModelsFromCSV()
-        self._is_test = is_test
+        self.first_model_num = first_model_num
+        self.last_model_num = last_model_num
 
     def _getProcessedModelsFromCSV(self) -> Tuple[pd.DataFrame, List[str]]:
         """
@@ -142,6 +146,14 @@ class BiomodelsIterator:
             sedml_paths=sedml_paths,
             existing_df=pd.DataFrame()
         )
+    
+    @staticmethod
+    def extractModelNum(model_name: str) -> int:
+        """Extracts the numeric part of a model name like 'BIOMD0000000001'."""
+        try:
+            return int(model_name.replace("BIOMD", ""))
+        except ValueError:
+            return -1  # Return -1 for unexpected model name formats
 
     def __iter__(self) -> Iterator[BiomodelsItem]:
         """
@@ -157,10 +169,11 @@ class BiomodelsIterator:
             if os.path.isdir(os.path.join(self.biomodels_dir, d)) 
             and "BIOMD" in d
         )
-        for idx, model_name in enumerate(model_names):
-            if idx > NUM_TEST_MODELS and self._is_test:
-                self._msg(f"Test mode enabled, stopping after {NUM_TEST_MODELS} models.")
-                break
+        for model_name in model_names:
+            model_num = self.extractModelNum(model_name)
+            if model_num < self.first_model_num or model_num > self.last_model_num:
+                self._msg(f"Skipping model {model_name} with number {model_num}")
+                continue
             model_dir = os.path.join(self.biomodels_dir, model_name)
             if model_name in self._processed_models:
                 self._msg(f"Skipping processed model: {model_name}")

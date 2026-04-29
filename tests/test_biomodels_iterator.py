@@ -426,6 +426,102 @@ class TestBiomodelsIteratorIter(unittest.TestCase):
         self.assertTrue(items[0].existing_df.empty)
 
 
+class TestExtractModelNum(unittest.TestCase):
+    """Tests for BiomodelsIterator.extractModelNum."""
+
+    def test_standard_model_name(self) -> None:
+        """Extracts the integer from a standard BIOMD name."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(BiomodelsIterator.extractModelNum("BIOMD0000000001"), 1)
+
+    def test_large_model_number(self) -> None:
+        """Extracts a larger model number correctly."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(BiomodelsIterator.extractModelNum("BIOMD0000001234"), 1234)
+
+    def test_invalid_name_returns_minus_one(self) -> None:
+        """Non-numeric suffix returns -1."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(BiomodelsIterator.extractModelNum("NOT_A_MODEL"), -1)
+
+    def test_empty_string_returns_minus_one(self) -> None:
+        """Empty string returns -1."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(BiomodelsIterator.extractModelNum(""), -1)
+
+    def test_biomd_with_no_digits_returns_minus_one(self) -> None:
+        """'BIOMD' with no trailing digits returns -1."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(BiomodelsIterator.extractModelNum("BIOMD"), -1)
+
+
+class TestBiomodelsIteratorRange(unittest.TestCase):
+    """Tests for first_model_num / last_model_num range filtering in __iter__."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+        for name in ["BIOMD0000000001", "BIOMD0000000002", "BIOMD0000000003"]:
+            _make_model_dir(self._tmpdir, name, xml_files=["model.xml"], sedml_files=[])
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def _names(self, **kwargs) -> List[str]:
+        it = BiomodelsIterator(biomodels_dir=self._tmpdir, is_report=False, **kwargs)
+        return [item.model_name for item in it]
+
+    def test_default_range_yields_all_models(self) -> None:
+        """Default range (0 to 1e9) yields all models."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(self._names(), ["BIOMD0000000001", "BIOMD0000000002", "BIOMD0000000003"])
+
+    def test_first_model_num_excludes_lower_models(self) -> None:
+        """Models with number below first_model_num are not yielded."""
+        if IGNORE_TESTS:
+            return
+        names = self._names(first_model_num=2)
+        self.assertNotIn("BIOMD0000000001", names)
+        self.assertIn("BIOMD0000000002", names)
+        self.assertIn("BIOMD0000000003", names)
+
+    def test_last_model_num_excludes_higher_models(self) -> None:
+        """Models with number above last_model_num are not yielded."""
+        if IGNORE_TESTS:
+            return
+        names = self._names(last_model_num=2)
+        self.assertIn("BIOMD0000000001", names)
+        self.assertIn("BIOMD0000000002", names)
+        self.assertNotIn("BIOMD0000000003", names)
+
+    def test_range_is_inclusive_on_both_ends(self) -> None:
+        """first_model_num and last_model_num are both inclusive."""
+        if IGNORE_TESTS:
+            return
+        names = self._names(first_model_num=2, last_model_num=2)
+        self.assertEqual(names, ["BIOMD0000000002"])
+
+    def test_narrow_range_yields_subset(self) -> None:
+        """A range narrower than the full set yields only the matching models."""
+        if IGNORE_TESTS:
+            return
+        names = self._names(first_model_num=1, last_model_num=2)
+        self.assertEqual(names, ["BIOMD0000000001", "BIOMD0000000002"])
+
+    def test_empty_range_yields_nothing(self) -> None:
+        """A range that matches no models yields an empty list."""
+        if IGNORE_TESTS:
+            return
+        names = self._names(first_model_num=10, last_model_num=20)
+        self.assertEqual(names, [])
+
+
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestBiomodelsIteratorReal(unittest.TestCase):
     """Integration tests for BiomodelsIterator using the real BioModels directory."""

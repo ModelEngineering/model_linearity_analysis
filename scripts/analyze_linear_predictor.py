@@ -29,7 +29,12 @@ import os
     "BIOMD0000000036",  # Errors "too much work"
     "BIOMD0000000054",  # Long processing time
 ] """
-EXCLUDED_MODELS: list[str] = []
+EXCLUDED_MODELS: list[str] = [
+    "BIOMD0000000035",  # Errors "too much work"
+    "BIOMD0000000036",  # Errors "too much work"
+    "BIOMD0000000079",  # Errors "too much work"
+    "BIOMD0000000088",  # Errors "too much work"
+]
 
 
 score = Score(serialization_path=os.path.join(cn.DATA_DIR, "linear_predictor_scores2.csv"))
