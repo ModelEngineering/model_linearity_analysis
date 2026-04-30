@@ -148,6 +148,8 @@ class BiomodelsIterator:
         )
     
     @staticmethod
+    
+    @staticmethod
     def extractModelNum(model_name: str) -> int:
         """Extracts the numeric part of a model name like 'BIOMD0000000001'."""
         try:

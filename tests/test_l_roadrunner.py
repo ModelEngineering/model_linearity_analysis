@@ -52,6 +52,12 @@ S2 -> ; k2*S2
 k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
+# Constant-production model: dS1/dt = k_in (no species dependency), so Jacobian is [[0]].
+CONSTANT_PRODUCTION_MODEL = """
+-> S1; k_in
+k_in = 1.0; S1 = 0
+"""
+
 # Production-degradation model: SS = k_in/k_out = 10; time constant = 1/k_out = 10 s.
 PRODUCTION_MODEL = """
 -> S1; k_in
@@ -353,6 +359,19 @@ k1 = 0.1; S1 = 10; S2 = 0
         rr = LRoadrunner(boundary_model, end_time=10.0)
         with self.assertRaises(ValueError):
             rr.makeJacobians()
+
+    def test_all_zero_jacobian_skips_timepoint(self) -> None:
+        """makeJacobians skips timepoints where the Jacobian is all zeros.
+
+        CONSTANT_PRODUCTION_MODEL (dS1/dt = k_in, no species dependency) has
+        Jacobian [[0]] at every timepoint.  Each zero Jacobian is skipped, so
+        the returned jacobians array is empty.
+        """
+        if IGNORE_TESTS:
+            return
+        lrr = LRoadrunner(CONSTANT_PRODUCTION_MODEL, end_time=10.0, num_point=5)
+        with self.assertRaises(ValueError):
+            _ = lrr.makeJacobians()
 
 
 class TestGetEndtimeFromJacobian(unittest.TestCase):
@@ -713,9 +732,8 @@ class TestEndTimeSource(unittest.TestCase):
         with mock.patch.object(lrr, "_calculateEndtimeSBML", return_value=np.nan), \
                 mock.patch.object(lrr, "_calculateEndtimeSteadystate", return_value=np.nan), \
                 mock.patch.object(lrr, "_calculateEndtimeCV", return_value=np.nan):
-            result = lrr.end_time
-        self.assertTrue(np.isnan(result))
-        self.assertIsNone(lrr.end_time_source)
+            with self.assertRaises(ValueError):
+                _= lrr.end_time
 
     def test_source_is_sedml_when_sedml_used(self) -> None:
         """end_time_source is SEDML when end time is extracted from SED-ML string."""

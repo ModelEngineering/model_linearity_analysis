@@ -15,6 +15,7 @@ from sklearn.cluster import KMeans  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 from lmfit import Parameters, minimize as lmfit_minimize  # type: ignore
 from typing import List, Optional, Tuple, cast
+import warnings
 
 
 # Times relative to the characteristic time at which to evaluate the weighted eigenvectors
@@ -348,11 +349,13 @@ class Trajectory(object):
         n_time = len(self.timepoint_arr)
         n_species = len(initial_state_arr)
         try:
-            sol = solve_ivp(ode,
-                    (self.timepoint_arr[0], self.timepoint_arr[-1]),
-                    initial_state_arr,
-                    t_eval=self.timepoint_arr,
-                    method='Radau')
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", RuntimeWarning)
+                sol = solve_ivp(ode,
+                        (self.timepoint_arr[0], self.timepoint_arr[-1]),
+                        initial_state_arr,
+                        t_eval=self.timepoint_arr,
+                        method='Radau')
             if sol.y.shape == (n_species, n_time):
                 return sol.y.T
             result = np.full((n_time, n_species), np.nan)
@@ -360,9 +363,7 @@ class Trajectory(object):
             result[:k] = sol.y.T
             return result
         except Exception:
-            result = np.full((n_time, n_species), np.nan)
-            result[0] = initial_state_arr
-            return result
+            raise RuntimeError("ODE solver failed in _predictLinear. This may be due to an unstable Jacobian leading to overflow or NaN values during integration.")
 
     def fitForcingInputs(self,
             initial_state_arr: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
@@ -525,9 +526,12 @@ class Trajectory(object):
         ax1.set_ylabel("Normalized distance")
         ax1.set_title("Normalized Distance of Jacobian to Centroid")
         ax1.set_ylim(ylim)
-
+        # Timecourse plot
+        prediction_df = self.predictLinear()
+        colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
         for i, species_id in enumerate(species_ids):
-            ax2.plot(species_times, species_data[:, i], label=species_id)
+            ax2.plot(species_times, species_data[:, i], label=species_id, color=colors[i], alpha=0.7)
+            ax2.scatter(species_times, prediction_df[species_id], s=8, alpha=0.7, color=colors[i])
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Concentration")
         ax2.set_title("Species Timecourse")

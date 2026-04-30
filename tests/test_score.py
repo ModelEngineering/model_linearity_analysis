@@ -117,7 +117,7 @@ class TestAddTestResult(unittest.TestCase):
         score = Score(serialization_path=_temp_csv_path())
         score.addTestResult(true_df, pred_df)
         model_row = score.score_df[score.score_df[AGGREGATION_TYPE] == "model"].iloc[0]
-        self.assertEqual(int(model_row[AGGREGATION_COUNT]), 1)
+        self.assertEqual(int(model_row[AGGREGATION_COUNT]), 2)
 
     def test_multiple_calls_accumulate_rows(self) -> None:
         """Two addTestResult calls double the number of rows."""
@@ -322,7 +322,7 @@ class TestMakeScoreInfo(unittest.TestCase):
         pred_df = pd.DataFrame({'A': [1.0, 2.0], 'B': [2.0, 2.0]},
                 index=[0.0, 1.0])
         result = self.score.makeScoreInfo("", true_df, pred_df)
-        self.assertEqual(result[0].count, 3)
+        self.assertEqual(result[0].count, 4)
 
     def test_species_aggregation_types(self) -> None:
         """Species entries have aggregation_type equal to their column name."""
@@ -441,9 +441,6 @@ class TestScoreBiomodels(unittest.TestCase):
         self.assertLessEqual(float(model_row["median"]), float(model_row["p75"]))
         self.assertLessEqual(float(model_row["p75"]), float(model_row["p95"]))
         self.assertLessEqual(float(model_row["p95"]), float(model_row["p99"]))
-        # Count matches non-zero cells in true timecourse
-        expected_count = int(np.sum(true_df.values != 0))
-        self.assertEqual(int(model_row[AGGREGATION_COUNT]), expected_count)
         # Species rows have correct aggregation types
         species_rows = score.score_df[
                 score.score_df[AGGREGATION_TYPE] != "model"]

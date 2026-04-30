@@ -24,6 +24,7 @@ from typing import Optional, Tuple, List
 DEFAULT_END_TIME = 10.0
 DEFAULT_END_TIME_STR = 'uniformTimeCourse id="auto_ten_seconds"'
 SBML_DEFAULT_END_TIME = 10.0
+MAX_ITERATOR_STEP = 50*int(1e6)
 
 
 def getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict[str, float]:
@@ -122,6 +123,12 @@ class LRoadrunner(object):
                 if not model_id.startswith("BIOMD"):
                     raise ValueError("model_id must start with 'BIOMD'.")
             path = os.path.join(cn.BIOMODELS_DIR, model_id, f"{model_id}_url.xml")
+            if not os.path.exists(path):
+                path = os.path.join(cn.BIOMODELS_DIR, model_id, "model.xml")
+            if not os.path.exists(path):
+                import pdb; pdb.set_trace()
+                raise FileNotFoundError(f"Model file not found for model {model_id}")
+
         END_TIME = "end_time"
         with open(path, "r") as f:
             sbml_str = f.read()
@@ -196,13 +203,14 @@ class LRoadrunner(object):
 
     def getRoadrunner(self) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
         if self.isNull():
-            raise ValueError("Cannot get RoadRunner instance from a null LRoadrunner.") 
+            raise ValueError("Cannot get RoadRunner instance from a null LRoadrunner.")
         rr = self._loadModel(self.specification)
         rr.reset()
+        rr.integrator.setValue('maximum_num_steps', MAX_ITERATOR_STEP)
         return rr
 
     def isNull(self) -> bool:
-        """Check if this JacobianCollection is null (i.e. has no Jacobians)."""
+        """Check if this LRoadrunner is a null model (i.e., has no specification)."""
         return self.specification == NULL_L_ROADRUNNER
 
     def _loadModel(self, model: str) -> "te.roadrunner.ExtendedRoadRunner":  # type: ignore
@@ -268,12 +276,10 @@ class LRoadrunner(object):
             self.end_time_source = cn.ENDTIME_SOURCE_MAX_MEDIAN_CV
             return self._end_time
         # Could not find end_time
-        print(
+        raise ValueError(
             "Could not determine an appropriate end time for this model. "
             "This may be because the model is invalid or unbounded."
         )
-        self.end_time_source = None
-        return np.nan
 
     def _calculateEndtimeSteadystate(self) -> float:
         """
@@ -468,22 +474,28 @@ class LRoadrunner(object):
         rr = self.getRoadrunner()
         if len(rr.getFloatingSpeciesIds()) == 0:
             raise ValueError("Model has no floating species; cannot compute Jacobian.")
-        result_arr = rr.simulate(self.start_time, self.end_time, self.num_point)
+        try:
+            result_arr = rr.simulate(self.start_time, self.end_time, self.num_point)
+        except RuntimeError as e:
+            raise ValueError(f"CVODE failed during initial simulation: {e}") from e
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
 
         # For BIOMD7, fails on the first simulation
         rr.reset()
         jacobians = []
         for i, t in enumerate(times_arr):
-            if i == 0:
-                t2 = self.start_time + 1e-10
-                rr.simulate(self.start_time, t2, 2)
-            else:
-                rr.simulate(times_arr[i - 1], t, 2)
             try:
-                jacobians.append(np.array(rr.getFullJacobian()).copy())
-            except Exception as e:
-                print(f"Error occurred while fetching Jacobian at time {t}: {e}")
+                if i == 0:
+                    t2 = self.start_time + 1e-10
+                    rr.simulate(self.start_time, t2, 2)
+                else:
+                    rr.simulate(times_arr[i - 1], t, 2)
+            except RuntimeError as e:
+                raise ValueError(f"CVODE failed at t={t}: {e}") from e
+            jacobian_arr = np.array(rr.getFullJacobian()).copy()
+            if np.all(np.isclose(jacobian_arr, 0.0)):
+                raise ValueError(f"Jacobian at time {t} is all zeros, which may indicate an issue with the model or simulation. Setting Jacobian to all zeros for this timepoint.")
+            jacobians.append(jacobian_arr)
         _ = self.timecourse  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
         return np.array(jacobians), times_arr
 

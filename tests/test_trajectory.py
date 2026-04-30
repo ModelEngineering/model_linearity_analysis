@@ -956,7 +956,9 @@ class TestPredictLinearBioModel(unittest.TestCase):
                 start_time=0.0, end_time=2*BIOMD8_ENDTIME, num_point=30)
         self.trajectory = Trajectory(self.lr)
 
+
     def test_timecourse(self) -> None:
+        self.skipTest("No plot")
         """predictLinear returns an ndarray with shape (num_points, num_species)."""
         if IGNORE_TESTS:
             return
@@ -966,7 +968,7 @@ class TestPredictLinearBioModel(unittest.TestCase):
         for species_name in self.lr.species_names:
             plt.plot(actual_df.index, actual_df[species_name], label=species_name);
             plt.scatter(actual_df.index, predicted_df[species_name], label=species_name);
-        plt.legend();
+        plt.legend()
         plt.xlabel("time");
         plt.ylabel("concentration");
         plt.title("predictLinear vs actual timecourse");

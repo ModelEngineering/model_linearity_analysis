@@ -140,7 +140,7 @@ class Score:
             column_name: str = AGGREGATION_MEAN,
             ax = None,
             num_bin: int = 20) -> mfigure.Figure:  # type: ignore
-        """Bar plot of time aggregations over species.
+        """Histogram plot of time aggregations over species.
 
         Parameters
         ----------
@@ -229,7 +229,11 @@ class Score:
         ScoreInfo
             A ScoreInfo instance with the aggregated statistics.
         """
+        LARGE_ARE = 1e6
+        #
         are_arr = are_df.values.flatten()
+        sel = np.isnan(are_arr) | np.isinf(are_arr) | (are_arr > LARGE_ARE)
+        are_arr[sel] = LARGE_ARE
         count = int(np.sum(~np.isnan(are_arr)))
         score_info = ScoreInfo(
                 mean=float(np.nanmean(are_arr)),
