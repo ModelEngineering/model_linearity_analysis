@@ -350,20 +350,21 @@ class Trajectory(object):
         n_species = len(initial_state_arr)
         try:
             with warnings.catch_warnings():
-                warnings.simplefilter("error", RuntimeWarning)
+                warnings.simplefilter("ignore", RuntimeWarning)
                 sol = solve_ivp(ode,
                         (self.timepoint_arr[0], self.timepoint_arr[-1]),
                         initial_state_arr,
                         t_eval=self.timepoint_arr,
                         method='Radau')
-            if sol.y.shape == (n_species, n_time):
+            if sol.success and sol.y.shape == (n_species, n_time):
                 return sol.y.T
             result = np.full((n_time, n_species), np.nan)
-            k = sol.y.shape[1]
-            result[:k] = sol.y.T
+            if sol.y.size > 0:
+                k = sol.y.shape[1]
+                result[:k] = sol.y.T
             return result
         except Exception:
-            raise RuntimeError("ODE solver failed in _predictLinear. This may be due to an unstable Jacobian leading to overflow or NaN values during integration.")
+            return np.full((n_time, n_species), np.nan)
 
     def fitForcingInputs(self,
             initial_state_arr: np.ndarray = cn.NULL_ARRAY) -> np.ndarray:
@@ -486,6 +487,8 @@ class Trajectory(object):
             fig: Optional[plt.Figure] = None,  # type: ignore
             is_legend: bool = True,
             ylim: Tuple[float, float] = (0.0, 1.0),
+            xlim: Optional[Tuple[float, float]] = None,
+            model_name: str = "",
             ) -> PlotInfo:
         """
         Constructs a figure with two plots with time on the x-axis: (1) the Frobenius-norm distance of each Jacobian from the centroid, and
@@ -502,6 +505,14 @@ class Trajectory(object):
             An optional matplotlib Axes object to use for the bottom plot. If None, a new figure and axes will be created.
         fig : Optional[plt.Figure]
             An optional matplotlib Figure object to use. If None, a new figure will be created.
+        is_legend : bool
+            Whether to include a legend in the species timecourse plot (default: True).
+        ylim : Tuple[float, float]
+            The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
+        xlim: Tuple[float, float]
+            The x-axis limits for both plots (default: None, which means automatic limits).
+        model_name: str
+            The model name
         """
 
         if hasattr(self.l_roadrunner, "getRoadrunner"):
@@ -524,8 +535,9 @@ class Trajectory(object):
         ax1.plot(jacobian_times, deviation_arr, marker="o")
         ax1.set_xlabel("Time")
         ax1.set_ylabel("Normalized distance")
-        ax1.set_title("Normalized Distance of Jacobian to Centroid")
+        ax1.set_title(f"{model_name}: Normalized Distance of Jacobian to Centroid")
         ax1.set_ylim(ylim)
+        ax1.set_xlim(xlim)
         # Timecourse plot
         prediction_df = self.predictLinear()
         colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
@@ -534,7 +546,8 @@ class Trajectory(object):
             ax2.scatter(species_times, prediction_df[species_id], s=8, alpha=0.7, color=colors[i])
         ax2.set_xlabel("Time")
         ax2.set_ylabel("Concentration")
-        ax2.set_title("Species Timecourse")
+        ax2.set_title(f"{model_name}: Species Timecourse")
+        ax2.set_xlim(xlim)
         if is_legend:
             ax2.legend()
 

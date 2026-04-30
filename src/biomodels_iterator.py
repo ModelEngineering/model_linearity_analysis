@@ -147,10 +147,8 @@ class BiomodelsIterator:
             existing_df=pd.DataFrame()
         )
     
-    @staticmethod
-    
-    @staticmethod
-    def extractModelNum(model_name: str) -> int:
+    @classmethod
+    def extractModelNum(cls, model_name: str) -> int:
         """Extracts the numeric part of a model name like 'BIOMD0000000001'."""
         try:
             return int(model_name.replace("BIOMD", ""))

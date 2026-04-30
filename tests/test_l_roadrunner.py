@@ -1,6 +1,6 @@
 """Tests for Roadrunner class."""
 import src.constants as cn  # type: ignore
-from src.l_roadrunner import LRoadrunner, getBiomodelsEndtimes  # type: ignore
+from src.l_roadrunner import LRoadrunner, getBiomodelsEndtimes, MAX_ITERATOR_STEP  # type: ignore
 
 import csv
 import os
@@ -16,6 +16,7 @@ from typing import cast
 
 
 IGNORE_TESTS = False
+MAX_ITERATOR_STEP = 100  # type: ignore
 
 BIOMODELS_DIR = "/Users/jlheller/home/Technical/repos/temp-biomodels/final"
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)

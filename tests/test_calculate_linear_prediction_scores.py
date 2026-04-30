@@ -48,6 +48,7 @@ def _mockIterator(items: list) -> MagicMock:
 def _makeMockItem(model_name: str) -> MagicMock:
     item = MagicMock()
     item.model_name = model_name
+    item.sbml_paths = [f"/biomodels/{model_name}/{model_name}_url.xml"]
     return item
 
 
@@ -102,6 +103,7 @@ class TestGetModelNums(unittest.TestCase):
 
 
 class TestGetChunk(unittest.TestCase):
+    # process_index is 1-based: the bash script passes i from 1 to N.
 
     def setUp(self):
         self.all_model_nums = list(range(1, 11))  # [1..10]
@@ -109,46 +111,51 @@ class TestGetChunk(unittest.TestCase):
     def test_singleProcess(self):
         if IGNORE_TESTS:
             return
-        first, last = _getChunk(self.all_model_nums, 1, 0)
+        first, last = _getChunk(self.all_model_nums, 1, 1)
         self.assertEqual(first, 1)
         self.assertEqual(last, 10)
 
-    def test_twoProcessesFirstSlice(self):
-        if IGNORE_TESTS:
-            return
-        first, last = _getChunk(self.all_model_nums, 2, 0)
-        self.assertEqual(first, 1)
-        self.assertEqual(last, 5)
-
-    def test_twoProcessesSecondSlice(self):
+    def test_twoProcesses_firstSlice(self):
         if IGNORE_TESTS:
             return
         first, last = _getChunk(self.all_model_nums, 2, 1)
+        self.assertEqual(first, 1)
+        self.assertEqual(last, 5)
+
+    def test_twoProcesses_secondSlice(self):
+        if IGNORE_TESTS:
+            return
+        first, last = _getChunk(self.all_model_nums, 2, 2)
         self.assertEqual(first, 6)
         self.assertEqual(last, 10)
 
-    def test_processIndexBeyondModels(self):
+    def test_processIndexBeyondModels_returnsEmpty(self):
         if IGNORE_TESTS:
             return
         first, last = _getChunk(self.all_model_nums, 20, 15)
         self.assertEqual(first, 0)
         self.assertEqual(last, -1)
 
-    def test_unevenSplit(self):
+    def test_unevenSplit_firstSlice(self):
         if IGNORE_TESTS:
             return
         nums = [1, 2, 3]
-        first0, last0 = _getChunk(nums, 2, 0)
-        first1, last1 = _getChunk(nums, 2, 1)
-        self.assertEqual(first0, 1)
-        self.assertEqual(last0, 2)
-        self.assertEqual(first1, 3)
-        self.assertEqual(last1, 3)
+        first, last = _getChunk(nums, 2, 1)
+        self.assertEqual(first, 1)
+        self.assertEqual(last, 2)
+
+    def test_unevenSplit_secondSlice(self):
+        if IGNORE_TESTS:
+            return
+        nums = [1, 2, 3]
+        first, last = _getChunk(nums, 2, 2)
+        self.assertEqual(first, 3)
+        self.assertEqual(last, 3)
 
     def test_singleModel(self):
         if IGNORE_TESTS:
             return
-        first, last = _getChunk([42], 1, 0)
+        first, last = _getChunk([42], 1, 1)
         self.assertEqual(first, 42)
         self.assertEqual(last, 42)
 
@@ -158,7 +165,7 @@ class TestGetChunk(unittest.TestCase):
         nums = list(range(1, 8))
         num_processes = 3
         covered = set()
-        for idx in range(num_processes):
+        for idx in range(1, num_processes + 1):
             first, last = _getChunk(nums, num_processes, idx)
             if last >= first:
                 covered.update(n for n in nums if first <= n <= last)
@@ -180,7 +187,7 @@ class TestProcessModels(unittest.TestCase):
                 patch(f"{MODULE}.Trajectory.makeBiomodel",
                         return_value=mock_trajectory), \
                 patch(f"{MODULE}.os.path.exists", return_value=False):
-            processModels(1, 1, 0, 1)
+            processModels(1, 1, 1, 1)
 
         mock_score.addTestResult.assert_called_once_with(
                 TRUE_DF, PRED_DF, description="BIOMD0000000001")
@@ -203,9 +210,8 @@ class TestProcessModels(unittest.TestCase):
                 patch(f"{MODULE}.Trajectory.makeBiomodel",
                         side_effect=[trajectory1, trajectory2]), \
                 patch(f"{MODULE}.os.path.exists", return_value=False):
-            processModels(1, 1, 0, 1)
+            processModels(1, 1, 1, 1)
 
-        # Second predictLinear call must use is_adjust_fitted_jacobian=True
         trajectory2.predictLinear.assert_called_once_with(
                 is_adjust_fitted_jacobian=True)
         mock_score.addTestResult.assert_called_once_with(
@@ -219,18 +225,13 @@ class TestProcessModels(unittest.TestCase):
         mock_score = _makeMockScore()
         ok_trajectory = _makeMockTrajectory()
 
-        def make_trajectory(model_name):
-            if model_name == "BIOMD0000000001":
-                raise RuntimeError("simulation error")
-            return ok_trajectory
-
         with patch(f"{MODULE}.Score", return_value=mock_score), \
                 patch(f"{MODULE}.BiomodelsIterator",
                         return_value=_mockIterator([item1, item2])), \
                 patch(f"{MODULE}.Trajectory.makeBiomodel",
-                        side_effect=make_trajectory), \
+                        side_effect=[RuntimeError("simulation error"), ok_trajectory]), \
                 patch(f"{MODULE}.os.path.exists", return_value=False):
-            processModels(1, 2, 0, 1)
+            processModels(1, 2, 1, 1)
 
         mock_score.addTestResult.assert_called_once_with(
                 TRUE_DF, PRED_DF, description="BIOMD0000000002")
@@ -248,7 +249,7 @@ class TestProcessModels(unittest.TestCase):
                         return_value=mock_trajectory), \
                 patch(f"{MODULE}.os.path.exists", return_value=True):
             mock_bi_class.return_value = _mockIterator([mock_item])
-            processModels(1, 2, 0, 1)
+            processModels(1, 2, 1, 1)
 
         excluded = mock_bi_class.call_args.kwargs["excluded_models"]
         self.assertIn("BIOMD0000000001", excluded)
@@ -257,15 +258,12 @@ class TestProcessModels(unittest.TestCase):
         if IGNORE_TESTS:
             return
         mock_score = _makeMockScore()
-        mock_trajectory = _makeMockTrajectory()
 
         with patch(f"{MODULE}.Score", return_value=mock_score), \
                 patch(f"{MODULE}.BiomodelsIterator") as mock_bi_class, \
-                patch(f"{MODULE}.Trajectory.makeBiomodel",
-                        return_value=mock_trajectory), \
                 patch(f"{MODULE}.os.path.exists", return_value=False):
             mock_bi_class.return_value = _mockIterator([])
-            processModels(1, 1, 0, 1)
+            processModels(1, 1, 1, 1)
 
         excluded = mock_bi_class.call_args.kwargs["excluded_models"]
         for model in EXCLUDED_MODELS:
