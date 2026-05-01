@@ -28,6 +28,19 @@ EXCLUDED_MODELS: list[str] = [
     "BIOMD0000000036",  # Errors "too much work"
     "BIOMD0000000079",  # Errors "too much work"
     "BIOMD0000000088",  # Errors "too much work"
+
+    "BIOMD0000000072", 
+    "BIOMD0000000666", 
+    "BIOMD0000000794", 
+    "BIOMD0000000866", 
+    "BIOMD0000001012", 
+    "BIOMD0000001000", 
+    "BIOMD0000000144", 
+    "BIOMD0000000151", 
+    "BIOMD0000000432", 
+    "BIOMD0000000450", 
+    "BIOMD0000000514", 
+    "BIOMD0000000606", 
 ]
 
 
