@@ -125,9 +125,11 @@ class LRoadrunner(object):
             path = os.path.join(cn.BIOMODELS_DIR, model_id, f"{model_id}_url.xml")
             if not os.path.exists(path):
                 path = os.path.join(cn.BIOMODELS_DIR, model_id, "model.xml")
-            if not os.path.exists(path):
-                import pdb; pdb.set_trace()
+            ffiles = [f for f in os.listdir(os.path.join(cn.BIOMODELS_DIR, model_id))
+                    if (not "manifest" in f) and f.endswith(".xml")]
+            if len(ffiles) == 0:
                 raise FileNotFoundError(f"Model file not found for model {model_id}")
+            path = os.path.join(cn.BIOMODELS_DIR, model_id, ffiles[0])
 
         END_TIME = "end_time"
         with open(path, "r") as f:
