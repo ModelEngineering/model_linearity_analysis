@@ -114,7 +114,7 @@ class TestAddTestResult(unittest.TestCase):
             return
         true_df = pd.DataFrame({'A': [0.0, 1.0]}, index=[0.0, 1.0])
         pred_df = pd.DataFrame({'A': [1.0, 2.0]}, index=[0.0, 1.0])
-        score = Score(serialization_path=_temp_csv_path())
+        score = Score(serialization_path=_temp_csv_path(), is_ignore_first_prediction=False)
         score.addTestResult(true_df, pred_df)
         model_row = score.score_df[score.score_df[AGGREGATION_TYPE] == "model"].iloc[0]
         self.assertEqual(int(model_row[AGGREGATION_COUNT]), 2)
@@ -242,7 +242,7 @@ class TestMakeScoreInfo(unittest.TestCase):
     """Tests for Score.makeScoreInfo."""
 
     def setUp(self) -> None:
-        self.score = Score(serialization_path=_temp_csv_path())
+        self.score = Score(serialization_path=_temp_csv_path(), is_ignore_first_prediction=False)
 
     def test_returns_list(self) -> None:
         """makeScoreInfo returns a list."""
@@ -415,11 +415,11 @@ class TestMakeScoreInfo(unittest.TestCase):
 class TestScoreBiomodels(unittest.TestCase):
     """Non-mocked tests using real BioModels and Trajectory.predictLinear."""
 
-    def _checkBiomodel(self, model_num: int) -> None:
+    def _checkBiomodel(self, model_num: int, end_time: float) -> None:
         """Run full pipeline for one BioModel and assert valid score statistics."""
         if IGNORE_TESTS:
             return
-        l_roadrunner = LRoadrunner.makeBiomodel(model_num=model_num)
+        l_roadrunner = LRoadrunner.makeBiomodel(model_num=model_num, start_time=0.0, end_time=end_time, num_point=11)
         true_df = l_roadrunner.timecourse
         trajectory = Trajectory(l_roadrunner)
         try:
@@ -452,19 +452,19 @@ class TestScoreBiomodels(unittest.TestCase):
         """Full pipeline for BIOMD0000000008."""
         if IGNORE_TESTS:
             return
-        self._checkBiomodel(8)
+        self._checkBiomodel(8, end_time=10.0)
 
     def test_biomd53(self) -> None:
         """Full pipeline for BIOMD0000000053."""
         if IGNORE_TESTS:
             return
-        self._checkBiomodel(53)
+        self._checkBiomodel(53, end_time=100.0)
 
     def test_biomd206(self) -> None:
         """Full pipeline for BIOMD0000000206."""
         if IGNORE_TESTS:
             return
-        self._checkBiomodel(206)
+        self._checkBiomodel(206, end_time=10.0)
 
 
 if __name__ == "__main__":

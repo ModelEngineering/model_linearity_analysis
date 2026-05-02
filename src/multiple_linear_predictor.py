@@ -1,6 +1,6 @@
 '''Multiple linear predictor for chemical reaction network trajectories.'''
 
-from src.clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
+from trajectory_collection import TrajectoryCollection  # type: ignore
 from src.l_roadrunner import LRoadrunner  # type: ignore
 from src.linear_predictor import LinearPredictor, ZERO_TOL  # type: ignore
 
@@ -28,7 +28,7 @@ class MultipleLinearPredictor(object):
     """
 
     def __init__(self,
-            clustered_jacobian_collection: ClusteredJacobianCollection,
+            clustered_jacobian_collection: TrajectoryCollection,
             initial_value_arr: np.ndarray,
             forcing_input_arr: np.ndarray,
             l_roadrunner: Optional[LRoadrunner] = None,
@@ -130,7 +130,7 @@ class MultipleLinearPredictor(object):
 
     @classmethod
     def makeFromLRoadrunner(cls,
-            clustered_jacobian_collection: ClusteredJacobianCollection,
+            clustered_jacobian_collection: TrajectoryCollection,
             l_roadrunner: LRoadrunner,
             is_per_cluster_forcing_input: bool = False,
             ) -> "MultipleLinearPredictor":
@@ -298,7 +298,7 @@ class MultipleLinearPredictor(object):
         if ax is None:
             fig, ax = plt.subplots()
         else:
-            fig = ax.get_figure()
+            fig = ax.get_figure()  # type: ignore
 
         # --- simulated trajectory ---
         if self.l_roadrunner is None:

@@ -3,7 +3,7 @@ Creates ClusteredJacobianCollection objects for BioModels.
 """
 import src.constants as cn
 from trajectory import Trajectory # type: ignore
-from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
+from trajectory_collection import TrajectoryCollection  # type: ignore
 from biomodels_iterator import BiomodelsIterator  # type: ignore
 
 import os
@@ -72,17 +72,17 @@ class BiomodelsCluster:
         with open(os.path.join(dir_path, sbml_files[0]), "r") as f:
             return f.read()
         
-    def cluster(self, n_cluster: int, is_sequential_partition: bool = True) -> ClusteredJacobianCollection:
+    def cluster(self, n_cluster: int, is_sequential_partition: bool = True) -> TrajectoryCollection:
         """Partition the Jacobians into clusters and return a ClusteredJacobianCollection."""
         if is_sequential_partition:
-            clustered_jacobian_collection = ClusteredJacobianCollection(
+            trajectory_collection = TrajectoryCollection(
                     self._jacobian_collection.sequentialPartition(
                     n_cluster=n_cluster))
         else:
-            clustered_jacobian_collection = ClusteredJacobianCollection(
+            trajectory_collection = TrajectoryCollection(
                     self._jacobian_collection.nonsequentialPartition(
                     n_cluster=n_cluster))
-        return clustered_jacobian_collection
+        return trajectory_collection
 
     @classmethod
     def clusterAnalysis(

@@ -5,7 +5,7 @@ Usage:
     python analyze_linear_predictor.py <num_processes> <process_index>
 
     num_processes : total number of parallel instances
-    process_index : 0-based index of this instance
+    process_index : 1-based index of this instance
 
 Each instance processes a distinct slice of available BioModels and writes
 results to a per-instance CSV (linear_predictor_scores2_<process_index>.csv).
@@ -67,7 +67,7 @@ def _getChunk(all_model_nums: list[int], num_processes: int,
     num_processes : int
         Total number of parallel processes.
     process_index : int
-        0-based index of this process.
+        1-based index of this process.
 
     Returns
     -------
@@ -142,15 +142,15 @@ if __name__ == "__main__":
     parser.add_argument("num_processes", type=int,
             help="Total number of parallel process instances.")
     parser.add_argument("process_index", type=int,
-            help="0-based index of this process instance.")
+            help="1-based index of this process instance.")
     args = parser.parse_args()
     #
     num_processes: int = args.num_processes
     process_index: int = args.process_index
     #
-    if process_index > num_processes or process_index < 0:
+    if process_index > num_processes or process_index < 1:
         raise ValueError(
-            f"process_index ({process_index}) must be in [0, num_processes={num_processes}).")
+            f"process_index ({process_index}) must be in [1, num_processes={num_processes}].")
 
     all_model_nums = _getModelNums()
     first_model_num, last_model_num = _getChunk(all_model_nums, num_processes, process_index)

@@ -251,7 +251,7 @@ class Trajectory(object):
         middle_arr = np.ones(solution_median_arr.shape)
         for solution_arr in normalized_solution_collection_arr:
             distance = np.linalg.norm(solution_arr - middle_arr)
-            diameter = max(diameter, distance)
+            diameter = max(diameter, distance) # type: ignore
         self._diameter = diameter
         return cast(float, self._diameter)
 
@@ -783,7 +783,7 @@ class Trajectory(object):
         if ax is None:
             fig, ax = plt.subplots()
         else:
-            fig = ax.get_figure()
+            fig = ax.get_figure()  # type: ignore
             assert isinstance(fig, mfigure.Figure)
 
         sns.heatmap(

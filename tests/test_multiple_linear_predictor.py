@@ -12,7 +12,7 @@ from typing import Tuple
 
 import src.constants as cn  # type: ignore
 from trajectory import Trajectory  # type: ignore
-from src.clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
+from trajectory_collection import TrajectoryCollection  # type: ignore
 from src.l_roadrunner import LRoadrunner  # type: ignore
 from src.multiple_linear_predictor import MultipleLinearPredictor, ScoreResult  # type: ignore
 from src.biomodels_cluster import BiomodelsCluster  # type: ignore
@@ -77,7 +77,7 @@ def _make_predictor_from_model(antimony_str: str,
         end = start + chunk_size if i < n_cluster - 1 else n_points
         jcs.append(Trajectory.fromArrays(
             jc.jacobian_collection_arr[start:end], jc.timepoint_arr[start:end], lr))
-    cjc = ClusteredJacobianCollection(jcs)
+    cjc = TrajectoryCollection(jcs)
     return MultipleLinearPredictor.makeFromLRoadrunner(cjc, lr)
 
 
@@ -91,7 +91,7 @@ class TestMultipleLinearPredictorInit(unittest.TestCase):
             np.full((3, 1, 1), -0.2), np.linspace(0.0, 10.0, 3)
         )
         jc = Trajectory(lr)
-        cjc = ClusteredJacobianCollection([jc])
+        cjc = TrajectoryCollection([jc])
         initial_value_arr = np.array([1.0])
         forced_input_arr = np.array([0.5])
         return cjc, lr, initial_value_arr, forced_input_arr
@@ -303,7 +303,7 @@ class TestMultipleLinearPredictorScore(unittest.TestCase):
                         jc_full.jacobian_collection_arr[start:end],
                         jc_full.timepoint_arr[start:end],
                         lr))
-            cjc = ClusteredJacobianCollection(jcs)
+            cjc = TrajectoryCollection(jcs)
             predictor = MultipleLinearPredictor.makeFromLRoadrunner(cjc, lr)
             self.assertTrue(np.isfinite(predictor.score().mean_rae))
 
@@ -383,7 +383,7 @@ class TestMultipleLinearPredictorScoreSimpleModel(unittest.TestCase):
         """Return a MultipleLinearPredictor built from a real Antimony model."""
         lr, jc = self._make_jc()
         jcs = jc.sequentialPartition(n_cluster=n_cluster)
-        cjc = ClusteredJacobianCollection(jcs)
+        cjc = TrajectoryCollection(jcs)
         return MultipleLinearPredictor.makeFromLRoadrunner(cjc, lr)
 
     def test_score_decay_forced_three_clusters_finite(self) -> None:

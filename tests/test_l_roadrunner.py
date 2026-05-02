@@ -1201,6 +1201,19 @@ class TestMakeBiomodelWithData(unittest.TestCase):
                 num_point=5)
         self.assertEqual(lr_num.species_names, lr_id.species_names)
 
+    def test_end_time_from_csv_used_for_biomd153(self) -> None:
+        """makeBiomodel uses the end_time from biomodels_endtime.csv for BIOMD153.
+
+        BIOMD0000000153 has end_time=1.4106262159417386 (max_median_cv) in the CSV.
+        When no end_time kwarg is passed, makeBiomodel should look it up and store
+        it in _end_time rather than leaving it as nan.
+        """
+        if IGNORE_TESTS:
+            return
+        BIOMD153_END_TIME = 1.4106262159417386
+        l_roadrunner = LRoadrunner.makeBiomodel(model_num=153, num_point=5)
+        self.assertAlmostEqual(l_roadrunner._end_time, BIOMD153_END_TIME, places=6)
+
 
 if __name__ == "__main__":
     unittest.main()

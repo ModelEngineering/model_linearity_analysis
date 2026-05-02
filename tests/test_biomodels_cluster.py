@@ -10,7 +10,7 @@ import pandas as pd  # type: ignore
 
 import src.constants as cn
 from biomodels_cluster import BiomodelsCluster  # type: ignore
-from clustered_jacobian_collection import ClusteredJacobianCollection  # type: ignore
+from trajectory_collection import TrajectoryCollection  # type: ignore
 from trajectory import Trajectory  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
 
@@ -195,12 +195,12 @@ class TestBiomodelsClusterCluster(unittest.TestCase):
         import shutil
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
-    def test_returns_clustered_jacobian_collection(self) -> None:
+    def test_returns_trajectory_collection(self) -> None:
         """cluster returns a ClusteredJacobianCollection."""
         if IGNORE_TESTS:
             return
         cjc = self._biomodels_cluster.cluster(n_cluster=1)
-        self.assertIsInstance(cjc, ClusteredJacobianCollection)
+        self.assertIsInstance(cjc, TrajectoryCollection)
 
     def test_sequential_partition_single_cluster(self) -> None:
         """Sequential partition with n_cluster=1 yields one JacobianCollection."""
@@ -221,7 +221,7 @@ class TestBiomodelsClusterCluster(unittest.TestCase):
         if IGNORE_TESTS:
             return
         cjc = self._biomodels_cluster.cluster(n_cluster=2, is_sequential_partition=False)
-        self.assertIsInstance(cjc, ClusteredJacobianCollection)
+        self.assertIsInstance(cjc, TrajectoryCollection)
 
     def test_max_cv_is_finite(self) -> None:
         """max_cv of the returned ClusteredJacobianCollection is a finite number."""

@@ -76,15 +76,19 @@ class Score:
     Results are stored as ScoreInfo objects and persisted to CSV.
     """
 
-    def __init__(self, serialization_path: str = SERIALIZATION_PATH) -> None:
+    def __init__(self, serialization_path: str = SERIALIZATION_PATH,
+            is_ignore_first_prediction: bool = True) -> None:
         """
         Parameters
         ----------
         serialization_path : str
             Path to a CSV file for persistence.
+        is_ignore_first_prediction : bool
+            Whether to ignore the first prediction when computing scores, since it may be an outlier.
         """
         self._serializer = DataframeSerializer(serialization_path)
         self._serialization_path = serialization_path
+        self._is_ignore_first_prediction = is_ignore_first_prediction
 
     @property
     def score_df(self) -> pd.DataFrame:
@@ -134,7 +138,12 @@ class Score:
                     true_df.values == 0,
                     np.nan,
                     np.abs(prediction_df.values - true_df.values) / true_df.values)
-        return pd.DataFrame(are_arr, index=true_df.index, columns=true_df.columns)
+        if self._is_ignore_first_prediction:
+            first_idx = 1
+        else:
+            first_idx = 0
+        idx_arr = np.array(true_df.index)[first_idx:]
+        return pd.DataFrame(are_arr[first_idx:, :], index=idx_arr, columns=true_df.columns)
 
     def plot(self, is_model_aggregation: bool = True,
             column_name: str = AGGREGATION_MEAN,

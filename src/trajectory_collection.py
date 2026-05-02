@@ -1,4 +1,4 @@
-'''Jacobian collections that are the result of clustering'''
+'''A collection of trajectories that constitute a larger timecourse.'''
 
 import src.constants as cn
 from trajectory import Trajectory  # type: ignore
@@ -14,21 +14,22 @@ import seaborn as sns  # type: ignore
 from typing import List
 
 # TODO: Implement a plot that shows the timecourse of the simulation in combination
+# TODO: predict uses Trajector to predict for each segment. Accumulates the predictions and timepoints.
 #   with the clustered Jacobian information
 
-class ClusteredJacobianCollection(object):
-    """A collection of Jacobian matrices that have been clustered into contiguous time spans."""
+class TrajectoryCollection(object):
+    """A collection of trajectories that constitute a larger timecourse."""
 
-    def __init__(self, jacobian_collections: List[Trajectory]) -> None:
+    def __init__(self, trajectory_collection: List[Trajectory]) -> None:
         """
         Parameters
         ----------
-        jacobian_collections : list[JacobianCollection]
-            List of Jacobian collections for each cluster.
+        trajectory_collections : list[Trajectory]
+            List of trajectories for each cluster.
         """
-        self.jacobian_collections = jacobian_collections
-        if len(jacobian_collections) > 0:
-            self.l_roadrunner = jacobian_collections[0].l_roadrunner
+        self.jacobian_collections = trajectory_collection
+        if len(trajectory_collection) > 0:
+            self.l_roadrunner = trajectory_collection[0].l_roadrunner
         else:
             self.l_roadrunner = NULL_L_ROADRUNNER
 

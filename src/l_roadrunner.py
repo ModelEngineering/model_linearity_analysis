@@ -84,7 +84,8 @@ class LRoadrunner(object):
             raise ValueError("roadrunner_specification must be a string containing an SBML or Antimony model.")
         self.specification = roadrunner_specification
         # Verify the specification can be loaded as a model, to fail fast if the model is invalid. The loaded model is not stored, so this does not affect the state of the object or its getRoadrunner() method.
-        self._loadModel(roadrunner_specification)
+        _ = self._loadModel(self.specification)
+        # Other initializations
         self._start_time = start_time
         self.num_point = num_point
         self._end_time: float = end_time if end_time is not None else np.nan
@@ -135,7 +136,8 @@ class LRoadrunner(object):
         with open(path, "r") as f:
             sbml_str = f.read()
         if not END_TIME in kwargs:
-            end_time = cls.endtime_dct.get(os.path.basename(path), None)
+            model_key = os.path.basename(os.path.dirname(path))
+            end_time = cls.endtime_dct.get(model_key, None)
         else:
             end_time = kwargs[END_TIME]
         kwargs[END_TIME] = end_time
@@ -530,8 +532,7 @@ class LRoadrunner(object):
         # Use a freshly loaded instance to avoid state corruption left by a
         # failed steadyState() call (which can cause getFullJacobian to segfault
         # even after reset()).
-        fresh_rr = self._loadModel(self.specification)
-        fresh_rr.reset()
+        fresh_rr = self.getRoadrunner()
         fresh_rr.simulate(self.start_time, self.start_time + 1e-10, 2)
         jacobian_arr = np.array(fresh_rr.getFullJacobian())
 
@@ -592,7 +593,8 @@ class LRoadrunner(object):
         LOG_LOWER = -5.0   # 10^-3 = 0.001 s
         LOG_UPPER =  6.0   # 10^6  = 1 000 000 s
 
-        rr = self._loadModel(self.specification)
+        rr = self.getRoadrunner()
+        rr.integrator.setValue('maximum_num_steps', MAX_ITERATOR_STEP)
         if len(rr.getFloatingSpeciesIds()) == 0:
             return np.nan
 
