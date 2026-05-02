@@ -944,7 +944,7 @@ class TestPredictLinearBioModel(unittest.TestCase):
         """predictLinear returns an ndarray with shape (num_points, num_species)."""
         if IGNORE_TESTS:
             return
-        predicted_df = self.trajectory.predictLinear()
+        predicted_df = self.trajectory.predict()
         actual_df = self.lr.timecourse
         df = (predicted_df - actual_df).abs()/actual_df
         for species_name in self.lr.species_names:
@@ -1200,7 +1200,7 @@ class TestPredictLinearBiomd1(unittest.TestCase):
         if not os.path.exists(BIOMD1_PATH):
             self.skipTest(f"BIOMD0000000001 not found at {BIOMD1_PATH}")
         self.trajectory = Trajectory.makeBiomodel(model_num=1)
-        self.pred_df = self.trajectory.predictLinear()
+        self.pred_df = self.trajectory.predict()
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""
@@ -1236,7 +1236,7 @@ class TestPredictLinearBiomd1(unittest.TestCase):
         self.assertTrue(np.any(np.isnan(self.pred_df.values)))
         #
         self.trajectory = Trajectory.makeBiomodel(model_num=1)
-        self.pred_df = self.trajectory.predictLinear(is_adjust_fitted_jacobian=True)
+        self.pred_df = self.trajectory.predict(is_adjust_fitted_jacobian=True)
         self.assertFalse(np.any(np.isnan(self.pred_df.values)))
 
     def test_true_timecourse_has_no_nan(self) -> None:
@@ -1264,7 +1264,7 @@ class TestPredictLinearBiomd60(unittest.TestCase):
         self.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD60_PATH, end_time=BIOMD60_ENDTIME,
                 num_point=self.NUM_POINT)
-        self.pred_df = self.trajectory.predictLinear(is_adjust_fitted_jacobian=True)
+        self.pred_df = self.trajectory.predict(is_adjust_fitted_jacobian=True)
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""

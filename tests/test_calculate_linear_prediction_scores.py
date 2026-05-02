@@ -25,7 +25,7 @@ PRED_DF = 2.0 * TRUE_DF
 def _makeMockTrajectory(pred_df: pd.DataFrame = PRED_DF) -> MagicMock:
     trajectory = MagicMock()
     trajectory.timecourse = TRUE_DF
-    trajectory.predictLinear.return_value = pred_df
+    trajectory.predict.return_value = pred_df
     return trajectory
 
 
@@ -212,7 +212,7 @@ class TestProcessModels(unittest.TestCase):
                 patch(f"{MODULE}.os.path.exists", return_value=False):
             processModels(1, 1, 1, 1)
 
-        trajectory2.predictLinear.assert_called_once_with(
+        trajectory2.predict.assert_called_once_with(
                 is_adjust_fitted_jacobian=True)
         mock_score.addTestResult.assert_called_once_with(
                 TRUE_DF, pred_clean, description="BIOMD0000000001")
@@ -279,7 +279,7 @@ class TestProcessModels(unittest.TestCase):
                         return_value=_mockIterator([])), \
                 patch(f"{MODULE}.os.path.exists", return_value=False):
             mock_score_class.return_value = mock_score
-            processModels(1, 1, 7, 10)
+            processModels(2, 3, 7, 10)
 
         path_arg = mock_score_class.call_args.kwargs["serialization_path"]
         self.assertIn("7", path_arg)

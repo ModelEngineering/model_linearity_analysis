@@ -281,7 +281,7 @@ class Trajectory(object):
         return result
     
 
-    def predictLinear(self,
+    def predict(self,
             is_adjust_fitted_jacobian: bool = False,
             **kwargs) -> pd.DataFrame:
         """
@@ -539,7 +539,7 @@ class Trajectory(object):
         ax1.set_ylim(ylim)
         ax1.set_xlim(xlim)
         # Timecourse plot
-        prediction_df = self.predictLinear()
+        prediction_df = self.predict()
         colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
         for i, species_id in enumerate(species_ids):
             ax2.plot(species_times, species_data[:, i], label=species_id, color=colors[i], alpha=0.7)

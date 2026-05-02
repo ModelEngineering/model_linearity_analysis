@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Most import
+
+1. Don’t assume. Don’t hide confusion. Surface tradeoffs.
+2. Minimum code that solves the problem. Nothing speculative.
+3. Touch only what you must. Clean up only your own mess.
+4. Define success criteria. Loop until verified.
+
 ## Environment Setup
 
 The project uses a local venv at `mla/`. Always activate it before running anything:
@@ -64,6 +71,7 @@ Per `docs/specification.md`:
 - All tests should be preceeded by the following guard and the top of tests should have IGNORE_TESTS = False.
   - if IGNORE_TEST
     - return
+- Avoid "brittle" tests that fail when there is a change in a symbol name or a change in the format of a text string.
 - For objects that are constructed for classes in this project, name the object using snake case of the class name. For example, a FooBar object would be named foo_bar.
 - Avoid duplication of the same coding sequences. Create a new function or method instead.
 - All methods internal to a class begin with underscore "_".

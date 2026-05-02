@@ -125,11 +125,11 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
                 continue
         try:
             trajectory = Trajectory.makeBiomodel(path=path)
-            prediction_df = trajectory.predictLinear()
+            prediction_df = trajectory.predict()
             if np.any(np.isnan(prediction_df.values)):
                 # Handle large Jacobians
                 trajectory = Trajectory.makeBiomodel(model_name=model_name)
-                prediction_df = trajectory.predictLinear(is_adjust_fitted_jacobian=True)
+                prediction_df = trajectory.predict(is_adjust_fitted_jacobian=True)
             score.addTestResult(trajectory.timecourse, prediction_df, description=model_name)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")

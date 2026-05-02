@@ -484,9 +484,9 @@ class LRoadrunner(object):
             raise ValueError(f"CVODE failed during initial simulation: {e}") from e
         times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
 
-        # For BIOMD7, fails on the first simulation
         rr.reset()
         jacobians = []
+        valid_times = []
         for i, t in enumerate(times_arr):
             try:
                 if i == 0:
@@ -496,12 +496,18 @@ class LRoadrunner(object):
                     rr.simulate(times_arr[i - 1], t, 2)
             except RuntimeError as e:
                 raise ValueError(f"CVODE failed at t={t}: {e}") from e
-            jacobian_arr = np.array(rr.getFullJacobian()).copy()
+            try:
+                jacobian_arr = np.array(rr.getFullJacobian()).copy()
+            except RuntimeError as e:
+                raise ValueError(f"Failed to get Jacobian at t={t}: {e}") from e    
             if np.all(np.isclose(jacobian_arr, 0.0)):
                 raise ValueError(f"Jacobian at time {t} is all zeros, which may indicate an issue with the model or simulation. Setting Jacobian to all zeros for this timepoint.")
             jacobians.append(jacobian_arr)
+            valid_times.append(t)
+        if not jacobians:
+            raise ValueError("No valid Jacobians could be computed (all timepoints failed, likely due to assignment-rule species).")
         _ = self.timecourse  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
-        return np.array(jacobians), times_arr
+        return np.array(jacobians), np.array(valid_times)
 
     def _calculateEndtimeJacobian(self) -> float:
         """

@@ -423,7 +423,7 @@ class TestScoreBiomodels(unittest.TestCase):
         true_df = l_roadrunner.timecourse
         trajectory = Trajectory(l_roadrunner)
         try:
-            pred_df = trajectory.predictLinear(is_adjust_fitted_jacobian=True)
+            pred_df = trajectory.predict(is_adjust_fitted_jacobian=True)
         except ValueError as e:
             self.skipTest(
                     f"predictLinear raised ValueError for model {model_num}: {e}")
