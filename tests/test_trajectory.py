@@ -1301,5 +1301,150 @@ class TestPredictLinearBiomd60(unittest.TestCase):
                 np.isnan(self.trajectory.l_roadrunner.timecourse.values)))
 
 
+BIOMD153_PATH = os.path.join(
+        cn.BIOMODELS_DIR, "BIOMD0000000153", "BIOMD0000000153_url.xml"
+)
+BIOMD153_END_TIME = 1.4106262159417386
+BIOMD153_NUM_SPECIES = 74
+
+BIOMD610_PATH = os.path.join(
+        cn.BIOMODELS_DIR, "BIOMD0000000610", "BIOMD0000000610_url.xml"
+)
+BIOMD610_END_TIME = 5225.169124539109
+BIOMD610_NUM_SPECIES = 29
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestFitJacobianBiomd153(unittest.TestCase):
+    """Tests for Trajectory.fitJacobian with num_fit on BIOMD0000000153 (74 species)."""
+
+    NUM_POINT = 10
+    NUM_FIT = 5
+
+    def setUp(self) -> None:
+        if not os.path.exists(BIOMD153_PATH):
+            self.skipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
+                num_point=self.NUM_POINT)
+
+    def test_returns_ndarray(self) -> None:
+        """fitJacobian returns a numpy ndarray for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_shape(self) -> None:
+        """fitJacobian returns shape (num_species, num_species) for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        n = self.trajectory.num_species
+        self.assertEqual(result.shape, (n, n))
+
+    def test_only_num_fit_diagonals_change(self) -> None:
+        """Exactly num_fit diagonal entries differ from the base Jacobian."""
+        if IGNORE_TESTS:
+            return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        changed = sum(
+                1 for i in range(self.trajectory.num_species)
+                if not np.isclose(result[i, i], base[i, i]))
+        self.assertLessEqual(changed, self.NUM_FIT)
+
+    def test_result_is_finite(self) -> None:
+        """All entries of the fitted Jacobian are finite for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        self.assertTrue(np.all(np.isfinite(result)))
+
+    def test_off_diagonals_unchanged(self) -> None:
+        """Off-diagonal entries equal those of the mean Jacobian for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        n = self.trajectory.num_species
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestFitJacobianBiomd610(unittest.TestCase):
+    """Tests for Trajectory.fitJacobian with num_fit on BIOMD0000000610 (29 species)."""
+
+    NUM_POINT = 10
+    NUM_FIT = 5
+
+    def setUp(self) -> None:
+        if not os.path.exists(BIOMD610_PATH):
+            self.skipTest(f"BIOMD0000000610 not found at {BIOMD610_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD610_PATH, end_time=BIOMD610_END_TIME,
+                num_point=self.NUM_POINT)
+
+    def test_returns_ndarray(self) -> None:
+        """fitJacobian returns a numpy ndarray for BIOMD610."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        self.assertIsInstance(result, np.ndarray)
+
+    def test_shape(self) -> None:
+        """fitJacobian returns shape (num_species, num_species) for BIOMD610."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        n = self.trajectory.num_species
+        self.assertEqual(result.shape, (n, n))
+
+    def test_only_num_fit_diagonals_change(self) -> None:
+        """Exactly num_fit diagonal entries differ from the base Jacobian."""
+        if IGNORE_TESTS:
+            return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        changed = sum(
+                1 for i in range(self.trajectory.num_species)
+                if not np.isclose(result[i, i], base[i, i]))
+        self.assertLessEqual(changed, self.NUM_FIT)
+
+    def test_result_is_finite(self) -> None:
+        """All entries of the fitted Jacobian are finite for BIOMD610."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        self.assertTrue(np.all(np.isfinite(result)))
+
+    def test_off_diagonals_unchanged(self) -> None:
+        """Off-diagonal entries equal those of the mean Jacobian for BIOMD610."""
+        if IGNORE_TESTS:
+            return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
+        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
+        n = self.trajectory.num_species
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
+
+
 if __name__ == "__main__":
     unittest.main()

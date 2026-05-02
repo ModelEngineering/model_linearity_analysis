@@ -32,7 +32,8 @@ class Trajectory(object):
     def __init__(self, l_roadrunner: LRoadrunner=NULL_L_ROADRUNNER,
             diameter_metric: str = cn.DIAMETER_IVP,
             eigenvalues_collection_arr: np.ndarray = np.array([]),
-            eigenvector_collection_arr: np.ndarray = np.array([])) -> None:
+            eigenvector_collection_arr: np.ndarray = np.array([]),
+            num_fit: int = 30) -> None:
         """
         Parameters
         ----------
@@ -46,6 +47,8 @@ class Trajectory(object):
             An optional list of eigenvalue arrays corresponding to the Jacobians, used for diameter calculations.
         eigenvector_collection : List[np.ndarray]
             An optional list of eigenvector arrays corresponding to the Jacobians, used for diameter calculations.
+        num_fit : int
+            The number of diagonal entries to fit in fitJacobian() (default: 30).
         """
         self.jacobian_collection_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
         self._initialize(l_roadrunner, eigenvalues_collection_arr,
@@ -70,6 +73,7 @@ class Trajectory(object):
         self._eigenvalues_collection_arr = eigenvalues_collection_arr
         self._eigenvectors_collection_arr = eigenvector_collection_arr
         self._diameter_metric = cn.DIAMETER_IVP
+        self._num_fit = 30
         self.num_jacobian = self.jacobian_collection_arr.shape[0] if hasattr(self, "jacobian_collection_arr") else 0
         if self.num_jacobian == 0:
             raise ValueError("JacobianCollection initialized with no Jacobians.")
@@ -409,48 +413,53 @@ class Trajectory(object):
         result = lmfit_minimize(_residuals, params, method='leastsq')
         return np.array([result.params[f'u{i}'].value for i in range(self.num_species)])  # type: ignore
 
-    def fitJacobian(self, is_adjusted_result: bool = False) -> np.ndarray:
+    def fitJacobian(self, is_adjusted_result: bool = False,
+            ) -> np.ndarray:
         """
-        Fit the diagonal of the mean Jacobian to minimise the squared prediction error
-        of predictLinear against the actual nonlinear simulation timecourse.
+        Fit selected diagonal entries of the mean Jacobian to minimise the squared
+        prediction error of predictLinear against the actual nonlinear simulation timecourse.
 
-        Holds all off-diagonal entries of jacobian_mean_arr fixed and uses
-        lmfit least-squares to find diagonal values d[i] such that
-        _predictLinear(initial_state_arr, forcing_input_arr, fitted_jacobian_arr)
-        best matches l_roadrunner.simulate().  Forcing inputs are taken from
-        l_roadrunner.getForcingInputs() and the initial state from
-        l_roadrunner.getInitialValues().
+        Holds all off-diagonal entries of jacobian_mean_arr fixed.  Only the
+        num_fit diagonal entries with the largest absolute value are free
+        parameters; the remaining diagonal entries are held at their
+        base_jacobian_arr values.  Uses lmfit least-squares optimisation.
+        Forcing inputs are taken from l_roadrunner.getForcingInputs() and the
+        initial state from l_roadrunner.getInitialValues().
 
         Parameters
         ----------
         is_adjusted_result : bool
-            Whether to apply the same adjustment to the fitted Jacobian as is applied to the initial Jacobian in _adjustJacobian().
+            Whether to apply the same adjustment to the fitted Jacobian as is
+            applied to the initial Jacobian in _adjustJacobian().
 
         Returns
         -------
         np.ndarray
             2-D array of shape (num_species, num_species) — the mean Jacobian
-            with its diagonal replaced by the optimised values.
+            with its fitted diagonal entries replaced by the optimised values.
         """
         LARGE_RESIDUAL_VALUE = 1e10
-        # Adjust the initial jacobian so that predictions are bounded.
         duration = self.l_roadrunner.end_time - self.l_roadrunner.start_time
         base_jacobian_arr = utils.adjustJacobian(self.jacobian_mean_arr, duration)
         #
-        if not np.array_equal(self._fitted_jacobian_arr , cn.NULL_ARRAY):
+        if not np.array_equal(self._fitted_jacobian_arr, cn.NULL_ARRAY):
             return self._fitted_jacobian_arr
-        # Calculate the fitted jacobian_arr
+        # Determine which diagonal indices to fit.
+        diag_abs = np.abs(np.diag(base_jacobian_arr))
+        n = self.num_species
+        k = n if self._num_fit < 0 else min(self._num_fit, n)
+        fit_indices = set(np.argsort(diag_abs)[-k:].tolist())
+        #
         initial_state_arr = self.l_roadrunner.getInitialValues()
         forcing_input_arr = self.l_roadrunner.getForcingInputs()
-        # Use timecourse?
         actual_arr = self.l_roadrunner.simulate()
         params = Parameters()
-        for i in range(self.num_species):
+        for i in fit_indices:
             params.add(f'd{i}', value=base_jacobian_arr[i, i])
         ##
         def _residuals(params: Parameters) -> np.ndarray:
             fitted_jacobian_arr = base_jacobian_arr.copy()
-            for i in range(self.num_species):
+            for i in fit_indices:
                 fitted_jacobian_arr[i, i] = params[f'd{i}'].value
             try:
                 predicted_arr = self._predictLinear(
@@ -462,7 +471,6 @@ class Trajectory(object):
             numerator = np.where(denom == 0, 0, numerator)
             denom = np.where(denom == 0, 1, denom)
             normalized_residuals = numerator / denom
-            # Handle possible np.nan or np.inf values in the normalized residuals
             sel = np.isnan(normalized_residuals) | np.isinf(normalized_residuals)
             if len(sel) > 0:
                 normalized_residuals[sel] = LARGE_RESIDUAL_VALUE
@@ -471,7 +479,7 @@ class Trajectory(object):
         result = lmfit_minimize(_residuals, params, method='leastsq',
                 max_nfev=1000)
         fitted_jacobian_arr = base_jacobian_arr.copy()
-        for i in range(self.num_species):
+        for i in fit_indices:
             fitted_jacobian_arr[i, i] = result.params[f'd{i}'].value  # type: ignore
         if is_adjusted_result:
             self._fitted_jacobian_arr = utils.adjustJacobian(fitted_jacobian_arr, duration)
