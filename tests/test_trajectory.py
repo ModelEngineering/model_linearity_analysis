@@ -43,6 +43,16 @@ BIOMD206_PATH = os.path.join(
 BIOMD206_ENDTIME = 15.0
 BIOMODEL_NAMES = ["BIOMD0000000206", "BIOMD0000000054",
         "BIOMD0000000181", "BIOMD0000000008"]
+BIOMD153_PATH = os.path.join(
+        cn.BIOMODELS_DIR, "BIOMD0000000153", "BIOMD0000000153_url.xml"
+)
+BIOMD153_END_TIME = 1.4106262159417386
+BIOMD153_NUM_SPECIES = 74
+BIOMD610_PATH = os.path.join(
+        cn.BIOMODELS_DIR, "BIOMD0000000610", "BIOMD0000000610_url.xml"
+)
+BIOMD610_END_TIME = 5225.169124539109
+BIOMD610_NUM_SPECIES = 29
 
 
 def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints: np.ndarray) -> Trajectory:
@@ -1060,6 +1070,123 @@ class TestFitJacobian(unittest.TestCase):
         mse_fitted = float(np.mean((fitted_pred_arr - actual_arr) ** 2))
         self.assertLessEqual(mse_fitted, mse_mean + 1e-6)
 
+class TestGetGershgorinCircles(unittest.TestCase):
+    """Tests for Trajectory.getGershgorinCircles."""
+
+    def setUp(self) -> None:
+        self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL,
+                end_time=5.0, num_point=10)
+
+    def test_returns_dataframe(self) -> None:
+        """getGershgorinCircles returns a pd.DataFrame."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        self.assertIsInstance(result, pd.DataFrame)
+
+    def test_has_correct_columns(self) -> None:
+        """Result has columns 'center', 'radius', 'timepoint'."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        for col in ("center", "radius", "timepoint"):
+            self.assertIn(col, result.columns)
+
+    def test_row_count(self) -> None:
+        """Row count equals num_species * num_jacobians."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        expected = self.trajectory.num_species * self.trajectory.num_jacobian
+        self.assertEqual(len(result), expected)
+
+    def test_radii_nonnegative(self) -> None:
+        """All radii are >= 0."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        self.assertTrue(np.all(result["radius"].values >= 0.0)) # type: ignore
+
+    def test_timepoints_are_from_timepoint_arr(self) -> None:
+        """Timepoint values in the DataFrame match self.trajectory.timepoint_arr."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        unique_timepoints = sorted(result["timepoint"].unique())
+        expected = sorted(self.trajectory.timepoint_arr.tolist())
+        self.assertEqual(len(unique_timepoints), len(expected))
+        for got, exp in zip(unique_timepoints, expected):
+            self.assertAlmostEqual(got, exp, places=10)
+
+    def test_centers_are_diagonal_entries(self) -> None:
+        """Centers at the first timepoint equal the diagonal of the first Jacobian."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        first_t = self.trajectory.timepoint_arr[0]
+        first_rows = result[result["timepoint"] == first_t]
+        expected_centers = np.diag(self.trajectory.jacobian_collection_arr[0])
+        np.testing.assert_array_almost_equal(
+                first_rows["center"].values, expected_centers)
+
+    def test_all_values_finite(self) -> None:
+        """All center, radius, and timepoint values are finite."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.getGershgorinCircles()
+        for col in ("center", "radius", "timepoint"):
+            self.assertTrue(np.all(np.isfinite(result[col].values)))
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestGetGershgorinCirclesBiomd153(unittest.TestCase):
+    """Tests for Trajectory.getGershgorinCircles on BIOMD0000000153 (74 species)."""
+
+    NUM_POINT = 10
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if not os.path.exists(BIOMD153_PATH):
+            raise unittest.SkipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
+                num_point=cls.NUM_POINT)
+        cls.gershgorin_df = cls.trajectory.getGershgorinCircles()
+
+    def test_returns_dataframe(self) -> None:
+        """getGershgorinCircles returns a pd.DataFrame for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.gershgorin_df, pd.DataFrame)
+
+    def test_has_correct_columns(self) -> None:
+        """Result has columns 'center', 'radius', 'timepoint' for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        for col in ("center", "radius", "timepoint"):
+            self.assertIn(col, self.gershgorin_df.columns)
+
+    def test_row_count(self) -> None:
+        """Row count equals num_species * num_jacobians for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        expected = self.trajectory.num_species * self.trajectory.num_jacobian
+        self.assertEqual(len(self.gershgorin_df), expected)
+
+    def test_radii_nonnegative(self) -> None:
+        """All radii are >= 0 for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        self.assertTrue(np.all(self.gershgorin_df["radius"].values >= 0.0))  # type: ignore
+
+    def test_all_values_finite(self) -> None:
+        """All values are finite for BIOMD153."""
+        if IGNORE_TESTS:
+            return
+        for col in ("center", "radius", "timepoint"):
+            self.assertTrue(np.all(np.isfinite(self.gershgorin_df[col].values)))
+
+
 class TestBiomodelsFit(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -1196,11 +1323,13 @@ class TestPredictLinearBiomd1(unittest.TestCase):
     The tests document that known behaviour and verify the shape contract.
     """
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
         if not os.path.exists(BIOMD1_PATH):
-            self.skipTest(f"BIOMD0000000001 not found at {BIOMD1_PATH}")
-        self.trajectory = Trajectory.makeBiomodel(model_num=1)
-        self.pred_df = self.trajectory.predict()
+            raise unittest.SkipTest(f"BIOMD0000000001 not found at {BIOMD1_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(model_num=1)
+        cls.pred_df = cls.trajectory.predict()
+        cls.pred_adjusted_df = cls.trajectory.predict(is_adjust_fitted_jacobian=True)
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""
@@ -1230,14 +1359,11 @@ class TestPredictLinearBiomd1(unittest.TestCase):
         self.assertFalse(np.any(np.isnan(self.pred_df.iloc[0].values)))
 
     def test_prediction_contains_nan(self) -> None:
-        """predictLinear result contains NaN (overflow documented)."""
+        """predictLinear result contains NaN (overflow documented); adjusted prediction does not."""
         if IGNORE_TESTS:
             return
         self.assertTrue(np.any(np.isnan(self.pred_df.values)))
-        #
-        self.trajectory = Trajectory.makeBiomodel(model_num=1)
-        self.pred_df = self.trajectory.predict(is_adjust_fitted_jacobian=True)
-        self.assertFalse(np.any(np.isnan(self.pred_df.values)))
+        self.assertFalse(np.any(np.isnan(self.pred_adjusted_df.values)))
 
     def test_true_timecourse_has_no_nan(self) -> None:
         """The true timecourse for BIOMD1 is well-formed; NaN is a prediction artefact."""
@@ -1258,18 +1384,19 @@ class TestPredictLinearBiomd60(unittest.TestCase):
 
     NUM_POINT = 10
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
         if not os.path.exists(BIOMD60_PATH):
-            self.skipTest(f"BIOMD0000000060 not found at {BIOMD60_PATH}")
-        self.trajectory = Trajectory.makeBiomodel(
+            raise unittest.SkipTest(f"BIOMD0000000060 not found at {BIOMD60_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD60_PATH, end_time=BIOMD60_ENDTIME,
-                num_point=self.NUM_POINT)
-        self.pred_df = self.trajectory.predict(is_adjust_fitted_jacobian=True)
+                num_point=cls.NUM_POINT)
+        cls.pred_df = cls.trajectory.predict(is_adjust_fitted_jacobian=True)
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         self.assertIsInstance(self.pred_df, pd.DataFrame)
 
     def test_shape_matches_timecourse(self) -> None:
@@ -1301,19 +1428,6 @@ class TestPredictLinearBiomd60(unittest.TestCase):
                 np.isnan(self.trajectory.l_roadrunner.timecourse.values)))
 
 
-BIOMD153_PATH = os.path.join(
-        cn.BIOMODELS_DIR, "BIOMD0000000153", "BIOMD0000000153_url.xml"
-)
-BIOMD153_END_TIME = 1.4106262159417386
-BIOMD153_NUM_SPECIES = 74
-
-BIOMD610_PATH = os.path.join(
-        cn.BIOMODELS_DIR, "BIOMD0000000610", "BIOMD0000000610_url.xml"
-)
-BIOMD610_END_TIME = 5225.169124539109
-BIOMD610_NUM_SPECIES = 29
-
-
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
 class TestFitJacobianBiomd153(unittest.TestCase):
     """Tests for Trajectory.fitJacobian with num_fit on BIOMD0000000153 (74 species)."""
@@ -1321,63 +1435,58 @@ class TestFitJacobianBiomd153(unittest.TestCase):
     NUM_POINT = 10
     NUM_FIT = 5
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
+        import src.utils as utils  # type: ignore
         if not os.path.exists(BIOMD153_PATH):
-            self.skipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
-        self.trajectory = Trajectory.makeBiomodel(
+            raise unittest.SkipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
-                num_point=self.NUM_POINT)
+                num_point=cls.NUM_POINT)
+        cls.trajectory._num_fit = cls.NUM_FIT
+        cls.fitted_arr = cls.trajectory.fitJacobian()
+        duration = (cls.trajectory.l_roadrunner.end_time
+                - cls.trajectory.l_roadrunner.start_time)
+        cls.base_arr = utils.adjustJacobian(cls.trajectory.jacobian_mean_arr, duration)
 
     def test_returns_ndarray(self) -> None:
         """fitJacobian returns a numpy ndarray for BIOMD153."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
-        self.assertIsInstance(result, np.ndarray)
+        self.assertIsInstance(self.fitted_arr, np.ndarray)
 
     def test_shape(self) -> None:
         """fitJacobian returns shape (num_species, num_species) for BIOMD153."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
         n = self.trajectory.num_species
-        self.assertEqual(result.shape, (n, n))
+        self.assertEqual(self.fitted_arr.shape, (n, n))
 
     def test_only_num_fit_diagonals_change(self) -> None:
         """Exactly num_fit diagonal entries differ from the base Jacobian."""
         if IGNORE_TESTS:
             return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
         changed = sum(
                 1 for i in range(self.trajectory.num_species)
-                if not np.isclose(result[i, i], base[i, i]))
+                if not np.isclose(self.fitted_arr[i, i], self.base_arr[i, i]))
         self.assertLessEqual(changed, self.NUM_FIT)
 
     def test_result_is_finite(self) -> None:
         """All entries of the fitted Jacobian are finite for BIOMD153."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
-        self.assertTrue(np.all(np.isfinite(result)))
+        self.assertTrue(np.all(np.isfinite(self.fitted_arr)))
 
     def test_off_diagonals_unchanged(self) -> None:
         """Off-diagonal entries equal those of the mean Jacobian for BIOMD153."""
         if IGNORE_TESTS:
             return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
         n = self.trajectory.num_species
         for i in range(n):
             for j in range(n):
                 if i != j:
-                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
+                    self.assertAlmostEqual(
+                            self.fitted_arr[i, j], self.base_arr[i, j], places=10)
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
@@ -1387,63 +1496,58 @@ class TestFitJacobianBiomd610(unittest.TestCase):
     NUM_POINT = 10
     NUM_FIT = 5
 
-    def setUp(self) -> None:
+    @classmethod
+    def setUpClass(cls) -> None:
+        import src.utils as utils  # type: ignore
         if not os.path.exists(BIOMD610_PATH):
-            self.skipTest(f"BIOMD0000000610 not found at {BIOMD610_PATH}")
-        self.trajectory = Trajectory.makeBiomodel(
+            raise unittest.SkipTest(f"BIOMD0000000610 not found at {BIOMD610_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD610_PATH, end_time=BIOMD610_END_TIME,
-                num_point=self.NUM_POINT)
+                num_point=cls.NUM_POINT)
+        cls.trajectory._num_fit = cls.NUM_FIT
+        cls.fitted_arr = cls.trajectory.fitJacobian()
+        duration = (cls.trajectory.l_roadrunner.end_time
+                - cls.trajectory.l_roadrunner.start_time)
+        cls.base_arr = utils.adjustJacobian(cls.trajectory.jacobian_mean_arr, duration)
 
     def test_returns_ndarray(self) -> None:
         """fitJacobian returns a numpy ndarray for BIOMD610."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
-        self.assertIsInstance(result, np.ndarray)
+        self.assertIsInstance(self.fitted_arr, np.ndarray)
 
     def test_shape(self) -> None:
         """fitJacobian returns shape (num_species, num_species) for BIOMD610."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
         n = self.trajectory.num_species
-        self.assertEqual(result.shape, (n, n))
+        self.assertEqual(self.fitted_arr.shape, (n, n))
 
     def test_only_num_fit_diagonals_change(self) -> None:
         """Exactly num_fit diagonal entries differ from the base Jacobian."""
         if IGNORE_TESTS:
             return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
         changed = sum(
                 1 for i in range(self.trajectory.num_species)
-                if not np.isclose(result[i, i], base[i, i]))
+                if not np.isclose(self.fitted_arr[i, i], self.base_arr[i, i]))
         self.assertLessEqual(changed, self.NUM_FIT)
 
     def test_result_is_finite(self) -> None:
         """All entries of the fitted Jacobian are finite for BIOMD610."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
-        self.assertTrue(np.all(np.isfinite(result)))
+        self.assertTrue(np.all(np.isfinite(self.fitted_arr)))
 
     def test_off_diagonals_unchanged(self) -> None:
         """Off-diagonal entries equal those of the mean Jacobian for BIOMD610."""
         if IGNORE_TESTS:
             return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_mean_arr, duration)
-        result = self.trajectory.fitJacobian(num_fit=self.NUM_FIT)
         n = self.trajectory.num_species
         for i in range(n):
             for j in range(n):
                 if i != j:
-                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
+                    self.assertAlmostEqual(
+                            self.fitted_arr[i, j], self.base_arr[i, j], places=10)
 
 
 if __name__ == "__main__":
