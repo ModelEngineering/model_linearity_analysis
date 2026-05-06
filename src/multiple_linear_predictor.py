@@ -66,7 +66,7 @@ class MultipleLinearPredictor(object):
             If forcing_input_arr is 2-D and its first dimension does not match
             the number of JacobianCollections.
         """
-        n_clusters = len(clustered_jacobian_collection.jacobian_collections)
+        n_clusters = len(clustered_jacobian_collection.trajectories)
         if initial_value_arr.ndim == 2 and initial_value_arr.shape[0] != n_clusters:
             raise ValueError(
                 f"initial_value_arr has {initial_value_arr.shape[0]} rows but "
@@ -169,12 +169,12 @@ class MultipleLinearPredictor(object):
         species_ids = rr.getFloatingSpeciesIds()
         if not is_per_cluster_forcing_input:
             f_arr = np.array(rr.getRatesOfChange())
-            first_jc = clustered_jacobian_collection.jacobian_collections[0]
+            first_jc = clustered_jacobian_collection.trajectories[0]
             forcing_input_arr = f_arr - first_jc.jacobian_median_arr @ initial_value_arr
         else:
             current_x = initial_value_arr.copy()
             forcing_inputs: List[np.ndarray] = []
-            for jc in clustered_jacobian_collection.jacobian_collections:
+            for jc in clustered_jacobian_collection.trajectories:
                 rr.reset()
                 for idx, sp_id in enumerate(species_ids):
                     rr[sp_id] = float(current_x[idx])
@@ -208,7 +208,7 @@ class MultipleLinearPredictor(object):
         """
         current_x = self.initial_value_arr.copy()
         predictions: List[np.ndarray] = []
-        for i, jc in enumerate(self.clustered_jacobian_collection.jacobian_collections):
+        for i, jc in enumerate(self.clustered_jacobian_collection.trajectories):
             duration = float(jc.timepoint_arr[-1] - jc.timepoint_arr[0])
             linear_predictor = LinearPredictor(jc, current_x, self._getForcedInput(i))
             predicted_arr = linear_predictor.predict(np.array([0.0, duration])).prediction_arr
@@ -238,7 +238,7 @@ class MultipleLinearPredictor(object):
 
         current_x = self.initial_value_arr.copy()
         predicted_rows: List[np.ndarray] = []
-        for i, jc in enumerate(self.clustered_jacobian_collection.jacobian_collections):
+        for i, jc in enumerate(self.clustered_jacobian_collection.trajectories):
             abs_times = jc.timepoint_arr
             if len(abs_times) == 0:
                 import pdb; pdb.set_trace()  # FIXME: Why is this cluster empty?
@@ -316,7 +316,7 @@ class MultipleLinearPredictor(object):
         # --- piecewise linear prediction ---
         current_x = self.initial_value_arr.copy()
 
-        for cluster_idx, jc in enumerate(self.clustered_jacobian_collection.jacobian_collections):
+        for cluster_idx, jc in enumerate(self.clustered_jacobian_collection.trajectories):
             # Draw vertical boundary line at the start of each new cluster.
             if cluster_idx > 0:
                 ax.axvline(x=float(jc.timepoint_arr[0]), color="gray",

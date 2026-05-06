@@ -38,3 +38,28 @@ def adjustJacobian(jacobian_arr: np.ndarray, time: float, max_value: float=1e10)
             for i in range(len(center_arr))]
     np.fill_diagonal(jacobian_arr, new_diagonal)
     return jacobian_arr
+
+def findFloatIndex(arr: np.ndarray, value: float) -> int:
+    """Find the index of a float value in an array, allowing for a small tolerance.
+
+    Parameters
+    ----------
+    arr : np.ndarray
+        The array to search.
+    value : float
+        The value to find.
+
+    Returns
+    -------
+    int
+        The index of the value in the array.
+
+    Raises
+    ------
+    ValueError
+        If the value is not found within the tolerance.
+    """
+    idx = np.where(np.isclose(arr, value, atol=1e-8))[0]
+    if len(idx) == 0:
+        raise ValueError(f"Value {value} not found in array within tolerance.")
+    return idx[0]

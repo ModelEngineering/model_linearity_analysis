@@ -10,8 +10,10 @@ import matplotlib.figure as mfigure  # type: ignore
 import matplotlib.gridspec as mgridspec  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 import seaborn as sns  # type: ignore
 from typing import List
+import src.utils as utils  # type: ignore
 
 # TODO: Implement a plot that shows the timecourse of the simulation in combination
 # TODO: predict uses Trajector to predict for each segment. Accumulates the predictions and timepoints.
@@ -20,25 +22,105 @@ from typing import List
 class TrajectoryCollection(object):
     """A collection of trajectories that constitute a larger timecourse."""
 
-    def __init__(self, trajectory_collection: List[Trajectory]) -> None:
+    def __init__(self, trajectories: List[Trajectory]) -> None:
         """
         Parameters
         ----------
         trajectory_collections : list[Trajectory]
             List of trajectories for each cluster.
         """
-        self.jacobian_collections = trajectory_collection
-        if len(trajectory_collection) > 0:
-            self.l_roadrunner = trajectory_collection[0].l_roadrunner
+        self.trajectories = trajectories
+        if len(trajectories) > 0:
+            self.l_roadrunner = trajectories[0].l_roadrunner
         else:
             self.l_roadrunner = NULL_L_ROADRUNNER
+
+    @classmethod
+    def split(cls,
+                trajectory: Trajectory,
+                split_times: List[float],
+                **kwargs
+            ) -> 'TrajectoryCollection':
+        """Creates a trajectory collection by splitting a single trajectory
+            at specified timepoints.
+
+        Parameters
+        ----------
+        trajectory : Trajectory
+            The trajectory to be split into a collection.
+        split_times : list[float]
+            A list of timepoints at which to split the trajectory.
+                Must be within the bounds of the trajectory's timecourse.        
+        **kwargs
+            Additional keyword arguments to pass to the Trajectory.fromArrays method
+        """
+        split_times = sorted(split_times)
+        start_times = [float(trajectory.timepoint_arr[0])] + list(split_times)
+        end_times = list(split_times) + [float(trajectory.timepoint_arr[-1])]
+        trajectories: List[Trajectory] = []
+        for start_time, end_time in zip(start_times, end_times):
+            if start_time < trajectory.timepoint_arr[0] or start_time > trajectory.timepoint_arr[-1]:
+                raise ValueError(f"Split time {start_time} is out of bounds for the trajectory timecourse.")
+            if end_time < trajectory.timepoint_arr[0] or end_time > trajectory.timepoint_arr[-1]:
+                raise ValueError(f"Split time {end_time} is out of bounds for the trajectory timecourse.")
+            istart = utils.findFloatIndex(trajectory.timepoint_arr, start_time)
+            iend = utils.findFloatIndex(trajectory.timepoint_arr, end_time)
+            jacobian_arr = trajectory.jacobian_collection_arr[istart:iend + 1]  # type: ignore
+            timepoint_arr = trajectory.timepoint_arr[istart:iend + 1]  # type: ignore
+            trajectories.append(
+                    Trajectory.fromArrays(jacobian_arr, timepoint_arr,
+                    trajectory.l_roadrunner, **kwargs))
+        trajectory_collection = TrajectoryCollection(trajectories)
+        return trajectory_collection
+    
+    @staticmethod
+    def _findFloatIndex(arr: np.ndarray, value: float) -> int:
+        """Find the index of a float value in an array, allowing for a small tolerance.
+
+        Parameters
+        ----------
+        arr : np.ndarray
+            The array to search.
+        value : float
+            The value to find.
+
+        Returns
+        -------
+        int
+            The index of the value in the array.
+
+        Raises
+        ------
+        ValueError
+            If the value is not found within the tolerance.
+        """
+        idx = np.where(np.isclose(arr, value, atol=1e-8))[0]
+        if len(idx) == 0:
+            raise ValueError(f"Value {value} not found in array within tolerance.")
+        return idx[0]
+
+    def predict(self)-> pd.DataFrame:
+        """Predicts each trajectory and concatenate the results.
+
+        Returns
+        -------
+        pd.DataFrame
+            The predicted trajectory for the entire timecourse, concatenated from each cluster's prediction.
+        """
+        predicted_trajectories = []
+        for idx, trajectory in enumerate(self.trajectories):
+            pred_df = trajectory.predict()
+            if idx > 0:
+                pred_df = pred_df.iloc[1:]  # Remove the first timepoint to avoid duplication
+            predicted_trajectories.append(pred_df)
+        return pd.concat(predicted_trajectories, axis=0)   
 
     @property
     def max_cv(self) -> float:
         """Compute the maximum CV across all clusters."""
-        if len(self.jacobian_collections) == 0:
+        if len(self.trajectories) == 0:
             return np.nan
-        return max(c.max_cv for c in self.jacobian_collections)
+        return max(c.max_cv for c in self.trajectories)
 
     @property
     def score(self) -> float:
@@ -61,7 +143,7 @@ class TrajectoryCollection(object):
         matplotlib.figure.Figure
             The figure containing one heatmap per cluster and a shared colorbar.
         """
-        jcs = self.jacobian_collections
+        jcs = self.trajectories
         n = len(jcs)
 
         # Two rows: heatmaps on top, colorbar on bottom (small height ratio).

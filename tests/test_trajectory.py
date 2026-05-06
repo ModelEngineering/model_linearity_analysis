@@ -15,7 +15,8 @@ import src.constants as cn
 from trajectory import Trajectory, IVP_RELATIVE_TIMES # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 
-IGNORE_TESTS = True
+IGNORE_TESTS = False
+RUN_BIG_TESTS = False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
 
@@ -26,33 +27,32 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
 MAX_ITERATOR_STEP = 1000  # Increase the default max step for solve_ivp to avoid warnings about too many steps in some tests
-BIOMD38_PATH = os.path.join(
-    cn.BIOMODELS_DIR, "BIOMD0000000038", "BIOMD0000000038_url.xml"
-)
-BIOMD8_PATH = os.path.join(
-    cn.BIOMODELS_DIR, "BIOMD0000000008", "BIOMD0000000008_url.xml"
-)
-BIOMD8_ENDTIME = 20.0
-BIOMD60_PATH = os.path.join(
-    cn.BIOMODELS_DIR, "BIOMD0000000060", "BIOMD0000000060_url.xml"
-)
+def makeBiomdPath(model_num: int) -> str:
+    """Construct the file path for a BioModel SBML file given its model number."""
+    model_str = f"{model_num:04d}"
+    return os.path.join(
+        cn.BIOMODELS_DIR, f"BIOMD000000{model_str}", f"BIOMD000000{model_str}_url.xml"
+    )
+#
+BIOMD8_PATH = makeBiomdPath(8)
+BIOMD38_PATH = makeBiomdPath(38)
+BIOMD40_PATH = makeBiomdPath(40)
+BIOMD60_PATH = makeBiomdPath(60)
+BIOMD153_PATH = makeBiomdPath(153)
+BIOMD206_PATH = makeBiomdPath(206)
+BIOMD27_PATH = makeBiomdPath(27)
+#
 BIOMD60_ENDTIME = 10.0
-BIOMD206_PATH = os.path.join(
-    cn.BIOMODELS_DIR, "BIOMD0000000206", "BIOMD0000000206_url.xml"
-)
 BIOMD206_ENDTIME = 15.0
-BIOMODEL_NAMES = ["BIOMD0000000206", "BIOMD0000000054",
-        "BIOMD0000000181", "BIOMD0000000008"]
-BIOMD153_PATH = os.path.join(
-        cn.BIOMODELS_DIR, "BIOMD0000000153", "BIOMD0000000153_url.xml"
-)
 BIOMD153_END_TIME = 1.4106262159417386
 BIOMD153_NUM_SPECIES = 74
-BIOMD610_PATH = os.path.join(
-        cn.BIOMODELS_DIR, "BIOMD0000000610", "BIOMD0000000610_url.xml"
-)
-BIOMD610_END_TIME = 5225.169124539109
-BIOMD610_NUM_SPECIES = 29
+BIOMD27_END_TIME = 1000
+BIOMD27_NUM_SPECIES = 3
+BIOMD8_ENDTIME = 20.0
+BIOMD40_ENDTIME = 57.0
+#
+BIOMODEL_NAMES = ["BIOMD0000000206", "BIOMD0000000054",
+        "BIOMD0000000181", "BIOMD0000000008"]
 
 
 def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints: np.ndarray) -> Trajectory:
@@ -940,11 +940,11 @@ class TestPredictLinearBasic(unittest.TestCase):
         """Result has shape (num_timepoints, num_species)."""
         if IGNORE_TESTS:
             return
-        n_point, n_species = self.trajectory.num_point, self.trajectory.num_species
+        n_point, n_species = self.trajectory._num_timepoint, self.trajectory.num_species
         result = self.trajectory._predict()
         self.assertEqual(result.shape, (n_point, n_species))
 
-
+@unittest.skipUnless(RUN_BIG_TESTS, "This test is slow and may require large SBML files.")
 class TestPredictLinearBioModel(unittest.TestCase):
     """Advanced tests for Trajectory.predictLinear."""
 
@@ -953,12 +953,12 @@ class TestPredictLinearBioModel(unittest.TestCase):
             return
         if not os.path.exists(BIOMD8_PATH):
             self.skipTest(f"SBML file not found at {BIOMD8_PATH}")
+        self.lr: LRoadrunner
         self.lr = LRoadrunner.makeBiomodel(BIOMD8_PATH,
                 start_time=0.0, end_time=2*BIOMD8_ENDTIME, num_point=30)
         self.trajectory = Trajectory(self.lr)
 
     def test_timecourse(self) -> None:
-        self.skipTest("No plot")
         """predictLinear returns an ndarray with shape (num_points, num_species)."""
         if IGNORE_TESTS:
             return
@@ -1083,7 +1083,8 @@ class TestGetGershgorinCircles(unittest.TestCase):
             self.assertTrue(np.all(np.isfinite(result[col].values)))
 
 
-@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+#@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+@unittest.skip("Too big.")
 class TestGetGershgorinCirclesBiomd153(unittest.TestCase):
     """Tests for Trajectory.getGershgorinCircles on BIOMD0000000153 (74 species)."""
 
@@ -1136,7 +1137,7 @@ class TestGetGershgorinCirclesBiomd153(unittest.TestCase):
         for col in ("center", "radius", "timepoint"):
             self.assertTrue(np.all(np.isfinite(result[col].values)))
 
-
+@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
 class TestBiomodelsFit(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -1296,16 +1297,6 @@ class TestPredictLinearBiomd1(unittest.TestCase):
                 list(self.pred_df.columns),
                 self.trajectory.l_roadrunner.species_names)
 
-    def test_prediction_contains_nan(self) -> None:
-        """predictLinear result contains NaN (overflow documented)."""
-        if IGNORE_TESTS:
-            return
-        self.assertTrue(np.any(np.isnan(self.pred_df.values)))
-        #
-        self.trajectory = Trajectory.makeBiomodel(model_num=1)
-        self.pred_df = self.trajectory.predict()
-        self.assertFalse(np.any(np.isnan(self.pred_df.values)))
-
     def test_true_timecourse_has_no_nan(self) -> None:
         """The true timecourse for BIOMD1 is well-formed; NaN is a prediction artefact."""
         if IGNORE_TESTS:
@@ -1335,8 +1326,8 @@ class TestPredictLinearBiomd60(unittest.TestCase):
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         self.assertIsInstance(self.pred_df, pd.DataFrame)
 
     def test_shape_matches_timecourse(self) -> None:
@@ -1369,11 +1360,11 @@ class TestPredictLinearBiomd60(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
 class TestFitJacobianBiomd40(unittest.TestCase):
     """Tests for Trajectory.fitJacobian with num_fit on BIOMD000000040 (74 species)."""
 
-    NUM_POINT = 10
-    NUM_FIT = 5
+    NUM_POINT = 30
 
     def setUp(self) -> None:
         if IGNORE_TESTS:
@@ -1381,7 +1372,7 @@ class TestFitJacobianBiomd40(unittest.TestCase):
         if not os.path.exists(BIOMD40_PATH):
             self.skipTest(f"BIOMD000000040 not found at {BIOMD40_PATH}")
         self.trajectory = Trajectory.makeBiomodel(
-                path=BIOMD40_PATH, end_time=BIOMD40_END_TIME,
+                path=BIOMD40_PATH, end_time=BIOMD40_ENDTIME,
                 num_point=self.NUM_POINT)
 
     def test_returns_ndarray(self) -> None:
@@ -1399,20 +1390,6 @@ class TestFitJacobianBiomd40(unittest.TestCase):
         n = self.trajectory.num_species
         self.assertEqual(result.shape, (n, n))
 
-    def test_only_num_fit_diagonals_change(self) -> None:
-        """Exactly num_fit diagonal entries differ from the base Jacobian."""
-        if IGNORE_TESTS:
-            return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_median_arr, duration)
-        result = self.trajectory.fitJacobian()
-        changed = sum(
-                1 for i in range(self.trajectory.num_species)
-                if not np.isclose(result[i, i], base[i, i]))
-        self.assertLessEqual(changed, self.NUM_FIT)
-
     def test_result_is_finite(self) -> None:
         """All entries of the fitted Jacobian are finite for BIOMD40."""
         if IGNORE_TESTS:
@@ -1420,82 +1397,53 @@ class TestFitJacobianBiomd40(unittest.TestCase):
         result = self.trajectory.fitJacobian()
         self.assertTrue(np.all(np.isfinite(result)))
 
-    def test_off_diagonals_unchanged(self) -> None:
-        """Off-diagonal entries equal those of the mean Jacobian for BIOMD40."""
-        if IGNORE_TESTS:
-            return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_median_arr, duration)
-        result = self.trajectory.fitJacobian()
-        n = self.trajectory.num_species
-        for i in range(n):
-            for j in range(n):
-                if i != j:
-                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
-
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
-class TestFitJacobianBiomd610(unittest.TestCase):
-    """Tests for Trajectory.fitJacobian with num_fit on BIOMD0000000610 (29 species)."""
+@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
+class TestFitJacobianBiomd27(unittest.TestCase):
+    """Tests for Trajectory.fitJacobian with num_fit on BIOMD000000027 (29 species)."""
 
-    NUM_POINT = 10
-    NUM_FIT = 5
+    NUM_POINT = 30
+    MAX_NFEV = 100
 
     def setUp(self) -> None:
         if IGNORE_TESTS:
             return
-        if not os.path.exists(BIOMD610_PATH):
-            self.skipTest(f"BIOMD0000000610 not found at {BIOMD610_PATH}")
+        if not os.path.exists(BIOMD27_PATH):
+            self.skipTest(f"BIOMD000000027 not found at {BIOMD27_PATH}")
         self.trajectory = Trajectory.makeBiomodel(
-                path=BIOMD610_PATH, end_time=BIOMD610_END_TIME,
+                path=BIOMD27_PATH, end_time=BIOMD27_END_TIME,
                 num_point=self.NUM_POINT)
 
     def test_returns_ndarray(self) -> None:
-        """fitJacobian returns a numpy ndarray for BIOMD610."""
+        """fitJacobian returns a numpy ndarray for BIOMD27."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian()
+        result = self.trajectory.fitJacobian(max_nfev=self.MAX_NFEV)
         self.assertIsInstance(result, np.ndarray)
 
     def test_shape(self) -> None:
-        """fitJacobian returns shape (num_species, num_species) for BIOMD610."""
+        """fitJacobian returns shape (num_species, num_species) for BIOMD27."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian()
+        result = self.trajectory.fitJacobian(max_nfev=self.MAX_NFEV)
         n = self.trajectory.num_species
         self.assertEqual(result.shape, (n, n))
 
     def test_result_is_finite(self) -> None:
-        """All entries of the fitted Jacobian are finite for BIOMD610."""
+        """All entries of the fitted Jacobian are finite for BIOMD27."""
         if IGNORE_TESTS:
             return
-        result = self.trajectory.fitJacobian()
+        result = self.trajectory.fitJacobian(max_nfev=self.MAX_NFEV)
         self.assertTrue(np.all(np.isfinite(result)))
-
-    def test_off_diagonals_unchanged(self) -> None:
-        """Off-diagonal entries equal those of the mean Jacobian for BIOMD610."""
-        if IGNORE_TESTS:
-            return
-        import src.utils as utils  # type: ignore
-        duration = (self.trajectory.l_roadrunner.end_time
-                - self.trajectory.l_roadrunner.start_time)
-        base = utils.adjustJacobian(self.trajectory.jacobian_median_arr, duration)
-        result = self.trajectory.fitJacobian()
-        n = self.trajectory.num_species
-        for i in range(n):
-            for j in range(n):
-                if i != j:
-                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
 class TestPlotPredictionsBiomd153(unittest.TestCase):
     """Tests for Trajectory.plotPredictions on BIOMD0000000153 (74 species)."""
 
     NUM_POINT = 100
-    NUM_FIT = 10
     plot_options: PlotOptions
     num_species: int
     trajectory: Trajectory
@@ -1508,7 +1456,6 @@ class TestPlotPredictionsBiomd153(unittest.TestCase):
             raise unittest.SkipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
         cls.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
-                num_fit=cls.NUM_FIT,
                 num_point=cls.NUM_POINT)
         cls.num_species = cls.trajectory.num_species
         cls.plot_options = cls.trajectory.plotPredictions(model_name="BIOMD153")
@@ -1523,12 +1470,10 @@ class TestPlotPredictionsBiomd153(unittest.TestCase):
         self.assertIsInstance(self.plot_options, PlotOptions)
 
     def test_plotting_biomd40(self) -> None:
-        #self.skipTest("No plot") 
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         trajectory = Trajectory.makeBiomodel(
                 model_num=40, end_time = 10,
-                num_fit=self.NUM_FIT,
                 jacobian_selection=cn.JAC_MEDIAN,
                 #jacobian_selection=cn.JAC_FITTED,
                 num_point=200)

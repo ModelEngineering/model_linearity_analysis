@@ -69,11 +69,10 @@ class Trajectory(object):
                 cn.JAC_FIRST = "first" # Use the first Jacobian
         """
         self.jacobian_collection_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
-        self._initialize(l_roadrunner, eigenvalues_collection_arr,
-                eigenvector_collection_arr, num_fit=num_fit)
+        self._initialize(l_roadrunner, eigenvalues_collection_arr, eigenvector_collection_arr,
+                num_fit=num_fit, jacobian_selection=jacobian_selection)
         self._sortArrays()
         self._diameter_metric = diameter_metric
-        self._jacobian_selection = jacobian_selection
 
     # ------------------------------------------------------------------
     # Properties (alphabetical)
@@ -250,10 +249,15 @@ class Trajectory(object):
             for start, end in boundaries
         ]
 
-    def fitJacobian(self) -> np.ndarray:
+    def fitJacobian(self, max_nfev: int = 1000) -> np.ndarray:
         """
         Fit each row of the Jacobian by choosing elements that minimize the
         L2 error of the variable for that row.
+
+        Parameters
+        ----------
+        max_nfev : int, optional
+            Maximum number of function evaluations for the optimization (default is 1000).
 
         Returns
         -------
@@ -262,17 +266,18 @@ class Trajectory(object):
         ##
         if not np.array_equal(self._fitted_jacobian_arr, cn.NULL_ARRAY):
             return self._fitted_jacobian_arr
+        if self._num_timepoint < self.num_species:
+            raise ValueError(f"Cannot fit Jacobian with num_timepoint ({self._num_timepoint}) < num_species ({self.num_species}).") 
         # Iteratively process all rows (species) of the Jacobian
         jacobian_arr = self.jacobian_median_arr.copy()
-        # FIXME: Use self._num_fit to select the largest Jacobian values to fit
         ##
         def _calculateResiduals(params: Parameters, ispecies:int) -> np.ndarray:
             # Calculates the residuals when the i-th row is replaced by the values
             # in params, and the other rows are unchanged
             for i in range(self.num_species):
                 jacobian_arr[ispecies, i] = params[f'd{i}'].value
-            predictions_arr = self._predict(jacobian_arr=jacobian_arr)[:, ispecies]
-            residual_arr = self.timecourse.iloc[:, ispecies].values - predictions_arr
+            prediction_arr = self._predict(jacobian_arr=jacobian_arr)[:, ispecies]
+            residual_arr = self.timecourse.iloc[:, ispecies].values - prediction_arr
             return residual_arr[1:]  # Exclude timepoint 0 to avoid issues with initial state
         ##
         for ispecies, _ in enumerate(self.l_roadrunner.species_names):
@@ -281,7 +286,7 @@ class Trajectory(object):
             for idx, coeff in enumerate(jacobian_arr[ispecies]):
                 params.add(f'd{idx}', value=coeff)
             result = lmfit_minimize(_calculateResiduals, params,
-                    method='leastsq', args=(ispecies,), max_nfev=1000)
+                    method='leastsq', args=(ispecies,), max_nfev=max_nfev)
             jacobian_arr[ispecies] = [result.params[f'd{idx}'].value  # type: ignore
                     for idx in range(jacobian_arr.shape[1])]  # type: ignore
         self._fitted_jacobian_arr: np.ndarray = jacobian_arr
@@ -291,12 +296,14 @@ class Trajectory(object):
     def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray,
             l_roadrunner: LRoadrunner = NULL_L_ROADRUNNER,
             eigenvalues_collection_arr: np.ndarray = np.array([]),
-            eigenvector_collection_arr: np.ndarray = np.array([])) -> 'Trajectory':
+            eigenvector_collection_arr: np.ndarray = np.array([]),
+            **kwargs) -> 'Trajectory':
         """Create a JacobianCollection from explicit arrays."""
         jc = object.__new__(cls)
         jc.jacobian_collection_arr = jacobian_arr.copy()
         jc.timepoint_arr = timepoint_arr.copy()
-        jc._initialize(l_roadrunner, eigenvalues_collection_arr, eigenvector_collection_arr)
+        jc._initialize(l_roadrunner, eigenvalues_collection_arr,
+                eigenvector_collection_arr, **kwargs)
         jc._sortArrays()
         return jc
 
@@ -733,12 +740,14 @@ class Trajectory(object):
     def _initialize(self, l_roadrunner: LRoadrunner,
                 eigenvalues_collection_arr: np.ndarray = np.array([]),
                 eigenvector_collection_arr: np.ndarray = np.array([]),
-                num_fit: int = NUM_FIT) -> None:
+                num_fit: int = NUM_FIT,
+                jacobian_selection: str = cn.JAC_MEDIAN) -> None:
         """Initialize the JacobianCollection with a new LRoadrunner instance."""
         self.l_roadrunner = l_roadrunner
         self.model_name = self.l_roadrunner.model_name if hasattr(self.l_roadrunner, "model_name") else ""  
         self.num_species = self.l_roadrunner.num_species
-        self.num_point = self.l_roadrunner.num_point
+        self.species_names = self.l_roadrunner.species_names
+        self._num_timepoint = self.l_roadrunner.num_point
         self._jacobian_median_arr = np.array([])
         self._jacobian_std_arr = np.array([])
         self._diameter = np.nan
@@ -751,6 +760,7 @@ class Trajectory(object):
         self._cost_mat = NULL_COST*np.ones((self.num_jacobian, self.num_jacobian))  # Placeholder value indicating uninitialized cost matrix
         self._fitted_jacobian_arr = cn.NULL_ARRAY
         self._num_fit = num_fit
+        self._jacobian_selection = jacobian_selection
 
     @staticmethod
     def _ivp(_: float, x: np.ndarray, jacobian_arr: np.ndarray) -> np.ndarray:
@@ -814,7 +824,7 @@ class Trajectory(object):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 for itime, timepoint in enumerate(self.timepoint_arr[:-1]):
-                    initial_state_arr = self.l_roadrunner.timecourse.iloc[itime, :].values # type: ignore
+                    initial_state_arr = self.l_roadrunner.timecourse.loc[timepoint].values # type: ignore
                     sol = solve_ivp(ode,
                             (timepoint, self.timepoint_arr[itime+1]),
                             initial_state_arr,

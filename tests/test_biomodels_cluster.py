@@ -207,14 +207,14 @@ class TestBiomodelsClusterCluster(unittest.TestCase):
         if IGNORE_TESTS:
             return
         cjc = self._biomodels_cluster.cluster(n_cluster=1, is_sequential_partition=True)
-        self.assertEqual(len(cjc.jacobian_collections), 1)
+        self.assertEqual(len(cjc.trajectories), 1)
 
     def test_sequential_partition_multiple_clusters(self) -> None:
         """Sequential partition with n_cluster=2 yields two JacobianCollections."""
         if IGNORE_TESTS:
             return
         cjc = self._biomodels_cluster.cluster(n_cluster=2, is_sequential_partition=True)
-        self.assertEqual(len(cjc.jacobian_collections), 2)
+        self.assertEqual(len(cjc.trajectories), 2)
 
     def test_nonsequential_partition(self) -> None:
         """Non-sequential partition returns a ClusteredJacobianCollection."""

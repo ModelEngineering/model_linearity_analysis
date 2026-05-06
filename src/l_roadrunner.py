@@ -208,10 +208,9 @@ class LRoadrunner(object):
         This is used in the linear predictor to extrapolate from the initial state.
         """
         rr = self.getRoadrunner()
-        rr.reset()
-        _ = rr.simulate(self.start_time, self.end_time, 2)
-        jacobian_arr = np.array(rr.getFullJacobian())
+        #_ = rr.simulate(self.start_time, self.end_time, 2)
         _ = rr.simulate(self.end_time, self.end_time*1.001, 2)
+        jacobian_arr = np.array(rr.getFullJacobian())
         f_arr = np.array(rr.getRatesOfChange())
         forced_input_arr = f_arr - jacobian_arr @ self.getInitialValues()
         return forced_input_arr
