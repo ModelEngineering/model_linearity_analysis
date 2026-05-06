@@ -1138,7 +1138,7 @@ class TestMakeBiomodel(unittest.TestCase):
         if IGNORE_TESTS:
             return
         with self.assertRaises(ValueError):
-            LRoadrunner.makeBiomodel(model_id="FOO0000000008")
+            LRoadrunner.makeBiomodel(model_name="FOO0000000008")
 
     def test_model_num_zero_with_no_path_no_id_raises(self) -> None:
         """model_num=0 with no path or model_id → ValueError."""
@@ -1160,11 +1160,11 @@ class TestMakeBiomodelWithData(unittest.TestCase):
                 num_point=5)
         self.assertIsInstance(l_roadrunner, LRoadrunner)
 
-    def test_model_id_returns_lroadrunner(self) -> None:
-        """model_id='BIOMD0000000008' → returns an LRoadrunner instance."""
+    def test_model_name_returns_lroadrunner(self) -> None:
+        """model_name='BIOMD0000000008' → returns an LRoadrunner instance."""
         if IGNORE_TESTS:
             return
-        l_roadrunner = LRoadrunner.makeBiomodel(model_id="BIOMD0000000008",
+        l_roadrunner = LRoadrunner.makeBiomodel(model_name="BIOMD0000000008",
                 end_time=20.0, num_point=5)
         self.assertIsInstance(l_roadrunner, LRoadrunner)
 
@@ -1197,7 +1197,7 @@ class TestMakeBiomodelWithData(unittest.TestCase):
         if IGNORE_TESTS:
             return
         lr_num = LRoadrunner.makeBiomodel(model_num=8, end_time=20.0, num_point=5)
-        lr_id = LRoadrunner.makeBiomodel(model_id="BIOMD0000000008", end_time=20.0,
+        lr_id = LRoadrunner.makeBiomodel(model_name="BIOMD0000000008", end_time=20.0,
                 num_point=5)
         self.assertEqual(lr_num.species_names, lr_id.species_names)
 

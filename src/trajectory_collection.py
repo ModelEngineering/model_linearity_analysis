@@ -75,9 +75,9 @@ class TrajectoryCollection(object):
             t_start = float(jc.timepoint_arr[0])
             t_end = float(jc.timepoint_arr[-1])
             with np.errstate(divide="ignore", invalid="ignore"):
-                cv_arr = np.abs(jc.jacobian_std_arr / jc.jacobian_mean_arr)
+                cv_arr = np.abs(jc.jacobian_std_arr / jc.jacobian_median_arr)
             cv_arr = np.where(np.isfinite(cv_arr), cv_arr, 0.0)
-            annot_arr = np.vectorize(lambda v: f"{v:.2g}")(jc.jacobian_mean_arr)
+            annot_arr = np.vectorize(lambda v: f"{v:.2g}")(jc.jacobian_median_arr)
             rr = jc.l_roadrunner.getRoadrunner() if hasattr(jc, "l_roadrunner") else None
             species_ids = rr.getFloatingSpeciesIds() if rr is not None else None
             sns.heatmap(

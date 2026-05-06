@@ -65,6 +65,7 @@ class LRoadrunner(object):
             end_time: Optional[float] = None,
             num_point: int = cn.NUM_POINTS,
             sedml_str: Optional[str] = None,
+            model_name: Optional[str] = None,
             ) -> None:
         """
         Parameters
@@ -78,7 +79,9 @@ class LRoadrunner(object):
         num_points : int
             Number of output timepoints.
         sedml_str : str, optional
-            SED-ML string for simulation setup (default: None).
+            SED-ML string for simulation setup (default: None)
+        model_name : str, optional
+            Name of the model (default: None)
         """
         if not isinstance(roadrunner_specification, str):
             raise ValueError("roadrunner_specification must be a string containing an SBML or Antimony model.")
@@ -93,9 +96,10 @@ class LRoadrunner(object):
         self.end_time_source: Optional[str] = None
         self._species_names: List[str] = []
         self._timecourse = pd.DataFrame()
+        self.model_name = model_name
 
     @classmethod
-    def makeBiomodel(cls, path:str = "", model_id: str = "",
+    def makeBiomodel(cls, path:str = "", model_name: str = "",
             model_num: int = 0, **kwargs) -> "LRoadrunner":
         """
         Create an LRoadrunner instance from a BioModels SBML file.
@@ -115,23 +119,29 @@ class LRoadrunner(object):
             An instance of LRoadrunner initialized with the model from the specified SBML file.
         """
         if len(path) == 0:
-            if len(model_id) == 0:
+            if len(model_name) == 0:
                 if model_num <= 0:
                     raise ValueError("Must provide at least one of path, model_id, or model_num to load a BioModel.")
                 else:
-                    model_id = f"BIOMD{model_num:010d}"
+                    model_name = f"BIOMD{model_num:010d}"
             else:
-                if not model_id.startswith("BIOMD"):
+                if not model_name.startswith("BIOMD"):
                     raise ValueError("model_id must start with 'BIOMD'.")
-            path = os.path.join(cn.BIOMODELS_DIR, model_id, f"{model_id}_url.xml")
+            path = os.path.join(cn.BIOMODELS_DIR, model_name, f"{model_name}_url.xml")
             if not os.path.exists(path):
-                path = os.path.join(cn.BIOMODELS_DIR, model_id, "model.xml")
-            ffiles = [f for f in os.listdir(os.path.join(cn.BIOMODELS_DIR, model_id))
+                path = os.path.join(cn.BIOMODELS_DIR, model_name, "model.xml")
+            ffiles = [f for f in os.listdir(os.path.join(cn.BIOMODELS_DIR, model_name))
                     if (not "manifest" in f) and f.endswith(".xml")]
             if len(ffiles) == 0:
-                raise FileNotFoundError(f"Model file not found for model {model_id}")
-            path = os.path.join(cn.BIOMODELS_DIR, model_id, ffiles[0])
-
+                raise FileNotFoundError(f"Model file not found for model {model_name}")
+            path = os.path.join(cn.BIOMODELS_DIR, model_name, ffiles[0])
+        # Create model name
+        if len(model_name) == 0:
+            model_name = os.path.basename(os.path.dirname(path))
+        # Determine end time, prioritizing user-specified,
+        # then from CSV mapping, then from SED-ML string,
+        # then from steady state simulation, then from Jacobian,
+        # then defaulting to 10.0 seconds if all else fails.
         END_TIME = "end_time"
         with open(path, "r") as f:
             sbml_str = f.read()
@@ -141,7 +151,7 @@ class LRoadrunner(object):
         else:
             end_time = kwargs[END_TIME]
         kwargs[END_TIME] = end_time
-        return cls(sbml_str, **kwargs)
+        return cls(sbml_str, model_name=model_name, **kwargs)
 
     @property
     def species_names(self) -> list[str]:
@@ -174,6 +184,7 @@ class LRoadrunner(object):
         -------
         pd.DataFrame
             A DataFrame containing the time course of the simulation, with columns for time and each floating species.
+            The index are the time values.
         """
         if self._timecourse.empty:
             result_arr = self.simulate(is_with_timepoints=True)

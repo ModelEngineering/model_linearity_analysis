@@ -170,7 +170,7 @@ class MultipleLinearPredictor(object):
         if not is_per_cluster_forcing_input:
             f_arr = np.array(rr.getRatesOfChange())
             first_jc = clustered_jacobian_collection.jacobian_collections[0]
-            forcing_input_arr = f_arr - first_jc.jacobian_mean_arr @ initial_value_arr
+            forcing_input_arr = f_arr - first_jc.jacobian_median_arr @ initial_value_arr
         else:
             current_x = initial_value_arr.copy()
             forcing_inputs: List[np.ndarray] = []
@@ -179,7 +179,7 @@ class MultipleLinearPredictor(object):
                 for idx, sp_id in enumerate(species_ids):
                     rr[sp_id] = float(current_x[idx])
                 f_arr = np.array(rr.getRatesOfChange())
-                forcing_inputs.append(f_arr - jc.jacobian_mean_arr @ current_x)
+                forcing_inputs.append(f_arr - jc.jacobian_median_arr @ current_x)
                 duration = float(jc.timepoint_arr[-1] - jc.timepoint_arr[0])
                 lp = LinearPredictor(jc, current_x, forcing_inputs[-1])
                 current_x = lp.predict(np.array([0.0, duration])).prediction_arr[-1]

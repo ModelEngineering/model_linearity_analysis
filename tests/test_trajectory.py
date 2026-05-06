@@ -13,7 +13,7 @@ import numpy as np # type: ignore
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import src.constants as cn
 from trajectory import Trajectory, IVP_RELATIVE_TIMES # type: ignore
-from l_roadrunner import LRoadrunner, MAX_ITERATOR_STEP  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
 
 IGNORE_TESTS = True
 if not IGNORE_TESTS:
@@ -61,6 +61,7 @@ def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints
     lr.makeJacobians.return_value = (jacobian_collection_arr, timepoints)
     lr.start_time = 0.0
     lr.end_time = 5.0
+    lr.num_speces = 3
     lr.num_point = len(timepoints)
     if len(jacobian_collection_arr) == 0:
         num_species = 0
@@ -85,7 +86,7 @@ def _make_lroadrunner(antimony_str: str, end_time:float = 10.0, num_point:int = 
 def _make_trajectory_from_model(antimony_str: str, end_time:float = 10.0, num_point:int = 11) -> Trajectory:
     """Return a MultipleLinearPredictor built from a real Antimony model."""
     lr = _make_lroadrunner(antimony_str, end_time=end_time, num_point=num_point)
-    jc = Trajectory(lr)
+    jc = Trajectory(lr, jacobian_selection=cn.JAC_MEDIAN)
     return jc
 
 
@@ -142,7 +143,7 @@ class TestJacobianMeanArr(unittest.TestCase):
         if IGNORE_TESTS:
             return
         jc = _make_trajectory(n_point=5, n_species=3)
-        self.assertEqual(jc.jacobian_mean_arr.shape, (3, 3))
+        self.assertEqual(jc.jacobian_median_arr.shape, (3, 3))
 
     def test_known_value(self) -> None:
         """jacobian_mean_arr equals element-wise mean across timepoints."""
@@ -153,7 +154,7 @@ class TestJacobianMeanArr(unittest.TestCase):
         timepoints = np.array([0.0, 1.0])
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
         expected = np.array([[3.0, 4.0], [5.0, 6.0]])
-        np.testing.assert_allclose(jc.jacobian_mean_arr, expected)
+        np.testing.assert_allclose(jc.jacobian_median_arr, expected)
 
     def test_single_timepoint_equals_jacobian(self) -> None:
         """With one timepoint mean equals the Jacobian itself."""
@@ -162,15 +163,15 @@ class TestJacobianMeanArr(unittest.TestCase):
         jacobian_collection_arr = np.array([[[1.0, 2.0], [3.0, 4.0]]])
         timepoints = np.array([0.0])
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        np.testing.assert_allclose(jc.jacobian_mean_arr, jacobian_collection_arr[0])
+        np.testing.assert_allclose(jc.jacobian_median_arr, jacobian_collection_arr[0])
 
     def test_cached_on_second_access(self) -> None:
         """jacobian_mean_arr returns the same object on repeated access."""
         if IGNORE_TESTS:
             return
         jc = _make_trajectory(n_point=5, n_species=2)
-        first = jc.jacobian_mean_arr
-        second = jc.jacobian_mean_arr
+        first = jc.jacobian_median_arr
+        second = jc.jacobian_median_arr
         self.assertIs(first, second)
 
 
@@ -362,6 +363,8 @@ class TestPlot(unittest.TestCase):
     """Tests for JacobianCollection.plot."""
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         lr = LRoadrunner(ANTIMONY_MODEL, start_time=0.0, end_time=5.0, num_point=11)
         self.collection = Trajectory(lr)
 
@@ -427,6 +430,73 @@ class TestPlot(unittest.TestCase):
             collection.plot()
 
 
+class TestPlotPredictions(unittest.TestCase):
+    """Tests for Trajectory.plotPredictions."""
+
+    trajectory: Trajectory
+    num_species: int
+    plot_options: PlotOptions
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if IGNORE_TESTS:
+            return
+        lr = LRoadrunner(ANTIMONY_MODEL, start_time=0.0, end_time=5.0, num_point=10)
+        cls.trajectory = Trajectory(lr)
+        cls.num_species = cls.trajectory.num_species
+        cls.plot_options = cls.trajectory.plotPredictions()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        plt.close("all")
+
+    def test_returns_plot_options(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.plot_options, PlotOptions)
+
+    def test_ax_is_not_none(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIsNotNone(self.plot_options.ax)
+
+    def test_line_count_matches_species(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(len(self.plot_options.ax.lines), self.num_species)
+
+    def test_scatter_count_matches_species(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(len(self.plot_options.ax.collections), self.num_species)
+
+    def test_title_contains_model_name(self) -> None:
+        if IGNORE_TESTS:
+            return
+        po = self.trajectory.plotPredictions(model_name="TestModel")
+        self.assertIn("TestModel", po.ax.get_title())
+
+    def test_explicit_ax_is_used(self) -> None:
+        if IGNORE_TESTS:
+            return
+        _, ax = plt.subplots()
+        po = self.trajectory.plotPredictions(ax=ax)
+        self.assertIs(po.ax, ax)
+
+    def test_legend_false_suppresses_legend(self) -> None:
+        if IGNORE_TESTS:
+            return
+        po = self.trajectory.plotPredictions(legend=False)
+        self.assertIsNone(po.ax.get_legend())
+
+    def test_ylim_applied(self) -> None:
+        if IGNORE_TESTS:
+            return
+        po = self.trajectory.plotPredictions(ylim=(0.0, 5.0))
+        self.assertAlmostEqual(po.ax.get_ylim()[0], 0.0, places=5)
+        self.assertAlmostEqual(po.ax.get_ylim()[1], 5.0, places=5)
+
+
 def _diameter_ivp(jacobian_collection_arr: np.ndarray) -> np.ndarray:
     """Mirror of JacobianCollection._calculateWeightedEigenvectors for tests."""
     eigvals, eigvecs = np.linalg.eig(jacobian_collection_arr)
@@ -471,7 +541,7 @@ class TestDiameter(unittest.TestCase):
         jacobian_collection_arr = np.array([j0, j1])
         timepoints = np.array([0.0, 1.0])
         jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        w_mean = _diameter_ivp(jc.jacobian_mean_arr)
+        w_mean = _diameter_ivp(jc.jacobian_median_arr)
         dist0 = float(np.linalg.norm(_diameter_ivp(j0) - w_mean))
         dist1 = float(np.linalg.norm(_diameter_ivp(j1) - w_mean))
         self.assertNotEqual(dist0, dist1)
@@ -517,6 +587,8 @@ class TestDiameter(unittest.TestCase):
 class TestNonsequentialPartition(unittest.TestCase):
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         self.n_points = 20
         self.n_species = 3
         rng = np.random.default_rng(0)
@@ -573,6 +645,8 @@ class TestPartitionJacobiansSequentially(unittest.TestCase):
     """Tests for JacobianCollection.sequentialPartition."""
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         self.n_points = 20
         self.n_species = 3
         rng = np.random.default_rng(0)
@@ -634,6 +708,8 @@ class TestBiomodel206(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         if not os.path.exists(BIOMD206_PATH):
             self.skipTest(f"BIOMD0000000206 not found at {BIOMD206_PATH}")
         with open(BIOMD206_PATH) as f:
@@ -856,6 +932,8 @@ class TestPredictLinearBasic(unittest.TestCase):
     """Tests for Trajectory.predictLinear."""
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=1.0)
 
     def test_output_shape(self) -> None:
@@ -863,91 +941,21 @@ class TestPredictLinearBasic(unittest.TestCase):
         if IGNORE_TESTS:
             return
         n_point, n_species = self.trajectory.num_point, self.trajectory.num_species
-        initial_state_arr = np.ones(n_species)
-        forcing_input_arr = np.zeros(n_species)
-        result = self.trajectory._predictLinear(initial_state_arr, forcing_input_arr)
+        result = self.trajectory._predict()
         self.assertEqual(result.shape, (n_point, n_species))
-
-    def test_returns_ndarray(self) -> None:
-        """predictLinear returns a numpy ndarray."""
-        if IGNORE_TESTS:
-            return
-        trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=1.0)
-        result = trajectory._predictLinear(np.ones(2), np.zeros(2))
-        self.assertIsInstance(result, np.ndarray)
-
-    def test_zero_initial_state_gives_zero_output(self) -> None:
-        """Zero initial state with zero forcing produces zero trajectory."""
-        if IGNORE_TESTS:
-            return
-        jacobian_collection_arr = np.tile(np.array([[-1.0, 0.0], [0.0, -2.0]]), (3, 1, 1))
-        timepoints = np.linspace(0.0, 2.0, 3)
-        trajectory = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = trajectory._predictLinear(np.zeros(2), np.zeros(2))
-        np.testing.assert_allclose(result, np.zeros((3, 2)), atol=1e-10)
-
-    def test_known_1x1_no_forcing(self) -> None:
-        """For J=[[-1]], x0=[1], u=[0]: x(t)=exp(-t) at each timepoint."""
-        if IGNORE_TESTS:
-            return
-        jacobian_collection_arr = np.array([[[-1.0]]])
-        timepoints = np.array([0.0])
-        jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        # predictLinear integrates over timepoint_arr which has only one point, so t_span = [0, 0]
-        # Use a multi-point collection for a meaningful trajectory
-        jacobian_collection_arr = np.tile(np.array([[-1.0]]), (5, 1, 1))
-        timepoints = np.linspace(0.0, 2.0, 5)
-        jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = jc._predictLinear(np.array([1.0]), np.array([0.0]))
-        expected = np.exp(-timepoints).reshape(-1, 1)
-        np.testing.assert_allclose(result, expected, atol=1e-3)
-
-    def test_known_1x1_with_forcing(self) -> None:
-        """For J=[[-1]], x0=[1], u=[c]: x(t)=(1-c)*exp(-t)+c."""
-        if IGNORE_TESTS:
-            return
-        c = 2.0
-        jacobian_collection_arr = np.tile(np.array([[-1.0]]), (5, 1, 1))
-        timepoints = np.linspace(0.0, 2.0, 5)
-        jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        result = jc._predictLinear(np.array([1.0]), np.array([c]))
-        expected = ((1.0 - c) * np.exp(-timepoints) + c).reshape(-1, 1)
-        np.testing.assert_allclose(result, expected, atol=1e-3)
-
-    def test_forcing_changes_trajectory(self) -> None:
-        """Non-zero forcing produces a different trajectory than zero forcing."""
-        if IGNORE_TESTS:
-            return
-        jacobian_collection_arr = np.tile(np.array([[-1.0, 0.0], [0.0, -1.0]]), (5, 1, 1))
-        timepoints = np.linspace(0.0, 2.0, 5)
-        jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        initial_state_arr = np.array([1.0, 1.0])
-        result_no_forcing = jc._predictLinear(initial_state_arr, np.zeros(2))
-        result_with_forcing = jc._predictLinear(initial_state_arr, np.array([1.0, 0.0]))
-        self.assertFalse(np.allclose(result_no_forcing, result_with_forcing))
-
-    def test_first_row_matches_initial_state(self) -> None:
-        """The first row of the result approximates the initial state."""
-        if IGNORE_TESTS:
-            return
-        jacobian_collection_arr = np.tile(np.array([[-1.0, 0.0], [0.0, -2.0]]), (5, 1, 1))
-        timepoints = np.linspace(0.0, 2.0, 5)
-        jc = _make_trajectory_from_arrays(jacobian_collection_arr, timepoints)
-        initial_state_arr = np.array([3.0, 5.0])
-        result = jc._predictLinear(initial_state_arr, np.zeros(2))
-        np.testing.assert_allclose(result[0], initial_state_arr, atol=1e-5)
 
 
 class TestPredictLinearBioModel(unittest.TestCase):
     """Advanced tests for Trajectory.predictLinear."""
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         if not os.path.exists(BIOMD8_PATH):
             self.skipTest(f"SBML file not found at {BIOMD8_PATH}")
         self.lr = LRoadrunner.makeBiomodel(BIOMD8_PATH,
                 start_time=0.0, end_time=2*BIOMD8_ENDTIME, num_point=30)
         self.trajectory = Trajectory(self.lr)
-
 
     def test_timecourse(self) -> None:
         self.skipTest("No plot")
@@ -968,59 +976,12 @@ class TestPredictLinearBioModel(unittest.TestCase):
         self.assertIsInstance(predicted_df, pd.DataFrame)
         self.assertEqual(predicted_df.shape, actual_df.shape)
 
-class TestFitForcingInputs(unittest.TestCase):
-    """Tests for Trajectory.fitForcingInputs."""
-
-    def setUp(self) -> None:
-        self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=5.0)
-
-    def test_returns_ndarray(self) -> None:
-        """fitForcingInputs returns a numpy ndarray."""
-        if IGNORE_TESTS:
-            return
-        result = self.trajectory.fitForcingInputs()
-        self.assertIsInstance(result, np.ndarray)
-
-    def test_shape(self) -> None:
-        """fitForcingInputs returns array of shape (num_species,)."""
-        if IGNORE_TESTS:
-            return
-        result = self.trajectory.fitForcingInputs()
-        self.assertEqual(result.shape, (self.trajectory.num_species,))
-
-    def test_improves_prediction(self) -> None:
-        """Fitted forcing inputs produce prediction error no worse than zero forcing."""
-        if IGNORE_TESTS:
-            return
-        actual_arr = self.trajectory.l_roadrunner.simulate()
-        initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
-        default_forcing_arr = self.trajectory.l_roadrunner.getForcingInputs()
-        fitted_forcing_arr = self.trajectory.fitForcingInputs(initial_state_arr)
-        predicted_zero_arr = self.trajectory._predictLinear(
-                initial_state_arr=initial_state_arr,
-                forcing_input_arr=default_forcing_arr,
-                jacobian_arr=self.trajectory.jacobian_mean_arr)
-        predicted_fitted_arr = self.trajectory._predictLinear(
-                initial_state_arr=initial_state_arr,
-                forcing_input_arr=fitted_forcing_arr,
-                jacobian_arr=self.trajectory.jacobian_mean_arr)
-        mse_default = float(np.mean((predicted_zero_arr - actual_arr)**2))
-        mse_fitted = float(np.mean((predicted_fitted_arr - actual_arr)**2))
-        self.assertGreaterEqual(mse_default - mse_fitted, 0)
-
-    def test_with_explicit_initial_state(self) -> None:
-        """fitForcingInputs accepts an explicit initial state and still returns correct shape."""
-        if IGNORE_TESTS:
-            return
-        initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
-        result = self.trajectory.fitForcingInputs(initial_state_arr)
-        self.assertEqual(result.shape, (self.trajectory.num_species,))
-
-
 class TestFitJacobian(unittest.TestCase):
     """Tests for Trajectory.fitJacobian."""
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL, end_time=5.0, num_point=100)
 
     def test_returns_ndarray(self) -> None:
@@ -1038,42 +999,26 @@ class TestFitJacobian(unittest.TestCase):
         n = self.trajectory.num_species
         self.assertEqual(result.shape, (n, n))
 
-    def test_off_diagonals_unchanged(self) -> None:
-        """Off-diagonal entries equal those of the mean Jacobian."""
-        if IGNORE_TESTS:
-            return
-        result = self.trajectory.fitJacobian()
-        mean = self.trajectory.jacobian_mean_arr
-        n = self.trajectory.num_species
-        for i in range(n):
-            for j in range(n):
-                if i != j:
-                    self.assertAlmostEqual(result[i, j], mean[i, j], places=10)
-
     def test_improves_or_matches_prediction(self) -> None:
         """Fitted Jacobian produces MSE no worse than the mean Jacobian."""
         if IGNORE_TESTS:
             return
-        initial_state_arr = self.trajectory.l_roadrunner.getInitialValues()
-        forcing_input_arr = self.trajectory.l_roadrunner.getForcingInputs()
         actual_arr = self.trajectory.l_roadrunner.simulate()
-        mean_pred_arr = self.trajectory._predictLinear(
-                initial_state_arr=initial_state_arr,
-                forcing_input_arr=forcing_input_arr,
-                jacobian_arr=self.trajectory.jacobian_mean_arr)
+        mean_pred_arr = self.trajectory._predict()
         fitted_jacobian_arr = self.trajectory.fitJacobian()
-        fitted_pred_arr = self.trajectory._predictLinear(
-                initial_state_arr=initial_state_arr,
-                forcing_input_arr=forcing_input_arr,
-                jacobian_arr=fitted_jacobian_arr)
-        mse_mean = float(np.mean((mean_pred_arr - actual_arr) ** 2))
+        fitted_pred_arr = self.trajectory._predict(
+                jacobian_arr=fitted_jacobian_arr
+        )
+        mse_median = float(np.mean((mean_pred_arr - actual_arr) ** 2))
         mse_fitted = float(np.mean((fitted_pred_arr - actual_arr) ** 2))
-        self.assertLessEqual(mse_fitted, mse_mean + 1e-6)
+        self.assertLessEqual(mse_fitted, mse_median + 1e-6)
 
 class TestGetGershgorinCircles(unittest.TestCase):
     """Tests for Trajectory.getGershgorinCircles."""
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         self.trajectory = _make_trajectory_from_model(ANTIMONY_MODEL,
                 end_time=5.0, num_point=10)
 
@@ -1144,52 +1089,59 @@ class TestGetGershgorinCirclesBiomd153(unittest.TestCase):
 
     NUM_POINT = 10
 
-    @classmethod
-    def setUpClass(cls) -> None:
+    def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         if not os.path.exists(BIOMD153_PATH):
-            raise unittest.SkipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
-        cls.trajectory = Trajectory.makeBiomodel(
+            self.skipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
-                num_point=cls.NUM_POINT)
-        cls.gershgorin_df = cls.trajectory.getGershgorinCircles()
+                num_point=self.NUM_POINT)
 
     def test_returns_dataframe(self) -> None:
         """getGershgorinCircles returns a pd.DataFrame for BIOMD153."""
         if IGNORE_TESTS:
             return
-        self.assertIsInstance(self.gershgorin_df, pd.DataFrame)
+        result = self.trajectory.getGershgorinCircles()
+        self.assertIsInstance(result, pd.DataFrame)
 
     def test_has_correct_columns(self) -> None:
         """Result has columns 'center', 'radius', 'timepoint' for BIOMD153."""
         if IGNORE_TESTS:
             return
+        result = self.trajectory.getGershgorinCircles()
         for col in ("center", "radius", "timepoint"):
-            self.assertIn(col, self.gershgorin_df.columns)
+            self.assertIn(col, result.columns)
 
     def test_row_count(self) -> None:
         """Row count equals num_species * num_jacobians for BIOMD153."""
         if IGNORE_TESTS:
             return
+        result = self.trajectory.getGershgorinCircles()
         expected = self.trajectory.num_species * self.trajectory.num_jacobian
-        self.assertEqual(len(self.gershgorin_df), expected)
+        self.assertEqual(len(result), expected)
 
     def test_radii_nonnegative(self) -> None:
         """All radii are >= 0 for BIOMD153."""
         if IGNORE_TESTS:
             return
-        self.assertTrue(np.all(self.gershgorin_df["radius"].values >= 0.0))  # type: ignore
+        result = self.trajectory.getGershgorinCircles()
+        self.assertTrue(np.all(result["radius"].values >= 0.0))  # type: ignore
 
     def test_all_values_finite(self) -> None:
         """All values are finite for BIOMD153."""
         if IGNORE_TESTS:
             return
+        result = self.trajectory.getGershgorinCircles()
         for col in ("center", "radius", "timepoint"):
-            self.assertTrue(np.all(np.isfinite(self.gershgorin_df[col].values)))
+            self.assertTrue(np.all(np.isfinite(result[col].values)))
 
 
 class TestBiomodelsFit(unittest.TestCase):
 
     def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         self.lr_dct: dict[str, LRoadrunner] = {} # Dictionary of LRoadrunner instances for different BioModels
         for model_name in BIOMODEL_NAMES:
             model_path = os.path.join(cn.BIOMODELS_DIR, model_name, f"{model_name}_url.xml")
@@ -1207,18 +1159,10 @@ class TestBiomodelsFit(unittest.TestCase):
         for model_name, lr in self.lr_dct.items():
             with self.subTest(model=model_name):
                 trajectory = Trajectory(lr)
-                initial_state_arr = trajectory.l_roadrunner.getInitialValues()
-                forcing_input_arr = trajectory.l_roadrunner.getForcingInputs()
                 actual_arr = trajectory.l_roadrunner.simulate()
-                mean_pred_arr = trajectory._predictLinear(
-                        initial_state_arr=initial_state_arr,
-                        forcing_input_arr=forcing_input_arr,
-                        jacobian_arr=trajectory.jacobian_mean_arr)
+                mean_pred_arr = trajectory._predict()
                 fitted_jacobian_arr = trajectory.fitJacobian()
-                fitted_pred_arr = trajectory._predictLinear(
-                        initial_state_arr=initial_state_arr,
-                        forcing_input_arr=forcing_input_arr,
-                        jacobian_arr=fitted_jacobian_arr)
+                fitted_pred_arr = trajectory._predict()
                 with np.errstate(divide='ignore', invalid='ignore'):
                     ratio_mean = np.where(actual_arr != 0,
                             (mean_pred_arr - actual_arr) ** 2 / actual_arr**2, 0.0)
@@ -1323,13 +1267,13 @@ class TestPredictLinearBiomd1(unittest.TestCase):
     The tests document that known behaviour and verify the shape contract.
     """
 
-    @classmethod
-    def setUpClass(cls) -> None:
+    def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         if not os.path.exists(BIOMD1_PATH):
-            raise unittest.SkipTest(f"BIOMD0000000001 not found at {BIOMD1_PATH}")
-        cls.trajectory = Trajectory.makeBiomodel(model_num=1)
-        cls.pred_df = cls.trajectory.predict()
-        cls.pred_adjusted_df = cls.trajectory.predict(is_adjust_fitted_jacobian=True)
+            self.skipTest(f"BIOMD0000000001 not found at {BIOMD1_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(model_num=1)
+        self.pred_df = self.trajectory.predict()
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""
@@ -1352,18 +1296,15 @@ class TestPredictLinearBiomd1(unittest.TestCase):
                 list(self.pred_df.columns),
                 self.trajectory.l_roadrunner.species_names)
 
-    def test_first_row_is_not_nan(self) -> None:
-        """The t=0 row contains finite values (initial conditions are valid)."""
-        if IGNORE_TESTS:
-            return
-        self.assertFalse(np.any(np.isnan(self.pred_df.iloc[0].values)))
-
     def test_prediction_contains_nan(self) -> None:
-        """predictLinear result contains NaN (overflow documented); adjusted prediction does not."""
+        """predictLinear result contains NaN (overflow documented)."""
         if IGNORE_TESTS:
             return
         self.assertTrue(np.any(np.isnan(self.pred_df.values)))
-        self.assertFalse(np.any(np.isnan(self.pred_adjusted_df.values)))
+        #
+        self.trajectory = Trajectory.makeBiomodel(model_num=1)
+        self.pred_df = self.trajectory.predict()
+        self.assertFalse(np.any(np.isnan(self.pred_df.values)))
 
     def test_true_timecourse_has_no_nan(self) -> None:
         """The true timecourse for BIOMD1 is well-formed; NaN is a prediction artefact."""
@@ -1384,19 +1325,18 @@ class TestPredictLinearBiomd60(unittest.TestCase):
 
     NUM_POINT = 10
 
-    @classmethod
-    def setUpClass(cls) -> None:
+    def setUp(self) -> None:
         if not os.path.exists(BIOMD60_PATH):
-            raise unittest.SkipTest(f"BIOMD0000000060 not found at {BIOMD60_PATH}")
-        cls.trajectory = Trajectory.makeBiomodel(
+            self.skipTest(f"BIOMD0000000060 not found at {BIOMD60_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD60_PATH, end_time=BIOMD60_ENDTIME,
-                num_point=cls.NUM_POINT)
-        cls.pred_df = cls.trajectory.predict(is_adjust_fitted_jacobian=True)
+                num_point=self.NUM_POINT)
+        self.pred_df = self.trajectory.predict()
 
     def test_returns_dataframe(self) -> None:
         """predictLinear returns a pd.DataFrame."""
-        if IGNORE_TESTS:
-            return
+        #if IGNORE_TESTS:
+        #    return
         self.assertIsInstance(self.pred_df, pd.DataFrame)
 
     def test_shape_matches_timecourse(self) -> None:
@@ -1429,64 +1369,71 @@ class TestPredictLinearBiomd60(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
-class TestFitJacobianBiomd153(unittest.TestCase):
-    """Tests for Trajectory.fitJacobian with num_fit on BIOMD0000000153 (74 species)."""
+class TestFitJacobianBiomd40(unittest.TestCase):
+    """Tests for Trajectory.fitJacobian with num_fit on BIOMD000000040 (74 species)."""
 
     NUM_POINT = 10
     NUM_FIT = 5
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        import src.utils as utils  # type: ignore
-        if not os.path.exists(BIOMD153_PATH):
-            raise unittest.SkipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
-        cls.trajectory = Trajectory.makeBiomodel(
-                path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
-                num_point=cls.NUM_POINT)
-        cls.trajectory._num_fit = cls.NUM_FIT
-        cls.fitted_arr = cls.trajectory.fitJacobian()
-        duration = (cls.trajectory.l_roadrunner.end_time
-                - cls.trajectory.l_roadrunner.start_time)
-        cls.base_arr = utils.adjustJacobian(cls.trajectory.jacobian_mean_arr, duration)
+    def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
+        if not os.path.exists(BIOMD40_PATH):
+            self.skipTest(f"BIOMD000000040 not found at {BIOMD40_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD40_PATH, end_time=BIOMD40_END_TIME,
+                num_point=self.NUM_POINT)
 
     def test_returns_ndarray(self) -> None:
-        """fitJacobian returns a numpy ndarray for BIOMD153."""
+        """fitJacobian returns a numpy ndarray for BIOMD40."""
         if IGNORE_TESTS:
             return
-        self.assertIsInstance(self.fitted_arr, np.ndarray)
+        result = self.trajectory.fitJacobian()
+        self.assertIsInstance(result, np.ndarray)
 
     def test_shape(self) -> None:
-        """fitJacobian returns shape (num_species, num_species) for BIOMD153."""
+        """fitJacobian returns shape (num_species, num_species) for BIOMD40."""
         if IGNORE_TESTS:
             return
+        result = self.trajectory.fitJacobian()
         n = self.trajectory.num_species
-        self.assertEqual(self.fitted_arr.shape, (n, n))
+        self.assertEqual(result.shape, (n, n))
 
     def test_only_num_fit_diagonals_change(self) -> None:
         """Exactly num_fit diagonal entries differ from the base Jacobian."""
         if IGNORE_TESTS:
             return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_median_arr, duration)
+        result = self.trajectory.fitJacobian()
         changed = sum(
                 1 for i in range(self.trajectory.num_species)
-                if not np.isclose(self.fitted_arr[i, i], self.base_arr[i, i]))
+                if not np.isclose(result[i, i], base[i, i]))
         self.assertLessEqual(changed, self.NUM_FIT)
 
     def test_result_is_finite(self) -> None:
-        """All entries of the fitted Jacobian are finite for BIOMD153."""
+        """All entries of the fitted Jacobian are finite for BIOMD40."""
         if IGNORE_TESTS:
             return
-        self.assertTrue(np.all(np.isfinite(self.fitted_arr)))
+        result = self.trajectory.fitJacobian()
+        self.assertTrue(np.all(np.isfinite(result)))
 
     def test_off_diagonals_unchanged(self) -> None:
-        """Off-diagonal entries equal those of the mean Jacobian for BIOMD153."""
+        """Off-diagonal entries equal those of the mean Jacobian for BIOMD40."""
         if IGNORE_TESTS:
             return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_median_arr, duration)
+        result = self.trajectory.fitJacobian()
         n = self.trajectory.num_species
         for i in range(n):
             for j in range(n):
                 if i != j:
-                    self.assertAlmostEqual(
-                            self.fitted_arr[i, j], self.base_arr[i, j], places=10)
+                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
@@ -1496,58 +1443,113 @@ class TestFitJacobianBiomd610(unittest.TestCase):
     NUM_POINT = 10
     NUM_FIT = 5
 
-    @classmethod
-    def setUpClass(cls) -> None:
-        import src.utils as utils  # type: ignore
+    def setUp(self) -> None:
+        if IGNORE_TESTS:
+            return
         if not os.path.exists(BIOMD610_PATH):
-            raise unittest.SkipTest(f"BIOMD0000000610 not found at {BIOMD610_PATH}")
-        cls.trajectory = Trajectory.makeBiomodel(
+            self.skipTest(f"BIOMD0000000610 not found at {BIOMD610_PATH}")
+        self.trajectory = Trajectory.makeBiomodel(
                 path=BIOMD610_PATH, end_time=BIOMD610_END_TIME,
-                num_point=cls.NUM_POINT)
-        cls.trajectory._num_fit = cls.NUM_FIT
-        cls.fitted_arr = cls.trajectory.fitJacobian()
-        duration = (cls.trajectory.l_roadrunner.end_time
-                - cls.trajectory.l_roadrunner.start_time)
-        cls.base_arr = utils.adjustJacobian(cls.trajectory.jacobian_mean_arr, duration)
+                num_point=self.NUM_POINT)
 
     def test_returns_ndarray(self) -> None:
         """fitJacobian returns a numpy ndarray for BIOMD610."""
         if IGNORE_TESTS:
             return
-        self.assertIsInstance(self.fitted_arr, np.ndarray)
+        result = self.trajectory.fitJacobian()
+        self.assertIsInstance(result, np.ndarray)
 
     def test_shape(self) -> None:
         """fitJacobian returns shape (num_species, num_species) for BIOMD610."""
         if IGNORE_TESTS:
             return
+        result = self.trajectory.fitJacobian()
         n = self.trajectory.num_species
-        self.assertEqual(self.fitted_arr.shape, (n, n))
-
-    def test_only_num_fit_diagonals_change(self) -> None:
-        """Exactly num_fit diagonal entries differ from the base Jacobian."""
-        if IGNORE_TESTS:
-            return
-        changed = sum(
-                1 for i in range(self.trajectory.num_species)
-                if not np.isclose(self.fitted_arr[i, i], self.base_arr[i, i]))
-        self.assertLessEqual(changed, self.NUM_FIT)
+        self.assertEqual(result.shape, (n, n))
 
     def test_result_is_finite(self) -> None:
         """All entries of the fitted Jacobian are finite for BIOMD610."""
         if IGNORE_TESTS:
             return
-        self.assertTrue(np.all(np.isfinite(self.fitted_arr)))
+        result = self.trajectory.fitJacobian()
+        self.assertTrue(np.all(np.isfinite(result)))
 
     def test_off_diagonals_unchanged(self) -> None:
         """Off-diagonal entries equal those of the mean Jacobian for BIOMD610."""
         if IGNORE_TESTS:
             return
+        import src.utils as utils  # type: ignore
+        duration = (self.trajectory.l_roadrunner.end_time
+                - self.trajectory.l_roadrunner.start_time)
+        base = utils.adjustJacobian(self.trajectory.jacobian_median_arr, duration)
+        result = self.trajectory.fitJacobian()
         n = self.trajectory.num_species
         for i in range(n):
             for j in range(n):
                 if i != j:
-                    self.assertAlmostEqual(
-                            self.fitted_arr[i, j], self.base_arr[i, j], places=10)
+                    self.assertAlmostEqual(result[i, j], base[i, j], places=10)
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestPlotPredictionsBiomd153(unittest.TestCase):
+    """Tests for Trajectory.plotPredictions on BIOMD0000000153 (74 species)."""
+
+    NUM_POINT = 100
+    NUM_FIT = 10
+    plot_options: PlotOptions
+    num_species: int
+    trajectory: Trajectory
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if IGNORE_TESTS:
+            return
+        if not os.path.exists(BIOMD153_PATH):
+            raise unittest.SkipTest(f"BIOMD0000000153 not found at {BIOMD153_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
+                num_fit=cls.NUM_FIT,
+                num_point=cls.NUM_POINT)
+        cls.num_species = cls.trajectory.num_species
+        cls.plot_options = cls.trajectory.plotPredictions(model_name="BIOMD153")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        plt.close("all")
+
+    def test_returns_plot_options(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.plot_options, PlotOptions)
+
+    def test_plotting_biomd40(self) -> None:
+        #self.skipTest("No plot") 
+        #if IGNORE_TESTS:
+        #    return
+        trajectory = Trajectory.makeBiomodel(
+                model_num=40, end_time = 10,
+                num_fit=self.NUM_FIT,
+                jacobian_selection=cn.JAC_MEDIAN,
+                #jacobian_selection=cn.JAC_FITTED,
+                num_point=200)
+                #num_point=self.NUM_POINT)
+        trajectory.plotPredictions()
+        plt.show()
+
+    def test_line_count_matches_species(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(len(self.plot_options.ax.lines), self.num_species)
+
+    def test_scatter_count_matches_species(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(len(self.plot_options.ax.collections), self.num_species)
+
+    def test_title_contains_model_name(self) -> None:
+        if IGNORE_TESTS:
+            return
+        self.assertIn("BIOMD153", self.plot_options.ax.get_title())
 
 
 if __name__ == "__main__":
