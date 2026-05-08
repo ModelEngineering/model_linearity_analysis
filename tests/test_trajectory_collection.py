@@ -574,17 +574,20 @@ class TestTrajectoryCollectionPlotPrediction(unittest.TestCase):
     num_species: int
     NUM_POINT: int = 50
     tc: TrajectoryCollection
-    END_TIME: float = 1.5
+    END_TIME: float = 0.1
+    MODEL_NUM: int = 2
+    MODEL_NAME: str = makeBiomdName(MODEL_NUM)
 
     @classmethod
     def setUpClass(cls) -> None:
         #if IGNORE_TESTS:
         #    return
-        if not os.path.exists(BIOMD153_PATH):
-            raise unittest.SkipTest(f"{makeBiomdName(153)} not found at {BIOMD153_PATH}")
+        path = makeBiomdPath(cls.MODEL_NUM)
+        if not os.path.exists(path):
+            raise unittest.SkipTest(f"{cls.MODEL_NAME} not found at {path}")
         cls.trajectory = Trajectory.makeBiomodel(
-                path=BIOMD153_PATH, end_time=cls.END_TIME, num_point=cls.NUM_POINT)
-        cls.tc = TrajectoryCollection.split(cls.trajectory, [0.5])
+                path=path, end_time=cls.END_TIME, num_point=cls.NUM_POINT)
+        cls.tc = TrajectoryCollection.split(cls.trajectory, [cls.END_TIME/2])
         if IGNORE_TESTS:
             print(pd.DataFrame(cls.trajectory.jacobian_median_arr))
             print(pd.DataFrame(cls.tc.trajectories[0].jacobian_median_arr))
@@ -605,8 +608,8 @@ class TestTrajectoryCollectionPlotPrediction(unittest.TestCase):
     def test_plot(self):
         if IGNORE_TESTS:
             return
-        self.trajectory.plotPrediction(title="BIOMD153")
-        self.tc.plotPrediction(title="BIOMD153")
+        self.trajectory.plotPrediction(title=self.MODEL_NAME, ylim=(0.0, 1e-5))
+        self.tc.plotPrediction(title=self.MODEL_NAME, ylim=(0.0, 1e-5))
         if IS_PLOT:
             plt.show()
 
