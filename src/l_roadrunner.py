@@ -92,10 +92,10 @@ class LRoadrunner(object):
         self._start_time = start_time
         self.num_point = num_point
         self._end_time: float = end_time if end_time is not None else np.nan
-        self._sedml_str = sedml_str
+        self.sedml_str = sedml_str
         self.end_time_source: Optional[str] = None
         self._species_names: List[str] = []
-        self._timecourse = pd.DataFrame()
+        self._timecourse_df = pd.DataFrame()
         self.model_name = model_name
 
     @classmethod
@@ -176,7 +176,7 @@ class LRoadrunner(object):
         self._start_time = start_time
 
     @property
-    def timecourse(self) -> pd.DataFrame:
+    def timecourse_df(self) -> pd.DataFrame:
         """
         Simulate the model and return the time course as a DataFrame.
 
@@ -186,12 +186,12 @@ class LRoadrunner(object):
             A DataFrame containing the time course of the simulation, with columns for time and each floating species.
             The index are the time values.
         """
-        if self._timecourse.empty:
+        if self._timecourse_df.empty:
             result_arr = self.simulate(is_with_timepoints=True)
             df = pd.DataFrame(result_arr, columns=["time"] + self.species_names)
             df = df.set_index("time")
-            self._timecourse = df
-        return self._timecourse
+            self._timecourse_df = df
+        return self._timecourse_df
 
     def getInitialValues(self) -> np.ndarray:
         """
@@ -208,7 +208,6 @@ class LRoadrunner(object):
         This is used in the linear predictor to extrapolate from the initial state.
         """
         rr = self.getRoadrunner()
-        #_ = rr.simulate(self.start_time, self.end_time, 2)
         _ = rr.simulate(self.end_time, self.end_time*1.001, 2)
         jacobian_arr = np.array(rr.getFullJacobian())
         f_arr = np.array(rr.getRatesOfChange())
@@ -403,17 +402,17 @@ class LRoadrunner(object):
         float or np.nan
             The end time specified in the SBML string, or np.nan if no valid specification is found.
         """
-        if not self._sedml_str:
+        if not self.sedml_str:
             self._msg("No SED-ML string provided, skipping SED-ML end time extraction.")
             return self._end_time
         #
-        end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"', self._sedml_str)
+        end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"', self.sedml_str)
         if end_time_match:
             end_time_match = re.search(r'outputEndTime\s*=\s*"([0-9.]+)"',
-                    self._sedml_str)
+                    self.sedml_str)
             if end_time_match:
                 end_time = float(end_time_match.group(1))
-                if not DEFAULT_END_TIME_STR in self._sedml_str and end_time > 0:
+                if not DEFAULT_END_TIME_STR in self.sedml_str and end_time > 0:
                     self._end_time = end_time
                 elif end_time != SBML_DEFAULT_END_TIME:
                     self._end_time = end_time
@@ -423,13 +422,6 @@ class LRoadrunner(object):
                 self._msg("No valid outputEndTime attribute found in SED-ML string.")
         else:
             self._msg("No outputEndTime attribute found in SED-ML string.")
-        """ # Validate the end time by simulating to it and checking for errors.
-        if self._end_time is not np.nan:
-            try:
-                rr = self.getRoadrunner()
-                rr.simulate(self.start_time, self._end_time, 2)
-            except Exception:
-                self._end_time = np.nan """
         #
         return self._end_time
     
@@ -460,8 +452,11 @@ class LRoadrunner(object):
         idx = 1
         if is_with_timepoints:
             idx = 0
+        rr = self.getRoadrunner()
+        if self.start_time > 0:
+            result_arr = rr.simulate(0, self.start_time, 2)
         try:
-            result_arr = self.getRoadrunner().simulate(self.start_time, self.end_time, self.num_point)
+            result_arr = rr.simulate(self.start_time, self.end_time, self.num_point)
         except Exception as e:
             print(f"Error occurred while simulating: {e}")
             return np.array([]).reshape(0, 0)
@@ -485,25 +480,27 @@ class LRoadrunner(object):
         ValueError
             If the model has no floating species after reset.
         """
-        rr = self.getRoadrunner()
-        if len(rr.getFloatingSpeciesIds()) == 0:
+        if len(self.species_names) == 0:
             raise ValueError("Model has no floating species; cannot compute Jacobian.")
         try:
-            result_arr = rr.simulate(self.start_time, self.end_time, self.num_point)
+            result_arr = self.simulate(is_with_timepoints=True)
         except RuntimeError as e:
             raise ValueError(f"CVODE failed during initial simulation: {e}") from e
-        times_arr = np.array(result_arr["time"])  # copy before reset invalidates buffer
+        time_arr = np.array(result_arr[:, 0])  # copy before reset invalidates buffer
 
+        rr = self.getRoadrunner()
         rr.reset()
+        if self.start_time > 0:
+            _ = rr.simulate(0, self.start_time, 2)
         jacobians = []
         valid_times = []
-        for i, t in enumerate(times_arr):
+        for i, t in enumerate(time_arr):
             try:
                 if i == 0:
                     t2 = self.start_time + 1e-10
                     rr.simulate(self.start_time, t2, 2)
                 else:
-                    rr.simulate(times_arr[i - 1], t, 2)
+                    rr.simulate(time_arr[i - 1], t, 2)
             except RuntimeError as e:
                 raise ValueError(f"CVODE failed at t={t}: {e}") from e
             try:
@@ -516,7 +513,7 @@ class LRoadrunner(object):
             valid_times.append(t)
         if not jacobians:
             raise ValueError("No valid Jacobians could be computed (all timepoints failed, likely due to assignment-rule species).")
-        _ = self.timecourse  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
+        _ = self.timecourse_df  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
         return np.array(jacobians), np.array(valid_times)
 
     def _calculateEndtimeJacobian(self) -> float:

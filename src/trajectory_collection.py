@@ -3,6 +3,7 @@
 import src.constants as cn
 from trajectory import Trajectory  # type: ignore
 from src.l_roadrunner import NULL_L_ROADRUNNER  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
 
 import matplotlib.cm as mcm  # type: ignore
 import matplotlib.colors as mcolors  # type: ignore
@@ -12,7 +13,7 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 import seaborn as sns  # type: ignore
-from typing import List
+from typing import List, Optional, Tuple
 import src.utils as utils  # type: ignore
 
 # TODO: Implement a plot that shows the timecourse of the simulation in combination
@@ -34,15 +35,23 @@ class TrajectoryCollection(object):
             self.l_roadrunner = trajectories[0].l_roadrunner
         else:
             self.l_roadrunner = NULL_L_ROADRUNNER
+        # Sort trajectories by start times
+        self.trajectories.sort(key=lambda traj: traj.timepoint_arr[0])
+        # Construct the list of split times from the start times of the trajectories
+        self.split_times: List[float] = [
+                float(t.timepoint_arr[0]) for t in self.trajectories[1:]]  # type: ignore
+        self.species_names: list = self.l_roadrunner.species_names if self.l_roadrunner is not NULL_L_ROADRUNNER else []
 
     @classmethod
-    def split(cls,
-                trajectory: Trajectory,
-                split_times: List[float],
-                **kwargs
+    def split(cls, trajectory: Trajectory, split_times: List[float], **kwargs
             ) -> 'TrajectoryCollection':
         """Creates a trajectory collection by splitting a single trajectory
-            at specified timepoints.
+            at specified timepoints. Given an initial trajectory
+            and m split times, this method creates a TrajectoryCollection with
+            m+1 trajectories corresponding to the time segments. For example
+            suppose the original trajectory has timepoints from t0 to tm, and we want to split it at times s1 and s2 (
+            if m=2, [t2, t5]), this method creates 3 trajectories
+                [t0, t1, t2], [t2, t3, t4, t5], [t5, t6, ..., tm]
 
         Parameters
         ----------
@@ -73,31 +82,20 @@ class TrajectoryCollection(object):
         trajectory_collection = TrajectoryCollection(trajectories)
         return trajectory_collection
     
-    @staticmethod
-    def _findFloatIndex(arr: np.ndarray, value: float) -> int:
-        """Find the index of a float value in an array, allowing for a small tolerance.
+    @classmethod
+    def unitsplit(cls, trajectory: Trajectory, **kwargs) -> 'TrajectoryCollection':
+        """Creates a trajectory collection that splits a single trajectory
+        into segments of unit length.
 
         Parameters
         ----------
-        arr : np.ndarray
-            The array to search.
-        value : float
-            The value to find.
-
-        Returns
-        -------
-        int
-            The index of the value in the array.
-
-        Raises
-        ------
-        ValueError
-            If the value is not found within the tolerance.
+        trajectory : Trajectory
+            The trajectory to be split into a collection.
+        **kwargs
+            Additional keyword arguments to pass to the Trajectory.fromArrays method
         """
-        idx = np.where(np.isclose(arr, value, atol=1e-8))[0]
-        if len(idx) == 0:
-            raise ValueError(f"Value {value} not found in array within tolerance.")
-        return idx[0]
+        split_times = trajectory.timepoint_arr[1:-1].tolist()
+        return cls.split(trajectory, split_times, **kwargs)
 
     def predict(self)-> pd.DataFrame:
         """Predicts each trajectory and concatenate the results.
@@ -113,7 +111,52 @@ class TrajectoryCollection(object):
             if idx > 0:
                 pred_df = pred_df.iloc[1:]  # Remove the first timepoint to avoid duplication
             predicted_trajectories.append(pred_df)
-        return pd.concat(predicted_trajectories, axis=0)   
+        return pd.concat(predicted_trajectories, axis=0)
+    
+    def plotTrajectories(self, **kwargs) -> PlotOptions:
+        """
+        Plot the predicted timecourse of simulation species concentrations.
+        The first plot shows how the Jacobian changes over time relative to the centroid.
+        The second plot shows the dynamics of the model's species concentrations
+        over time.
+
+        Parameters
+        ----------
+        ax : Optional[plt.Axes]
+            An optional matplotlib Axes
+        fig : Optional[plt.Figure]
+            An optional matplotlib Figure object to use. If None, a new figure will be created.
+        is_legend : bool
+            Whether to include a legend in the species timecourse plot (default: True).
+        ylim : Tuple[float, float]
+            The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
+        xlim: Tuple[float, float]
+            The x-axis limits for both plots (default: None, which means automatic limits).
+        title: str
+            The title for the plot
+        """
+        dfs: List[pd.DataFrame] = []
+        for idx, trajectory in enumerate(self.trajectories):
+            timecourse_df = trajectory.l_roadrunner.timecourse_df.loc[trajectory.timepoint_arr]
+            if idx > 0:
+                timecourse_df = timecourse_df.iloc[1:]  # Remove shared boundary row
+            dfs.append(timecourse_df)
+        plot_df = pd.concat(dfs, axis=0)
+        num_species = self.l_roadrunner.num_species
+        species_names = self.l_roadrunner.species_names
+        # Timecourse plot
+        options = PlotOptions(**kwargs)
+        ax = options.ax
+        colors = [sns.color_palette("tab10")[i % 10] for i in range(num_species)]
+        time_arr = plot_df.index.values
+        for i, species_name in enumerate(species_names):
+            ax.plot(time_arr, plot_df[species_name].values,   # type: ignore
+                    label=species_name, color=colors[i], alpha=0.7)
+        # Show the split times as vertical dashed lines
+        for split_time in self.split_times:
+            ax.axvline(x=split_time, color='gray', linestyle='--', alpha=0.5) # type: ignore
+        options.apply()
+        return options
 
     @property
     def max_cv(self) -> float:
@@ -185,3 +228,40 @@ class TrajectoryCollection(object):
         cbar.set_label("CV (|std/mean|)")
 
         return fig
+    
+    def plotPrediction(self, **kwargs) -> PlotOptions:
+        """
+        Plot the predicted timecourses for the TrajectoryCollection.
+
+        Parameters
+        ----------
+        ax : Optional[plt.Axes]
+            An optional matplotlib Axes
+        fig : Optional[plt.Figure]
+            An optional matplotlib Figure object to use. If None, a new figure will be created.
+        legend : bool
+            Whether to include a legend in the species timecourse plot (default: True).
+        xlabel: str
+            The label for the x-axis (default: "time").
+        ylabel: str
+            The label for the y-axis (default: "concentration").
+        ylim : Tuple[float, float]
+            The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
+        xlim: Tuple[float, float]
+            The x-axis limits for both plots (default: None, which means automatic limits).
+        title: str
+            The title for the plot
+        """
+        plt_opt = PlotOptions(**kwargs)
+        for idx, trajectory in enumerate(self.trajectories):
+            if idx + 1 == len(self.trajectories):
+                plt_opt.legend = self.species_names # type: ignore
+            else:
+                plt_opt.legend = False
+            plt_opt = trajectory.plotPrediction(**plt_opt.to_dict())
+            if idx > 0:
+                first_prediction_time = float(trajectory.timepoint_arr[1])
+                plt_opt.ax.axvline(x=first_prediction_time,  # type: ignore
+                        color='gray', linestyle='--', alpha=0.5)
+        plt_opt.apply()
+        return plt_opt

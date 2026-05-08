@@ -9,6 +9,7 @@ import pandas as pd  # type: ignore
 import matplotlib # type: ignore
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
+from tests.utils_test import makeBiomdPath # . ype: ignore
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 import src.constants as cn
@@ -16,7 +17,7 @@ from trajectory import Trajectory, IVP_RELATIVE_TIMES # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 
 IGNORE_TESTS = False
-RUN_BIG_TESTS = False
+IS_BIG_TESTS = False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
 
@@ -27,12 +28,6 @@ k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
 """
 
 MAX_ITERATOR_STEP = 1000  # Increase the default max step for solve_ivp to avoid warnings about too many steps in some tests
-def makeBiomdPath(model_num: int) -> str:
-    """Construct the file path for a BioModel SBML file given its model number."""
-    model_str = f"{model_num:04d}"
-    return os.path.join(
-        cn.BIOMODELS_DIR, f"BIOMD000000{model_str}", f"BIOMD000000{model_str}_url.xml"
-    )
 #
 BIOMD8_PATH = makeBiomdPath(8)
 BIOMD38_PATH = makeBiomdPath(38)
@@ -444,7 +439,7 @@ class TestPlotPredictions(unittest.TestCase):
         lr = LRoadrunner(ANTIMONY_MODEL, start_time=0.0, end_time=5.0, num_point=10)
         cls.trajectory = Trajectory(lr)
         cls.num_species = cls.trajectory.num_species
-        cls.plot_options = cls.trajectory.plotPredictions()
+        cls.plot_options = cls.trajectory.plotPrediction()
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -473,26 +468,26 @@ class TestPlotPredictions(unittest.TestCase):
     def test_title_contains_model_name(self) -> None:
         if IGNORE_TESTS:
             return
-        po = self.trajectory.plotPredictions(model_name="TestModel")
+        po = self.trajectory.plotPrediction(model_name="TestModel")
         self.assertIn("TestModel", po.ax.get_title())
 
     def test_explicit_ax_is_used(self) -> None:
         if IGNORE_TESTS:
             return
         _, ax = plt.subplots()
-        po = self.trajectory.plotPredictions(ax=ax)
+        po = self.trajectory.plotPrediction(ax=ax)
         self.assertIs(po.ax, ax)
 
     def test_legend_false_suppresses_legend(self) -> None:
         if IGNORE_TESTS:
             return
-        po = self.trajectory.plotPredictions(legend=False)
+        po = self.trajectory.plotPrediction(legend=False)
         self.assertIsNone(po.ax.get_legend())
 
     def test_ylim_applied(self) -> None:
         if IGNORE_TESTS:
             return
-        po = self.trajectory.plotPredictions(ylim=(0.0, 5.0))
+        po = self.trajectory.plotPrediction(ylim=(0.0, 5.0))
         self.assertAlmostEqual(po.ax.get_ylim()[0], 0.0, places=5)
         self.assertAlmostEqual(po.ax.get_ylim()[1], 5.0, places=5)
 
@@ -944,7 +939,7 @@ class TestPredictLinearBasic(unittest.TestCase):
         result = self.trajectory._predict()
         self.assertEqual(result.shape, (n_point, n_species))
 
-@unittest.skipUnless(RUN_BIG_TESTS, "This test is slow and may require large SBML files.")
+@unittest.skipUnless(IS_BIG_TESTS, "This test is slow and may require large SBML files.")
 class TestPredictLinearBioModel(unittest.TestCase):
     """Advanced tests for Trajectory.predictLinear."""
 
@@ -963,7 +958,7 @@ class TestPredictLinearBioModel(unittest.TestCase):
         if IGNORE_TESTS:
             return
         predicted_df = self.trajectory.predict()
-        actual_df = self.lr.timecourse
+        actual_df = self.lr.timecourse_df
         df = (predicted_df - actual_df).abs()/actual_df
         for species_name in self.lr.species_names:
             plt.plot(actual_df.index, actual_df[species_name], label=species_name);
@@ -1137,7 +1132,7 @@ class TestGetGershgorinCirclesBiomd153(unittest.TestCase):
         for col in ("center", "radius", "timepoint"):
             self.assertTrue(np.all(np.isfinite(result[col].values)))
 
-@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
+@unittest.skipUnless(IS_BIG_TESTS, "Big tests are disabled")
 class TestBiomodelsFit(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -1287,7 +1282,7 @@ class TestPredictLinearBiomd1(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertEqual(self.pred_df.shape,
-                self.trajectory.l_roadrunner.timecourse.shape)
+                self.trajectory.l_roadrunner.timecourse_df.shape)
 
     def test_columns_match_species(self) -> None:
         """Column names equal the model's species names."""
@@ -1302,7 +1297,7 @@ class TestPredictLinearBiomd1(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertFalse(np.any(
-                np.isnan(self.trajectory.l_roadrunner.timecourse.values)))
+                np.isnan(self.trajectory.l_roadrunner.timecourse_df.values)))
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
@@ -1335,7 +1330,7 @@ class TestPredictLinearBiomd60(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertEqual(self.pred_df.shape,
-                self.trajectory.l_roadrunner.timecourse.shape)
+                self.trajectory.l_roadrunner.timecourse_df.shape)
 
     def test_columns_match_species(self) -> None:
         """Column names equal the model's species names."""
@@ -1356,11 +1351,11 @@ class TestPredictLinearBiomd60(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertFalse(np.any(
-                np.isnan(self.trajectory.l_roadrunner.timecourse.values)))
+                np.isnan(self.trajectory.l_roadrunner.timecourse_df.values)))
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
-@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
+@unittest.skipUnless(IS_BIG_TESTS, "Big tests are disabled")
 class TestFitJacobianBiomd40(unittest.TestCase):
     """Tests for Trajectory.fitJacobian with num_fit on BIOMD000000040 (74 species)."""
 
@@ -1399,7 +1394,7 @@ class TestFitJacobianBiomd40(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
-@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
+@unittest.skipUnless(IS_BIG_TESTS, "Big tests are disabled")
 class TestFitJacobianBiomd27(unittest.TestCase):
     """Tests for Trajectory.fitJacobian with num_fit on BIOMD000000027 (29 species)."""
 
@@ -1439,7 +1434,7 @@ class TestFitJacobianBiomd27(unittest.TestCase):
 
 
 @unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
-@unittest.skipUnless(RUN_BIG_TESTS, "Big tests are disabled")
+@unittest.skipUnless(IS_BIG_TESTS, "Big tests are disabled")
 class TestPlotPredictionsBiomd153(unittest.TestCase):
     """Tests for Trajectory.plotPredictions on BIOMD0000000153 (74 species)."""
 
@@ -1458,7 +1453,7 @@ class TestPlotPredictionsBiomd153(unittest.TestCase):
                 path=BIOMD153_PATH, end_time=BIOMD153_END_TIME,
                 num_point=cls.NUM_POINT)
         cls.num_species = cls.trajectory.num_species
-        cls.plot_options = cls.trajectory.plotPredictions(model_name="BIOMD153")
+        cls.plot_options = cls.trajectory.plotPrediction(model_name="BIOMD153")
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -1478,7 +1473,7 @@ class TestPlotPredictionsBiomd153(unittest.TestCase):
                 #jacobian_selection=cn.JAC_FITTED,
                 num_point=200)
                 #num_point=self.NUM_POINT)
-        trajectory.plotPredictions()
+        trajectory.plotPrediction()
         plt.show()
 
     def test_line_count_matches_species(self) -> None:

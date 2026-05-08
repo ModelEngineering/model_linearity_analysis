@@ -4,6 +4,7 @@ import src.constants as cn
 from src.l_roadrunner import LRoadrunner, NULL_L_ROADRUNNER  # type: ignore
 import src.utils as utils
 from src.plot_options import PlotOptions  # type: ignore
+from src.score import Score  # type: ignore
 
 import collections
 import matplotlib.axes as maxes  # type: ignore
@@ -169,10 +170,6 @@ class Trajectory(object):
             cv_arr[~np.isfinite(cv_arr)] = 0.0
         return np.max(cv_arr)
 
-    @property
-    def timecourse(self) -> pd.DataFrame:
-        return self.l_roadrunner.timecourse
-
     # ------------------------------------------------------------------
     # Public methods (alphabetical)
     # ------------------------------------------------------------------
@@ -277,7 +274,7 @@ class Trajectory(object):
             for i in range(self.num_species):
                 jacobian_arr[ispecies, i] = params[f'd{i}'].value
             prediction_arr = self._predict(jacobian_arr=jacobian_arr)[:, ispecies]
-            residual_arr = self.timecourse.iloc[:, ispecies].values - prediction_arr
+            residual_arr = self.timecourse_df.iloc[:, ispecies].values - prediction_arr
             return residual_arr[1:]  # Exclude timepoint 0 to avoid issues with initial state
         ##
         for ispecies, _ in enumerate(self.l_roadrunner.species_names):
@@ -305,6 +302,11 @@ class Trajectory(object):
         jc._initialize(l_roadrunner, eigenvalues_collection_arr,
                 eigenvector_collection_arr, **kwargs)
         jc._sortArrays()
+        if l_roadrunner is not NULL_L_ROADRUNNER:
+            try:
+                jc.timecourse_df = l_roadrunner.timecourse_df.loc[jc.timepoint_arr]
+            except KeyError:
+                pass  # timepoint_arr not a subset of timecourse_df; keep full timecourse
         return jc
 
     def getCost(self, istart: int, iend: int) -> float:
@@ -557,23 +559,19 @@ class Trajectory(object):
         plt.show()
         return PlotInfo(top_ax=ax1, bottom_ax=ax2, fig=fig)
     
-    def plotPredictions(self,
-            ax: Optional[plt.Axes] = None,   # type: ignore
-            ylim: Optional[Tuple[float, float]]=None,
-            xlim: Optional[Tuple[float, float]]=None,
-            model_name: str = "",
-            legend: bool = True,
-            ) -> PlotOptions:
+    def plotPrediction(self, **kwargs) -> PlotOptions:
         """
         Plot the predicted timecourse of simulation species concentrations.
         The first plot shows how the Jacobian changes over time relative to the centroid.
         The second plot shows the dynamics of the model's species concentrations
-        over time.
+        over time. Does not plot the first value since this is the initial state and not a prediction.
 
         Parameters
         ----------
         ax : Optional[plt.Axes]
             An optional matplotlib Axes
+        title: str
+            The title for the plot
         fig : Optional[plt.Figure]
             An optional matplotlib Figure object to use. If None, a new figure will be created.
         is_legend : bool
@@ -586,29 +584,29 @@ class Trajectory(object):
             The model name
         """
         if hasattr(self.l_roadrunner, "getRoadrunner"):
-            roadrunner = self.l_roadrunner.getRoadrunner()
-            species_ids = roadrunner.getFloatingSpeciesIds()
-            data_arr = self.l_roadrunner.simulate(is_with_timepoints=True)
-            species_data = data_arr[:, 1:]  # Exclude time column
-            species_times = data_arr[:, 0]  # Extract time column
+            species_ids = self.l_roadrunner.species_names
+            species_times = self.timecourse_df.index.values
+            species_data = self.timecourse_df.values
         else:
             raise ValueError("Cannot plot species timecourse has a NULL LRoadrunner instance.")
-        prediction_df = self.predict()
+        pred_df = self.predict()
+        # Extract model_name before passing kwargs to PlotOptions (not a PlotOptions param)
+        model_name = kwargs.pop("model_name", "")
+        if model_name and "title" not in kwargs:
+            kwargs["title"] = f"{model_name}: Species Timecourse"
         # Timecourse plot
-        plot_options = PlotOptions(ax=ax,
-                legend=legend,
-                ylim=ylim,
-                xlim=xlim, title=f"{model_name}: Species Timecourse")
-        ax = plot_options.ax
+        plt_opt = PlotOptions(**kwargs)
+        ax = plt_opt.ax
         colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
+        # Do separate loops so that legend works out correctly
         for i, species_id in enumerate(species_ids):
-            ax.plot(species_times, species_data[:, i], label=species_id, color=colors[i], alpha=0.7)
-            ax.scatter(species_times, prediction_df[species_id], s=8, alpha=0.7, color=colors[i])
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Concentration")
-        ax.set_title(f"{model_name}: Species Timecourse")
-        plot_options.apply()
-        return plot_options
+            ax.plot(species_times, species_data[:, i], # type: ignore
+                    label=species_id, color=colors[i], alpha=0.7)
+        for i, species_id in enumerate(species_ids):
+            ax.scatter(species_times[1:], pred_df[species_id].values[1:],  # type: ignore
+                    s=8, alpha=0.7, color=colors[i])
+        plt_opt.apply()
+        return plt_opt
 
     def predict(self, **kwargs) -> pd.DataFrame:
         """
@@ -761,6 +759,7 @@ class Trajectory(object):
         self._fitted_jacobian_arr = cn.NULL_ARRAY
         self._num_fit = num_fit
         self._jacobian_selection = jacobian_selection
+        self.timecourse_df = self.l_roadrunner.timecourse_df.copy()
 
     @staticmethod
     def _ivp(_: float, x: np.ndarray, jacobian_arr: np.ndarray) -> np.ndarray:
@@ -819,12 +818,12 @@ class Trajectory(object):
         n_time = len(self.timepoint_arr)
         n_species = len(forcing_input_arr)
         result_arr = np.full((n_time, n_species), np.nan)
-        result_arr[0] = self.l_roadrunner.timecourse.iloc[0, :].values # type: ignore
+        result_arr[0] = self.l_roadrunner.timecourse_df.loc[self.timepoint_arr[0]].values # type: ignore
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 for itime, timepoint in enumerate(self.timepoint_arr[:-1]):
-                    initial_state_arr = self.l_roadrunner.timecourse.loc[timepoint].values # type: ignore
+                    initial_state_arr = self.l_roadrunner.timecourse_df.loc[timepoint].values # type: ignore
                     sol = solve_ivp(ode,
                             (timepoint, self.timepoint_arr[itime+1]),
                             initial_state_arr,
@@ -833,7 +832,7 @@ class Trajectory(object):
                     if sol.success and sol.y.shape == (n_species, 1):
                         result_arr[itime+1] = sol.y.T
             return result_arr
-        except Exception:
+        except Exception as e:
             return np.full((n_time, n_species), np.nan)
 
     def _sortArrays(self) -> None:

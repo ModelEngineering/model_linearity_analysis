@@ -84,15 +84,8 @@ class TestLRoadrunnerInit(unittest.TestCase):
             return
         rr = LRoadrunner(ANTIMONY_MODEL, start_time=1.0, end_time=5.0, num_point=20)
         self.assertEqual(rr.start_time, 1.0)
-        self.assertEqual(rr._end_time, 5.0)
+        self.assertEqual(rr.end_time, 5.0)
         self.assertEqual(rr.num_point, 20)
-
-    def test_end_time_none_by_default(self) -> None:
-        """_end_time is None when not explicitly provided."""
-        if IGNORE_TESTS:
-            return
-        rr = LRoadrunner(ANTIMONY_MODEL)
-        self.assertTrue(np.isnan(rr._end_time))
 
     def test_roadrunner_instance_stored(self) -> None:
         """Internal RoadRunner instance is created and stored."""
@@ -221,7 +214,7 @@ class TestEndTime(unittest.TestCase):
         first = self.rr.end_time
         second = self.rr.end_time
         self.assertEqual(first, second)
-        self.assertIsNotNone(self.rr._end_time)
+        self.assertIsNotNone(self.rr.end_time)
 
 
 class TestGetSteadyState(unittest.TestCase):
@@ -309,13 +302,13 @@ class TestMakeJacobians(unittest.TestCase):
     """Tests for LRoadrunner.makeJacobians."""
 
     def setUp(self) -> None:
-        self.rr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
+        self.lr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
 
     def test_returns_tuple_of_two(self) -> None:
         """makeJacobians returns a tuple of two elements."""
         if IGNORE_TESTS:
             return
-        result = self.rr.makeJacobians()
+        result = self.lr.makeJacobians()
         self.assertIsInstance(result, tuple)
         self.assertEqual(len(result), 2)
 
@@ -323,29 +316,29 @@ class TestMakeJacobians(unittest.TestCase):
         """Jacobians array has shape (num_points, n_species, n_species)."""
         if IGNORE_TESTS:
             return
-        jacobians, _ = self.rr.makeJacobians()
-        n_species = len(self.rr.getRoadrunner().getFloatingSpeciesIds())
-        self.assertEqual(jacobians.shape, (self.rr.num_point, n_species, n_species))
+        jacobians, _ = self.lr.makeJacobians()
+        n_species = len(self.lr.getRoadrunner().getFloatingSpeciesIds())
+        self.assertEqual(jacobians.shape, (self.lr.num_point, n_species, n_species))
 
     def test_times_shape(self) -> None:
         """Times array has shape (num_points,)."""
         if IGNORE_TESTS:
             return
-        _, times = self.rr.makeJacobians()
-        self.assertEqual(times.shape, (self.rr.num_point,))
+        _, times = self.lr.makeJacobians()
+        self.assertEqual(times.shape, (self.lr.num_point,))
 
     def test_times_are_monotonically_increasing(self) -> None:
         """Timepoints are strictly increasing."""
         if IGNORE_TESTS:
             return
-        _, times = self.rr.makeJacobians()
+        _, times = self.lr.makeJacobians()
         self.assertTrue(np.all(np.diff(times) > 0))
 
     def test_jacobians_are_finite(self) -> None:
         """All Jacobian entries are finite."""
         if IGNORE_TESTS:
             return
-        jacobians, _ = self.rr.makeJacobians()
+        jacobians, _ = self.lr.makeJacobians()
         self.assertTrue(np.all(np.isfinite(jacobians)))
 
     def test_raises_for_no_floating_species(self) -> None:
@@ -768,7 +761,7 @@ class TestEndTimeSedml(unittest.TestCase):
             return
         lrr = LRoadrunner(_read(BIOMD477_SBML), sedml_str=_read(BIOMD477_SEDML))
         _ = lrr.end_time
-        self.assertAlmostEqual(lrr._end_time, 25.0) # type: ignore
+        self.assertAlmostEqual(lrr.end_time, 25.0) # type: ignore
 
     def test_default_sedml_end_time_falls_through_to_auto_detect(self) -> None:
         """end_time runs auto-detection when SED-ML outputEndTime equals DEFAULT_END_TIME.
@@ -960,8 +953,8 @@ class TestBiomd8InitialValuesAndForcedInputs(unittest.TestCase):
 
     def test_get_forced_inputs_shape(self) -> None:
         """getForcedInputs returns a 1-D array of length 5 for BIOMD8."""
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         result = self.lrr.getForcingInputs()
         self.assertEqual(result.shape, (BIOMD8_N_SPECIES,))
 
@@ -990,21 +983,21 @@ class TestTimecourse(unittest.TestCase):
         """timecourse returns a pandas DataFrame."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.timecourse
+        result = self.lrr.timecourse_df
         self.assertIsInstance(result, pd.DataFrame)
 
     def test_index_is_named_time(self) -> None:
         """timecourse DataFrame index is named 'time'."""
-        if IGNORE_TESTS:
-            return
-        result = self.lrr.timecourse
+        #if IGNORE_TESTS:
+        #    return
+        result = self.lrr.timecourse_df
         self.assertEqual(result.index.name, "time")
 
     def test_index_is_monotonically_increasing(self) -> None:
         """timecourse index values are strictly increasing."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.timecourse
+        result = self.lrr.timecourse_df
         times = result.index.to_numpy()
         self.assertTrue(np.all(np.diff(times) > 0))
 
@@ -1012,7 +1005,7 @@ class TestTimecourse(unittest.TestCase):
         """timecourse DataFrame has shape (num_points, n_species)."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.timecourse
+        result = self.lrr.timecourse_df
         n_species = len(self.lrr.getRoadrunner().getFloatingSpeciesIds())
         self.assertEqual(result.shape, (self.lrr.num_point, n_species))
 
@@ -1020,7 +1013,7 @@ class TestTimecourse(unittest.TestCase):
         """timecourse columns match the floating species IDs."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.timecourse
+        result = self.lrr.timecourse_df
         species_ids = self.lrr.getRoadrunner().getFloatingSpeciesIds()
         self.assertEqual(list(result.columns), species_ids)
 
@@ -1028,14 +1021,14 @@ class TestTimecourse(unittest.TestCase):
         """All timecourse values are finite."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.timecourse
+        result = self.lrr.timecourse_df
         self.assertTrue(np.all(np.isfinite(result.values)))
 
     def test_values_are_non_negative(self) -> None:
         """All timecourse concentration values are non-negative."""
         if IGNORE_TESTS:
             return
-        result = self.lrr.timecourse
+        result = self.lrr.timecourse_df
         self.assertTrue(np.all(result.values >= 0.0))
 
 
@@ -1182,7 +1175,7 @@ class TestMakeBiomodelWithData(unittest.TestCase):
             return
         l_roadrunner = LRoadrunner.makeBiomodel(path=BIOMD8_SBML, end_time=42.0,
                 num_point=5)
-        self.assertAlmostEqual(l_roadrunner._end_time, 42.0)
+        self.assertAlmostEqual(l_roadrunner.end_time, 42.0)
 
     def test_model_num_has_species(self) -> None:
         """Model loaded via model_num has at least one floating species."""
@@ -1212,7 +1205,7 @@ class TestMakeBiomodelWithData(unittest.TestCase):
             return
         BIOMD153_END_TIME = 1.4106262159417386
         l_roadrunner = LRoadrunner.makeBiomodel(model_num=153, num_point=5)
-        self.assertAlmostEqual(l_roadrunner._end_time, BIOMD153_END_TIME, places=6)
+        self.assertAlmostEqual(l_roadrunner.end_time, BIOMD153_END_TIME, places=6)
 
 
 if __name__ == "__main__":

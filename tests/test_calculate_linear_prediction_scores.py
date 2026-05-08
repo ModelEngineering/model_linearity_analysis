@@ -24,7 +24,7 @@ PRED_DF = 2.0 * TRUE_DF
 
 def _makeMockTrajectory(pred_df: pd.DataFrame = PRED_DF) -> MagicMock:
     trajectory = MagicMock()
-    trajectory.timecourse = TRUE_DF
+    trajectory.timecourse_df = TRUE_DF
     trajectory.predict.return_value = pred_df
     return trajectory
 

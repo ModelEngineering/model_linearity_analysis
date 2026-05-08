@@ -13,13 +13,16 @@ import src.constants as cn  # type: ignore
 from trajectory import Trajectory  # type: ignore
 from trajectory_collection import TrajectoryCollection  # type: ignore
 from l_roadrunner import LRoadrunner  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
+from tests.utils_test import makeBiomdPath, makeBiomdName  # type: ignore
 
-BIOMD8_PATH = os.path.join(
-        cn.BIOMODELS_DIR, "BIOMD0000000008", "BIOMD0000000008_url.xml"
-)
+BIOMD8_PATH = makeBiomdPath(8)
 BIOMD8_ENDTIME = 20.0
+BIOMD153_PATH = makeBiomdPath(153)
+BIOMD13_ENDTIME = 20.0
 
 IGNORE_TESTS = False
+IS_PLOT = False
 
 ANTIMONY_DECAY = """
 S1 -> S2; k1*S1
@@ -34,6 +37,18 @@ S1 = 0.0
 k1 = 0.1; k2 = 0.2; Xo = 1.0; X1 = 0.0
 """
 
+ANTIMONY_SEQUENTIAL = """
+S1 -> S2; k1*S1
+S2 -> S3; k2*S2
+S3 -> ; k3*S3
+k1 = 0.1; k2 = 0.2; k3=0.3; S1 = 10.0; S2 = 0.0; S3 = 0.0
+"""
+
+
+def make_trajectory(antimony_str: str) -> Trajectory:
+    """Return a Trajectory built from a real Antimony model."""
+    lr = LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_point=11)
+    return Trajectory(lr)
 
 def _make_tc(antimony_str: str, num_cluster: int) -> TrajectoryCollection:
     """Return a TrajectoryCollection built from a real Antimony model.
@@ -42,7 +57,7 @@ def _make_tc(antimony_str: str, num_cluster: int) -> TrajectoryCollection:
     can correctly deduplicate with iloc[1:].
     """
     lr = LRoadrunner(antimony_str, start_time=0.0, end_time=10.0, num_point=11)
-    jc = Trajectory(lr)
+    jc = make_trajectory(antimony_str)
     num_point = len(jc.timepoint_arr)
     chunk_size = num_point // num_cluster
     jcs = []
@@ -172,12 +187,26 @@ class TestTrajectoryCollectionSplit(unittest.TestCase):
                 end_time=cls.END_TIME, num_point=cls.NUM_POINT)
         cls.trajectory = Trajectory(lr)
 
+    def test_one_split_gives_correct_timecourse(self) -> None:
+        # Test that the split gives the correct timecourse values in the second trajectory.
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.split(self.trajectory, [5.0])
+        second_trajectory = tc.trajectories[1]
+        first_df = self.trajectory.timecourse_df.loc[np.array(range(5,11)), :]
+        np.testing.assert_allclose(second_trajectory.timecourse_df.values,
+                first_df.values, rtol=1e-5)
+
     def test_one_split_gives_two_trajectories(self) -> None:
         """One split time produces a collection with 2 trajectories."""
         if IGNORE_TESTS:
             return
         tc = TrajectoryCollection.split(self.trajectory, [5.0])
         self.assertEqual(len(tc.trajectories), 2)
+        len_jacobian_collection_arr = len(self.trajectory.jacobian_collection_arr)
+        self.assertEqual(len(tc.trajectories[0].jacobian_collection_arr) +
+                len(tc.trajectories[1].jacobian_collection_arr) - 1,
+                len_jacobian_collection_arr)
 
     def test_plot_one_split_gives_two_trajectories(self) -> None:
         """One split time produces a collection with 2 trajectories."""
@@ -255,6 +284,13 @@ class TestTrajectoryCollectionSplit(unittest.TestCase):
         self.assertEqual(len(pred_df), len(self.trajectory.timepoint_arr))
         np.testing.assert_array_almost_equal(
                 pred_df.index.to_numpy(), self.trajectory.timepoint_arr)
+    
+    def test_unitsplit(self) -> None:
+        """The unitsplit column is present and contains only 0s and 1s."""
+        if IGNORE_TESTS:
+            return
+        unit_tc = TrajectoryCollection.unitsplit(self.trajectory)
+        self.assertEqual(len(unit_tc.trajectories), len(self.trajectory.timepoint_arr)-1)
 
 
 class TestTrajectoryCollectionPredict(unittest.TestCase):
@@ -331,7 +367,7 @@ class TestTrajectoryCollectionPredict(unittest.TestCase):
 class TestTrajectoryCollectionPredictBiomd8(unittest.TestCase):
     """Integration tests for TrajectoryCollection.predict on BIOMD0000000008."""
 
-    NUM_POINT = 10
+    NUM_POINT = 30
     N_CLUSTERS = 2
     trajectory: Trajectory
     tc: TrajectoryCollection
@@ -383,6 +419,13 @@ class TestTrajectoryCollectionPredictBiomd8(unittest.TestCase):
             return
         self.assertTrue(np.all(np.isfinite(self.pred_df.values)))
 
+    def test_unitsplit(self) -> None:
+        """The unitsplit column is present and contains only 0s and 1s."""
+        if IGNORE_TESTS:
+            return
+        unit_tc = TrajectoryCollection.unitsplit(self.trajectory)
+        self.assertEqual(len(unit_tc.trajectories), len(self.trajectory.timepoint_arr)-1)
+
     def test_comparison_with_direct_predict(self) -> None:
         """TC.predict has the same shape as trajectory.predict and the same initial row.
 
@@ -401,6 +444,171 @@ class TestTrajectoryCollectionPredictBiomd8(unittest.TestCase):
         relative_absolute_error = (self.pred_df.iloc[1:, :]
                 - direct_df.iloc[1:, :])**2/self.pred_df.iloc[1:, :].abs()
         self.assertLess(np.mean(relative_absolute_error.values), 0.1)
+    
+    def test_comparison_with_direct_predict2(self) -> None:
+        """TC.predict has the same shape as trajectory.predict and the same initial row.
+
+        With boundary-sharing chunks, deduplication preserves every timepoint, so
+        row counts match. Each segment's _predict seeds each step from the actual
+        timecourse value, making the first row (initial condition) identical across both.
+        Subsequent rows differ because each segment uses its own median Jacobian.
+        """
+        if IGNORE_TESTS:
+            return
+        trajectory = make_trajectory(ANTIMONY_SEQUENTIAL)
+        trajectory_pred_df = trajectory.predict()
+        tc = TrajectoryCollection.split(trajectory, [3.0, 7.0])
+        tc_pred_df = tc.predict()
+        relative_absolute_error = (trajectory_pred_df.iloc[1:, :]
+                - tc_pred_df.iloc[1:, :])**2/trajectory_pred_df.iloc[1:, :].abs()
+        self.assertLess(np.mean(relative_absolute_error.values), 0.1)
+
+
+class TestTrajectoryCollectionPlotTrajectories(unittest.TestCase):
+    """Tests for TrajectoryCollection.plotTrajectories."""
+
+    tc_1: TrajectoryCollection   # 1 cluster — no split lines
+    tc_2: TrajectoryCollection   # 2 clusters — 1 split line at t=5
+    num_species: int
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if IGNORE_TESTS:
+            return
+        cls.tc_1 = _make_tc(ANTIMONY_DECAY, num_cluster=1)
+        cls.tc_2 = _make_tc(ANTIMONY_DECAY, num_cluster=3)
+        cls.num_species = cls.tc_2.l_roadrunner.num_species
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def test_returns_plot_options(self) -> None:
+        """plotTrajectories returns a PlotOptions instance."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories()
+        #plt.show()
+        self.assertIsInstance(po, PlotOptions)
+
+    def test_split_collection_plots_distinct_concentrations(self) -> None:
+        """plotTrajectories on a split collection uses the correct concentrations per segment."""
+        if IGNORE_TESTS:
+            return
+        lr = LRoadrunner(ANTIMONY_DECAY, start_time=0.0, end_time=10.0, num_point=11)
+        trajectory = Trajectory(lr)
+        tc_split = TrajectoryCollection.split(trajectory, [5.0])
+        po = tc_split.plotTrajectories()
+        # The first data point of each species line should equal the t=0 initial condition,
+        # and the last data point should be at t=10 (non-trivially different from t=0).
+        for line in po.ax.lines[:self.num_species]:
+            ydata = np.asarray(line.get_ydata())
+            self.assertFalse(np.allclose(ydata[0], ydata[-1]))
+
+    def test_ax_is_not_none(self) -> None:
+        """PlotOptions.ax is set."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories()
+        self.assertIsNotNone(po.ax)
+
+    def test_line_count_matches_species_plus_splits(self) -> None:
+        """ax.lines has one line per species plus one per split time."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories()
+        expected = self.num_species + len(self.tc_2.split_times)
+        self.assertEqual(len(po.ax.lines), expected)
+
+    def test_no_split_lines_for_single_cluster(self) -> None:
+        """A 1-cluster collection draws no vertical split lines."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_1.plotTrajectories()
+        self.assertEqual(len(po.ax.lines), self.num_species)
+
+    def test_split_line_x_positions(self) -> None:
+        """Vertical lines are drawn at each split_time x-coordinate."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories()
+        split_xcoords = [float(np.asarray(line.get_xdata())[0])
+                for line in po.ax.lines[self.num_species:]]
+        for split_time in self.tc_2.split_times:
+            self.assertIn(split_time, split_xcoords)
+
+    def test_model_name_in_title(self) -> None:
+        """Title contains the model_name when provided."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories(title="TestModel")
+        self.assertIn("TestModel", po.ax.get_title())
+
+    def test_legend_false_suppresses_legend(self) -> None:
+        """legend=False produces no legend on the axes."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories(legend=False)
+        self.assertIsNone(po.ax.get_legend())
+
+    def test_ylim_applied(self) -> None:
+        """ylim is applied to the axes."""
+        if IGNORE_TESTS:
+            return
+        po = self.tc_2.plotTrajectories(ylim=(0.0, 5.0))
+        self.assertAlmostEqual(po.ax.get_ylim()[0], 0.0, places=5)
+        self.assertAlmostEqual(po.ax.get_ylim()[1], 5.0, places=5)
+
+    def test_explicit_ax_is_used(self) -> None:
+        """An axes passed via ax= is used and returned."""
+        if IGNORE_TESTS:
+            return
+        _, ax = plt.subplots()
+        po = self.tc_2.plotTrajectories(ax=ax)
+        self.assertIs(po.ax, ax)
+
+
+class TestTrajectoryCollectionPlotPrediction(unittest.TestCase):
+    """Tests for TrajectoryCollection.plotPrediction."""
+
+    trajectory: Trajectory
+    num_species: int
+    NUM_POINT: int = 50
+    tc: TrajectoryCollection
+    END_TIME: float = 1.5
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        #if IGNORE_TESTS:
+        #    return
+        if not os.path.exists(BIOMD153_PATH):
+            raise unittest.SkipTest(f"{makeBiomdName(153)} not found at {BIOMD153_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD153_PATH, end_time=cls.END_TIME, num_point=cls.NUM_POINT)
+        cls.tc = TrajectoryCollection.split(cls.trajectory, [0.5])
+        if IGNORE_TESTS:
+            print(pd.DataFrame(cls.trajectory.jacobian_median_arr))
+            print(pd.DataFrame(cls.tc.trajectories[0].jacobian_median_arr))
+            print(pd.DataFrame(cls.tc.trajectories[1].jacobian_median_arr))
+
+
+    def tearDown(self) -> None:
+        plt.close("all")
+
+    def test_jacobian_collection_sizes(self) -> None:
+        if IGNORE_TESTS:
+            return
+        len_jacobian_collection_arr = len(self.trajectory.jacobian_collection_arr)
+        n_clusters = len(self.tc.trajectories)
+        total = sum(len(t.jacobian_collection_arr) for t in self.tc.trajectories) - (n_clusters - 1)
+        self.assertEqual(total, len_jacobian_collection_arr)
+
+    def test_plot(self):
+        if IGNORE_TESTS:
+            return
+        self.trajectory.plotPrediction(title="BIOMD153")
+        self.tc.plotPrediction(title="BIOMD153")
+        if IS_PLOT:
+            plt.show()
 
 
 if __name__ == "__main__":

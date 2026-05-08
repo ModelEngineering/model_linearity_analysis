@@ -420,7 +420,7 @@ class TestScoreBiomodels(unittest.TestCase):
         if IGNORE_TESTS:
             return
         l_roadrunner = LRoadrunner.makeBiomodel(model_num=model_num, start_time=0.0, end_time=end_time, num_point=11)
-        true_df = l_roadrunner.timecourse
+        true_df = l_roadrunner.timecourse_df
         trajectory = Trajectory(l_roadrunner)
         try:
             pred_df = trajectory.predict(is_adjust_fitted_jacobian=True)

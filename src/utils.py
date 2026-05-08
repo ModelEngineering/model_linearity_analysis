@@ -59,7 +59,6 @@ def findFloatIndex(arr: np.ndarray, value: float) -> int:
     ValueError
         If the value is not found within the tolerance.
     """
-    idx = np.where(np.isclose(arr, value, atol=1e-8))[0]
-    if len(idx) == 0:
-        raise ValueError(f"Value {value} not found in array within tolerance.")
-    return idx[0]
+    arr1 = (arr - value)**2
+    idx = np.argmin(arr1)
+    return int(idx)

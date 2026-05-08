@@ -130,7 +130,7 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
                 # Handle large Jacobians
                 trajectory = Trajectory.makeBiomodel(model_name=model_name)
                 prediction_df = trajectory.predict(is_adjust_fitted_jacobian=True)
-            score.addTestResult(trajectory.timecourse, prediction_df, description=model_name)
+            score.addTestResult(trajectory.timecourse_df, prediction_df, description=model_name)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")
             continue
