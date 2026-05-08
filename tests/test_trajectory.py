@@ -936,7 +936,7 @@ class TestPredictLinearBasic(unittest.TestCase):
         if IGNORE_TESTS:
             return
         n_point, n_species = self.trajectory._num_timepoint, self.trajectory.num_species
-        result = self.trajectory._predict()
+        result = self.trajectory._predictNextStep()
         self.assertEqual(result.shape, (n_point, n_species))
 
 @unittest.skipUnless(IS_BIG_TESTS, "This test is slow and may require large SBML files.")
@@ -999,9 +999,9 @@ class TestFitJacobian(unittest.TestCase):
         if IGNORE_TESTS:
             return
         actual_arr = self.trajectory.l_roadrunner.simulate()
-        mean_pred_arr = self.trajectory._predict()
+        mean_pred_arr = self.trajectory._predictNextStep()
         fitted_jacobian_arr = self.trajectory.fitJacobian()
-        fitted_pred_arr = self.trajectory._predict(
+        fitted_pred_arr = self.trajectory._predictNextStep(
                 jacobian_arr=fitted_jacobian_arr
         )
         mse_median = float(np.mean((mean_pred_arr - actual_arr) ** 2))
@@ -1156,9 +1156,9 @@ class TestBiomodelsFit(unittest.TestCase):
             with self.subTest(model=model_name):
                 trajectory = Trajectory(lr)
                 actual_arr = trajectory.l_roadrunner.simulate()
-                mean_pred_arr = trajectory._predict()
+                mean_pred_arr = trajectory._predictNextStep()
                 fitted_jacobian_arr = trajectory.fitJacobian()
-                fitted_pred_arr = trajectory._predict()
+                fitted_pred_arr = trajectory._predictNextStep()
                 with np.errstate(divide='ignore', invalid='ignore'):
                     ratio_mean = np.where(actual_arr != 0,
                             (mean_pred_arr - actual_arr) ** 2 / actual_arr**2, 0.0)
@@ -1490,6 +1490,165 @@ class TestPlotPredictionsBiomd153(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertIn("BIOMD153", self.plot_options.ax.get_title())
+
+
+class TestPredictManyStep(unittest.TestCase):
+    """Tests for Trajectory._predictManyStep."""
+
+    # 11 timepoints [0..10]; divisors of 10 are 1, 2, 5, 10 — all valid num_step values.
+    NUM_POINT = 11
+    END_TIME = 10.0
+    trajectory: Trajectory
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if IGNORE_TESTS:
+            return
+        cls.trajectory = _make_trajectory_from_model(
+                ANTIMONY_MODEL, end_time=cls.END_TIME, num_point=cls.NUM_POINT)
+
+    def _non_nan_rows(self, arr: np.ndarray) -> np.ndarray:
+        """Return the rows of arr that contain no NaN."""
+        mask = ~np.any(np.isnan(arr), axis=1)
+        return arr[mask]
+
+    def test_returns_ndarray(self) -> None:
+        """Result is an ndarray with shape (num_point, num_species)."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory._predictManyStep(num_step=1)
+        self.assertIsInstance(result, np.ndarray)
+        self.assertEqual(result.shape,
+                (self.NUM_POINT, self.trajectory.num_species))
+
+    def test_num_step_1_matches_one_step_predict(self) -> None:
+        """_predictManyStep(1) gives the same predictions as _predict()."""
+        if IGNORE_TESTS:
+            return
+        many = self.trajectory._predictManyStep(num_step=1)
+        one = self.trajectory._predictNextStep()
+        np.testing.assert_allclose(many, one, rtol=1e-6, equal_nan=True)
+
+    def test_default_num_step_predicts_final_timepoint(self) -> None:
+        """num_step=-1 (full prediction) fills only the last row."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory._predictManyStep(num_step=-1)
+        self.assertFalse(np.any(np.isnan(result[0])))   # initial row always set
+        self.assertFalse(np.any(np.isnan(result[-1])))  # final row predicted
+        # All intermediate rows should be NaN
+        self.assertTrue(np.all(np.isnan(result[1:-1])))
+
+    def test_predicted_positions_non_nan(self) -> None:
+        """Positions at multiples of num_step are non-NaN."""
+        if IGNORE_TESTS:
+            return
+        num_step = 2
+        result = self.trajectory._predictManyStep(num_step=num_step)
+        n = self.NUM_POINT
+        for pos in range(num_step, n, num_step):
+            self.assertFalse(np.any(np.isnan(result[pos])),
+                    msg=f"Expected non-NaN at position {pos}")
+
+    def test_unpredicted_positions_are_nan(self) -> None:
+        """Positions not at multiples of num_step (other than 0) are NaN."""
+        if IGNORE_TESTS:
+            return
+        num_step = 5
+        result = self.trajectory._predictManyStep(num_step=num_step)
+        for pos in range(1, self.NUM_POINT):
+            if pos % num_step != 0:
+                self.assertTrue(np.all(np.isnan(result[pos])),
+                        msg=f"Expected NaN at position {pos}")
+
+    def test_invalid_num_step_zero_raises(self) -> None:
+        """num_step=0 raises ValueError."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            self.trajectory._predictManyStep(num_step=0)
+
+    def test_invalid_num_step_too_large_raises(self) -> None:
+        """num_step >= num_point raises ValueError."""
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(ValueError):
+            self.trajectory._predictManyStep(num_step=self.NUM_POINT)
+
+    def test_initial_row_equals_real_timecourse(self) -> None:
+        """Row 0 always contains the real initial state regardless of num_step."""
+        if IGNORE_TESTS:
+            return
+        real_t0 = self.trajectory.l_roadrunner.timecourse_df.iloc[0].values
+        for num_step in [1, 2, 5]:
+            result = self.trajectory._predictManyStep(num_step=num_step)
+            np.testing.assert_allclose(result[0], real_t0, rtol=1e-10)  # type: ignore
+
+
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+class TestPredictManyStepBiomd8(unittest.TestCase):
+    """Tests for Trajectory._predictManyStep on BIOMD0000000008.
+
+    Uses 11 timepoints so num_step = 1, 2, 5, 10 all divide evenly into
+    the 10 intervals, and the last timepoint is reachable by every num_step.
+    """
+
+    # 11 timepoints over [0, 20]: t=0,2,4,...,20
+    NUM_POINT = 11
+    END_TIME = 20.0
+    trajectory: Trajectory
+    actual_arr: np.ndarray
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        if IGNORE_TESTS:
+            return
+        if not os.path.exists(BIOMD8_PATH):
+            raise unittest.SkipTest(f"BIOMD8 not found at {BIOMD8_PATH}")
+        cls.trajectory = Trajectory.makeBiomodel(
+                path=BIOMD8_PATH, end_time=cls.END_TIME, num_point=cls.NUM_POINT)
+        cls.actual_arr = cls.trajectory.timecourse_df.values
+
+    def _rmse_at_last(self, num_step: int) -> float:
+        """RMSE between prediction and actual at the last timepoint."""
+        result = self.trajectory._predictManyStep(num_step=num_step)
+        pred = result[-1]
+        actual = self.actual_arr[-1]
+        return float(np.sqrt(np.mean((pred - actual) ** 2)))
+
+    def test_returns_correct_shape(self) -> None:
+        """Result shape matches (num_point, num_species) for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory._predictManyStep(num_step=1)
+        self.assertEqual(result.shape,
+                (self.NUM_POINT, self.trajectory.num_species))
+
+    def test_values_are_finite_for_one_step(self) -> None:
+        """1-step prediction produces all finite values for BIOMD8."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory._predictManyStep(num_step=1)
+        self.assertTrue(np.all(np.isfinite(result)))
+
+    def test_accuracy_decreases_with_num_step(self) -> None:
+        """RMSE at the final timepoint increases as num_step increases."""
+        if IGNORE_TESTS:
+            return
+        rmse_1 = self._rmse_at_last(1)
+        rmse_5 = self._rmse_at_last(5)
+        rmse_10 = self._rmse_at_last(10)
+        self.assertLess(rmse_1, rmse_5,
+                msg=f"Expected rmse(step=1)={rmse_1:.4g} < rmse(step=5)={rmse_5:.4g}")
+        self.assertLess(rmse_5, rmse_10,
+                msg=f"Expected rmse(step=5)={rmse_5:.4g} < rmse(step=10)={rmse_10:.4g}")
+
+    def test_full_prediction_final_timepoint_non_nan(self) -> None:
+        """num_step=-1 (one shot from t0 to t_end) produces a finite final row."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory._predictManyStep(num_step=-1)
+        self.assertFalse(np.any(np.isnan(result[-1])))
 
 
 if __name__ == "__main__":

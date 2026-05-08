@@ -2,6 +2,8 @@
 
 import matplotlib.pyplot as plt # type: ignore
 from typing import Optional, Tuple
+import src.constants as cn
+import numpy as np # type: ignore
 
 AX = plt.gca()
 FIG = plt.gcf()
@@ -17,6 +19,7 @@ class PlotOptions(object):
             legend: bool = True,
             xlim: Optional[Tuple[float, float]] = None,
             ylim: Optional[Tuple[float, float]] = None,
+            model_name: str = "",
             ):
         if (AX == ax) and (FIG == fig):
             fig, ax = plt.subplots()
@@ -28,13 +31,18 @@ class PlotOptions(object):
         self.legend = legend
         self.xlim = xlim
         self.ylim = ylim
+        self.model_name = model_name
 
     def to_dict(self):
         return self.__dict__
     
     def apply(self):
         if self.title is not None:
-            self.ax.set_title(self.title) # type: ignore
+            if len(self.model_name) > 0:
+                title = f"{self.model_name}: {self.title}"
+            else: 
+                title = self.title
+            self.ax.set_title (title) # type: ignore
         if self.xlabel is not None:
             self.ax.set_xlabel(self.xlabel)  # type: ignore
         if self.ylabel is not None:

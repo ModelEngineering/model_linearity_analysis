@@ -273,7 +273,7 @@ class Trajectory(object):
             # in params, and the other rows are unchanged
             for i in range(self.num_species):
                 jacobian_arr[ispecies, i] = params[f'd{i}'].value
-            prediction_arr = self._predict(jacobian_arr=jacobian_arr)[:, ispecies]
+            prediction_arr = self._predictNextStep(jacobian_arr=jacobian_arr)[:, ispecies]
             residual_arr = self.timecourse_df.iloc[:, ispecies].values - prediction_arr
             return residual_arr[1:]  # Exclude timepoint 0 to avoid issues with initial state
         ##
@@ -559,7 +559,7 @@ class Trajectory(object):
         plt.show()
         return PlotInfo(top_ax=ax1, bottom_ax=ax2, fig=fig)
     
-    def plotPrediction(self, **kwargs) -> PlotOptions:
+    def plotPrediction(self, num_step: int = 1, **kwargs) -> PlotOptions:
         """
         Plot the predicted timecourse of simulation species concentrations.
         The first plot shows how the Jacobian changes over time relative to the centroid.
@@ -568,33 +568,39 @@ class Trajectory(object):
 
         Parameters
         ----------
-        ax : Optional[plt.Axes]
-            An optional matplotlib Axes
-        title: str
-            The title for the plot
-        fig : Optional[plt.Figure]
-            An optional matplotlib Figure object to use. If None, a new figure will be created.
-        is_legend : bool
-            Whether to include a legend in the species timecourse plot (default: True).
-        ylim : Tuple[float, float]
-            The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
-        xlim: Tuple[float, float]
-            The x-axis limits for both plots (default: None, which means automatic limits).
-        model_name: str
-            The model name
+        num_step : int
+            The number of time steps to predict ahead.
+        kwargs:
+            ax : Optional[plt.Axes]
+                An optional matplotlib Axes
+            title: str
+                The title for the plot
+            fig : Optional[plt.Figure]
+                An optional matplotlib Figure object to use. If None, a new figure will be created.
+            is_legend : bool
+                Whether to include a legend in the species timecourse plot (default: True).
+            ylim : Tuple[float, float]
+                The y-axis limits for the Jacobian deviation plot (default: (0.0, 1.0)).
+            xlim: Tuple[float, float]
+                The x-axis limits for both plots (default: None, which means automatic limits).
+            model_name: str
+                The model name
         """
+        kwargs = dict(kwargs)  # Make a copy to avoid modifying the original
         if hasattr(self.l_roadrunner, "getRoadrunner"):
             species_ids = self.l_roadrunner.species_names
             species_times = self.timecourse_df.index.values
             species_data = self.timecourse_df.values
         else:
             raise ValueError("Cannot plot species timecourse has a NULL LRoadrunner instance.")
-        pred_df = self.predict()
+        pred_df = self.predict(num_step=num_step)
         # Extract model_name before passing kwargs to PlotOptions (not a PlotOptions param)
         model_name = kwargs.pop("model_name", "")
         if model_name and "title" not in kwargs:
             kwargs["title"] = f"{model_name}: Species Timecourse"
         # Timecourse plot
+        if "title" not in kwargs:
+            kwargs["title"] = f"Number steps: {num_step}"
         plt_opt = PlotOptions(**kwargs)
         ax = plt_opt.ax
         colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
@@ -608,12 +614,14 @@ class Trajectory(object):
         plt_opt.apply()
         return plt_opt
 
-    def predict(self, **kwargs) -> pd.DataFrame:
+    def predict(self, num_step: int = 1, **kwargs) -> pd.DataFrame:
         """
         Do 1 step predictions of the species concentrations at each timepoint in the trajectory,
 
         Parameters
         ----------
+        num_step : int
+            The number of time steps to predict ahead.
         forcing_input_arr : np.ndarray
             1-D array of shape (num_species,) containing constant forcing inputs for each species.
         jacobian_arr : np.ndarray
@@ -624,7 +632,7 @@ class Trajectory(object):
         np.ndarray
             2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
         """
-        arr = self._predict(**kwargs)
+        arr = self._predictManyStep(num_step=num_step, **kwargs)
         df = pd.DataFrame(arr, columns=self.l_roadrunner.species_names)
         df = df.set_index(self.timepoint_arr)
         return df
@@ -777,7 +785,7 @@ class Trajectory(object):
         self._eigenvalues_collection_arr = np.array(eigenvalues_collection)
         self._eigenvectors_collection_arr = np.array(eigenvectors_collection)
 
-    def _predict(self,
+    def _predictNextStep(self,
             forcing_input_arr: np.ndarray = cn.NULL_ARRAY,
             jacobian_arr: np.ndarray = cn.NULL_ARRAY,
             ) -> np.ndarray:
@@ -831,6 +839,76 @@ class Trajectory(object):
                             method='Radau')
                     if sol.success and sol.y.shape == (n_species, 1):
                         result_arr[itime+1] = sol.y.T
+            return result_arr
+        except Exception as e:
+            return np.full((n_time, n_species), np.nan)
+    
+    def _predictManyStep(self,
+            num_step: int = -1,
+            forcing_input_arr: np.ndarray = cn.NULL_ARRAY,
+            jacobian_arr: np.ndarray = cn.NULL_ARRAY,
+            ) -> np.ndarray:
+        """
+        Does many-step prediction across the entire timecourse.
+        num_step is the number of steps to predict, and for each prediction,
+        the initial values are taken from the simulated ("real") value
+        of the timecourse.
+
+        Parameters
+        ----------
+        num_step : int
+            The number of steps to predict. If -1, predict all steps.
+            Must divide the number of timepoints in the trajectory.
+        forcing_input_arr : np.ndarray
+            1-D array of shape (num_species,) containing constant forcing inputs for each species.
+        jacobian_arr : np.ndarray
+            2-D array of shape (num_species, num_species) to use as the Jacobian. If omitted,
+            self.jacobian_mean_arr is used.
+
+        Returns
+        -------
+        np.ndarray
+            2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
+        """
+        if num_step == -1:
+            num_step = len(self.timepoint_arr) - 1
+        if num_step <= 0 or num_step >= len(self.timepoint_arr):
+            raise ValueError(f"Argument 'num_step' ({num_step}) must divide the number of timepoints ({len(self.timepoint_arr) - 1}).")
+        #
+        if np.array_equal(forcing_input_arr, cn.NULL_ARRAY):
+            forcing_input_arr = self.l_roadrunner.getForcingInputs()
+        if np.array_equal(jacobian_arr, cn.NULL_ARRAY):
+            if self._jacobian_selection == cn.JAC_FITTED:
+                jacobian_arr = self.fitJacobian()
+            elif self._jacobian_selection == cn.JAC_MEDIAN:
+                jacobian_arr = self.jacobian_median_arr
+            elif self._jacobian_selection == cn.JAC_FIRST:
+                jacobian_arr = self.jacobian_collection_arr[0]
+            else:
+                raise ValueError(f"Invalid jacobian_selection: {self._jacobian_selection}")
+        ##
+        def ode(t: float, x: np.ndarray) -> np.ndarray:
+            return jacobian_arr @ x + forcing_input_arr
+        ##
+        n_time = len(self.timepoint_arr)
+        n_species = len(forcing_input_arr)
+        result_arr = np.full((n_time, n_species), np.nan)
+        result_arr[0] = self.l_roadrunner.timecourse_df.loc[self.timepoint_arr[0]].values # type: ignore
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                index_arr = np.arange(0, len(self.timepoint_arr) - num_step, num_step)
+                for itime in index_arr:
+                    cur_time = self.timepoint_arr[itime]
+                    pred_time = self.timepoint_arr[itime + num_step]
+                    initial_state_arr = self.l_roadrunner.timecourse_df.loc[cur_time].values # type: ignore
+                    sol = solve_ivp(ode,
+                            (cur_time, pred_time),
+                            initial_state_arr,
+                            t_eval=[pred_time],
+                            method='Radau')
+                    if sol.success and sol.y.shape == (n_species, 1):
+                        result_arr[itime + num_step] = sol.y.T
             return result_arr
         except Exception as e:
             return np.full((n_time, n_species), np.nan)
