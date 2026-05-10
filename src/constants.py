@@ -40,6 +40,6 @@ COL_NAMES = [COL_MODEL_NAME, COL_MAXCV, COL_ENDTIME, COL_ENDTIME_SOURCE]
 NULL_ARRAY = np.array([])
 
 # Jacobian selection
-JAC_FITTED = "fit_gershgorin" # Fit a Jacobian, selecting diagonal elements using Gershgorin circles
+JAC_FITTED = "fit_gershgorin" # Fit a Jacobian by using the timecourse for each row
 JAC_MEDIAN = "median"  # Use the median Jacobian
 JAC_FIRST = "first" # Use the first Jacobian

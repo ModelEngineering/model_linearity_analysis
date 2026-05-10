@@ -15,17 +15,21 @@ class DataframeSerializer:
     an instance from an existing file.
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, is_initialize: bool = False) -> None:
         """
         Parameters
         ----------
         path : str
             Path to the CSV serialization file.
+        is_initialize : bool
+            Whether to initialize the CSV file by writing an empty DataFrame with the appropriate columns.
         """
         self._path = path
         if os.path.exists(path):
             self.dataframe: pd.DataFrame = pd.read_csv(path)
         else:
+            self.dataframe = pd.DataFrame()
+        if is_initialize:
             self.dataframe = pd.DataFrame()
 
     def __eq__(self, other: object) -> bool:

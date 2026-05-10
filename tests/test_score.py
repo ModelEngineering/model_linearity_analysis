@@ -13,8 +13,6 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
-from src.l_roadrunner import LRoadrunner  # type: ignore
-from src.trajectory import Trajectory  # type: ignore
 from src.score import (Score, ScoreInfo,  # type: ignore
         AGGREGATION_TYPE, AGGREGATION_MEAN, AGGREGATION_COUNT)
 
@@ -70,6 +68,42 @@ class TestScoreInit(unittest.TestCase):
         score = _make_score()
         restored = Score(serialization_path=score._serialization_path)
         self.assertFalse(restored.score_df.empty)
+
+    def test_is_initialize_true_clears_existing_data(self) -> None:
+        """is_initialize=True gives empty score_df even when CSV has existing data."""
+        if IGNORE_TESTS:
+            return
+        score = _make_score()
+        path = score._serialization_path
+        reset = Score(serialization_path=path, is_initialize=True)
+        self.assertTrue(reset.score_df.empty)
+
+    def test_is_initialize_true_writes_empty_csv(self) -> None:
+        """is_initialize=True creates the CSV file on disk."""
+        if IGNORE_TESTS:
+            return
+        path = _temp_csv_path()
+        Score(serialization_path=path, is_initialize=True)
+        self.assertTrue(os.path.exists(path))
+
+    def test_is_initialize_true_subsequent_add_starts_fresh(self) -> None:
+        """After is_initialize=True, addTestResult produces the correct row count."""
+        if IGNORE_TESTS:
+            return
+        score = _make_score()
+        path = score._serialization_path
+        reset = Score(serialization_path=path, is_initialize=True)
+        reset.addTestResult(TRUE_DF, PRED_DF)
+        self.assertEqual(len(reset.score_df), 1 + len(TRUE_DF.columns))
+
+    def test_is_initialize_false_is_default(self) -> None:
+        """Default is_initialize=False preserves existing CSV data."""
+        if IGNORE_TESTS:
+            return
+        score = _make_score()
+        path = score._serialization_path
+        reloaded = Score(serialization_path=path)
+        self.assertFalse(reloaded.score_df.empty)
 
 
 class TestAddTestResult(unittest.TestCase):
@@ -419,6 +453,8 @@ class TestScoreBiomodels(unittest.TestCase):
         """Run full pipeline for one BioModel and assert valid score statistics."""
         if IGNORE_TESTS:
             return
+        from src.l_roadrunner import LRoadrunner  # type: ignore
+        from src.trajectory import Trajectory  # type: ignore
         l_roadrunner = LRoadrunner.makeBiomodel(model_num=model_num, start_time=0.0, end_time=end_time, num_point=11)
         true_df = l_roadrunner.timecourse_df
         trajectory = Trajectory(l_roadrunner)

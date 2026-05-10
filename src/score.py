@@ -77,7 +77,8 @@ class Score:
     """
 
     def __init__(self, serialization_path: str = SERIALIZATION_PATH,
-            is_ignore_first_prediction: bool = True) -> None:
+            is_ignore_first_prediction: bool = True,
+            is_initialize: bool = False) -> None:
         """
         Parameters
         ----------
@@ -85,11 +86,15 @@ class Score:
             Path to a CSV file for persistence.
         is_ignore_first_prediction : bool
             Whether to ignore the first prediction when computing scores, since it may be an outlier.
+        is_initialize : bool
+            Whether to initialize the CSV file by writing an empty DataFrame with the appropriate columns.
         """
-        self._serializer = DataframeSerializer(serialization_path)
+        self._serializer = DataframeSerializer(serialization_path,
+                is_initialize=is_initialize)
         self._serialization_path = serialization_path
         self._is_ignore_first_prediction = is_ignore_first_prediction
-
+        if is_initialize:
+            self._serializer.serialize([])
     @property
     def score_df(self) -> pd.DataFrame:
         return self._serializer.dataframe
