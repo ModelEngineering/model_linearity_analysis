@@ -69,7 +69,12 @@ class Trajectory(object):
                 cn.JAC_MEDIAN = "median"  # Use the median Jacobian
                 cn.JAC_FIRST = "first" # Use the first Jacobian
         """
-        self.jacobian_collection_arr, self.timepoint_arr = l_roadrunner.makeJacobians()
+        # Declarations
+        self._forcing_input_arr: np.ndarray
+        # Implementation
+        result = l_roadrunner.makeJacobians()
+        self.jacobian_collection_arr, self.timepoint_arr, self.forcing_input_collection_arr  \
+                =   result.jacobians, result.timepoints, result.forcing_inputs
         self._initialize(l_roadrunner, eigenvalues_collection_arr, eigenvector_collection_arr,
                 num_fit=num_fit, jacobian_selection=jacobian_selection)
         self._sortArrays()
@@ -174,77 +179,79 @@ class Trajectory(object):
     # Public methods (alphabetical)
     # ------------------------------------------------------------------
 
-    def deprecatedsequentialPartition(self, n_cluster: int) -> List["Trajectory"]:
-        """Partition the Jacobians into n_cluster contiguous time segments.
-
-        Dynamic programming finds the partition into exactly n_cluster
-        contiguous segments that minimises the maximum within-segment cost.
-
-        Parameters
-        ----------
-        n_cluster : int
-            Number of contiguous segments.
-        cost_criteria : str
-            Cost metric per segment: ``"expo_eigen"`` (default) or ``"max_cv"``.
-
-        Returns
-        -------
-        List[JacobianCollection]
-            One JacobianCollection per segment, in time order.
-
-        Raises
-        ------
-        ValueError
-            If n_cluster exceeds the number of timepoints.
-        """
-        # Check for trivial case of 1 cluster to avoid unnecessary cost calculations
-        if n_cluster == 1:
-            return [self]
-        #
-        n_point = self.jacobian_collection_arr.shape[0]
-        if n_cluster > n_point:
-            raise ValueError(
-                f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_point})."
-            )
-        cost = np.zeros((n_point, n_point))
-        for i in range(n_point):
-            for j in range(i, n_point):
-                jc = Trajectory.fromArrays(
-                        self.jacobian_collection_arr[i:j + 1],
-                        self.timepoint_arr[i:j + 1],
-                        self.l_roadrunner,
-                        self.eigenvalues_collection_arr[i:j],
-                        self.eigenvectors_collection_arr[i:j],
-                        )
-                cost[i][j] = jc.diameter
-        INF = float("inf")
-        dp = [[INF] * (n_point + 1) for _ in range(n_cluster + 1)]
-        split = [[0] * (n_point + 1) for _ in range(n_cluster + 1)]
-        dp[0][0] = 0.0
-        for k in range(1, n_cluster + 1):
-            for i in range(k, n_point + 1):
-                for j in range(k - 1, i):
-                    val = max(dp[k - 1][j], cost[j][i - 1])
-                    if val < dp[k][i]:
-                        dp[k][i] = val
-                        split[k][i] = j
-        boundaries = []
-        i = n_point
-        for k in range(n_cluster, 0, -1):
-            j = split[k][i]
-            boundaries.append((j, i))
-            i = j
-        boundaries.reverse()
-        return [
-            Trajectory.fromArrays(
-                self.jacobian_collection_arr[start:end],
-                self.timepoint_arr[start:end],
-                self.l_roadrunner,
-                self.eigenvalues_collection_arr[start:end],
-                self.eigenvectors_collection_arr[start:end],
-                )
-            for start, end in boundaries
-        ]
+#    def deprecatedsequentialPartition(self, n_cluster: int) -> List["Trajectory"]:
+#        """Partition the Jacobians into n_cluster contiguous time segments.
+#
+#        Dynamic programming finds the partition into exactly n_cluster
+#        contiguous segments that minimises the maximum within-segment cost.
+#
+#        Parameters
+#        ----------
+#        n_cluster : int
+#            Number of contiguous segments.
+#        cost_criteria : str
+#            Cost metric per segment: ``"expo_eigen"`` (default) or ``"max_cv"``.
+#
+#        Returns
+#        -------
+#        List[JacobianCollection]
+#            One JacobianCollection per segment, in time order.
+#
+#        Raises
+#        ------
+#        ValueError
+#            If n_cluster exceeds the number of timepoints.
+#        """
+#        # Check for trivial case of 1 cluster to avoid unnecessary cost calculations
+#        if n_cluster == 1:
+#            return [self]
+#     
+#        n_point = self.jacobian_collection_arr.shape[0]
+#        if n_cluster > n_point:
+#            raise ValueError(
+#                f"n_cluster ({n_cluster}) exceeds number of timepoints ({n_point})."
+#            )
+#        cost = np.zeros((n_point, n_point))
+#        for i in range(n_point):
+#            for j in range(i, n_point):
+#                jc = Trajectory.fromArrays(
+#                        self.jacobian_collection_arr[i:j + 1],
+#                        self.timepoint_arr[i:j + 1],
+#                        self.l_roadrunner,
+#                        self.eigenvalues_collection_arr[i:j],
+#                        self.eigenvectors_collection_arr[i:j],
+#                        forcing_input_collection_arr=self.forcing_input_collection_arr[i:j + 1],
+#                        )
+#                cost[i][j] = jc.diameter
+#        INF = float("inf")
+#        dp = [[INF] * (n_point + 1) for _ in range(n_cluster + 1)]
+#        split = [[0] * (n_point + 1) for _ in range(n_cluster + 1)]
+#        dp[0][0] = 0.0
+#        for k in range(1, n_cluster + 1):
+#            for i in range(k, n_point + 1):
+#                for j in range(k - 1, i):
+#                    val = max(dp[k - 1][j], cost[j][i - 1])
+#                    if val < dp[k][i]:
+#                        dp[k][i] = val
+#                        split[k][i] = j
+#        boundaries = []
+#        i = n_point
+#        for k in range(n_cluster, 0, -1):
+#            j = split[k][i]
+#            boundaries.append((j, i))
+#            i = j
+#        boundaries.reverse()
+#        return [
+#            Trajectory.fromArrays(
+#                self.jacobian_collection_arr[start:end],
+#                self.timepoint_arr[start:end],
+#                self.l_roadrunner,
+#                self.eigenvalues_collection_arr[start:end],
+#                self.eigenvectors_collection_arr[start:end],
+#                forcing_input_collection_arr=self.forcing_input_collection_arr[start:end],
+#                )
+#            for start, end in boundaries
+#        ]
 
     def fitJacobian(self, max_nfev: int = 1000) -> np.ndarray:
         """
@@ -290,15 +297,24 @@ class Trajectory(object):
         return self._fitted_jacobian_arr
 
     @classmethod
-    def fromArrays(cls, jacobian_arr: np.ndarray, timepoint_arr: np.ndarray,
+    def fromArrays(cls,
+            jacobian_arr: np.ndarray,
+            timepoint_arr: np.ndarray,
             l_roadrunner: LRoadrunner = NULL_L_ROADRUNNER,
             eigenvalues_collection_arr: np.ndarray = np.array([]),
             eigenvector_collection_arr: np.ndarray = np.array([]),
+            forcing_input_collection_arr: np.ndarray = np.array([]),
             **kwargs) -> 'Trajectory':
         """Create a JacobianCollection from explicit arrays."""
         jc = object.__new__(cls)
         jc.jacobian_collection_arr = jacobian_arr.copy()
         jc.timepoint_arr = timepoint_arr.copy()
+        # Ensure forcing_input_collection_arr is always 2-D so it can be sliced
+        # by partition methods even when no forcing inputs were provided.
+        if forcing_input_collection_arr.size == 0:
+            jc.forcing_input_collection_arr = np.zeros((jacobian_arr.shape[0], 0))
+        else:
+            jc.forcing_input_collection_arr = forcing_input_collection_arr.copy()
         jc._initialize(l_roadrunner, eigenvalues_collection_arr,
                 eigenvector_collection_arr, **kwargs)
         jc._sortArrays()
@@ -336,9 +352,18 @@ class Trajectory(object):
                     self.l_roadrunner,
                     self.eigenvalues_collection_arr[istart:iendplus],
                     self.eigenvectors_collection_arr[istart:iendplus],
+                    forcing_input_collection_arr=self.forcing_input_collection_arr[istart:iendplus],
                     )
             self._cost_mat[istart][iend] = jc.diameter
         return self._cost_mat[istart][iend]
+
+    @property 
+    def forcing_input_arr(self) -> np.ndarray:
+        """Return the array of forcing inputs corresponding to the Jacobian collection."""
+        if self._forcing_input_arr.size == 0:
+            self._forcing_input_arr = np.median(self.forcing_input_collection_arr, axis=0)
+            self._forcing_input_std_arr = np.std(self.forcing_input_collection_arr, axis=0)
+        return self._forcing_input_arr
 
     def getGershgorinCircles(self) -> pd.DataFrame:
         """Finds the center and radius of the Gershgorin circle for each Jacobian in the
@@ -386,9 +411,6 @@ class Trajectory(object):
         mean_arr = self.jacobian_median_arr
         annot_arr = np.vectorize(lambda v: f"{v:.2g}")(mean_arr)
 
-        rr = self.l_roadrunner.getRoadrunner() if hasattr(self, "l_roadrunner") else None
-        species_ids = rr.getFloatingSpeciesIds() if rr is not None else None
-
         if ax is None:
             fig, ax = plt.subplots()
         else:
@@ -401,8 +423,8 @@ class Trajectory(object):
             fmt="",
             cmap="coolwarm",
             cbar_kws={"label": "CV (|std/mean|)"},
-            xticklabels=species_ids if species_ids is not None else "auto",
-            yticklabels=species_ids if species_ids is not None else "auto",
+            xticklabels=self.species_names if self.species_names is not None else "auto",
+            yticklabels=self.species_names if self.species_names is not None else "auto",
             ax=ax,
             vmin=0.0,
             vmax=1.0,
@@ -483,7 +505,8 @@ class Trajectory(object):
         cluster_indices = [np.where(labels_arr == c)[0] for c in range(n_cluster)]
         return [
             Trajectory.fromArrays(
-                self.jacobian_collection_arr[idx], self.timepoint_arr[idx], self.l_roadrunner)
+                self.jacobian_collection_arr[idx], self.timepoint_arr[idx], self.l_roadrunner,
+                forcing_input_collection_arr=self.forcing_input_collection_arr[idx])
             for idx in cluster_indices
         ]
 
@@ -517,16 +540,8 @@ class Trajectory(object):
         xlim: Tuple[float, float]
             The x-axis limits for both plots (default: None, which means automatic limits).
         """
-
-        if hasattr(self.l_roadrunner, "getRoadrunner"):
-            roadrunner = self.l_roadrunner.getRoadrunner()
-            species_ids = roadrunner.getFloatingSpeciesIds()
-            data_arr = self.l_roadrunner.simulate(is_with_timepoints=True)
-            species_data = data_arr[:, 1:]  # Exclude time column
-            species_times = data_arr[:, 0]  # Extract time column
-        else:
-            raise ValueError(
-                f"{self.model_name}: Cannot plot species timecourse has a NULL LRoadrunner instance.")
+        species_data = self.timecourse_df.values
+        species_times = self.timecourse_df.index.values
         jacobian_times = self.getTimes()
         deviation_arr = self._calculateDeviation()
 
@@ -544,8 +559,8 @@ class Trajectory(object):
         ax1.set_xlim(xlim)
         # Timecourse plot
         prediction_df = self.predict()
-        colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
-        for i, species_id in enumerate(species_ids):
+        colors = [sns.color_palette("tab10")[i % 10] for i in range(len(self.species_names))]
+        for i, species_id in enumerate(self.species_names):
             ax2.plot(species_times, species_data[:, i], label=species_id, color=colors[i], alpha=0.7)
             ax2.scatter(species_times, prediction_df[species_id], s=8, alpha=0.7, color=colors[i])
         ax2.set_xlabel("Time")
@@ -587,12 +602,11 @@ class Trajectory(object):
                 The model name
         """
         kwargs = dict(kwargs)  # Make a copy to avoid modifying the original
-        if hasattr(self.l_roadrunner, "getRoadrunner"):
-            species_ids = self.l_roadrunner.species_names
-            species_times = self.timecourse_df.index.values
-            species_data = self.timecourse_df.values
-        else:
-            raise ValueError("Cannot plot species timecourse has a NULL LRoadrunner instance.")
+        #
+        species_data = self.timecourse_df.values
+        species_times = self.timecourse_df.index.values
+        if num_step == -1:
+            num_step = len(self.timepoint_arr) - 1
         pred_df = self.predict(num_step=num_step)
         # Extract model_name before passing kwargs to PlotOptions (not a PlotOptions param)
         model_name = kwargs.pop("model_name", "")
@@ -603,12 +617,12 @@ class Trajectory(object):
             kwargs["title"] = f"Number steps: {num_step}"
         plt_opt = PlotOptions(**kwargs)
         ax = plt_opt.ax
-        colors = [sns.color_palette("tab10")[i % 10] for i in range(len(species_ids))]
+        colors = [sns.color_palette("tab10")[i % 10] for i in range(len(self.species_names))]
         # Do separate loops so that legend works out correctly
-        for i, species_id in enumerate(species_ids):
+        for i, species_id in enumerate(self.species_names):
             ax.plot(species_times, species_data[:, i], # type: ignore
                     label=species_id, color=colors[i], alpha=0.7)
-        for i, species_id in enumerate(species_ids):
+        for i, species_id in enumerate(self.species_names):
             ax.scatter(species_times[1:], pred_df[species_id].values[1:],  # type: ignore
                     s=8, alpha=0.7, color=colors[i])
         plt_opt.apply()
@@ -717,6 +731,7 @@ class Trajectory(object):
                 self.l_roadrunner,
                 self.eigenvalues_collection_arr[istart:iend],
                 self.eigenvectors_collection_arr[istart:iend],
+                forcing_input_collection_arr=self.forcing_input_collection_arr[istart:iend],
                 )
             )
         return jcs
@@ -768,6 +783,7 @@ class Trajectory(object):
         self._num_fit = num_fit
         self._jacobian_selection = jacobian_selection
         self.timecourse_df = self.l_roadrunner.timecourse_df.copy()
+        self._forcing_input_arr = np.array([])
 
     @staticmethod
     def _ivp(_: float, x: np.ndarray, jacobian_arr: np.ndarray) -> np.ndarray:
@@ -809,7 +825,7 @@ class Trajectory(object):
             2-D array of shape (num_timepoints, num_species) containing the predicted concentrations.
         """
         if np.array_equal(forcing_input_arr, cn.NULL_ARRAY):
-            forcing_input_arr = self.l_roadrunner.getForcingInputs()
+            forcing_input_arr = self.forcing_input_arr
         if np.array_equal(jacobian_arr, cn.NULL_ARRAY):
             if self._jacobian_selection == cn.JAC_FITTED:
                 jacobian_arr = self.fitJacobian()
@@ -876,7 +892,7 @@ class Trajectory(object):
             raise ValueError(f"Argument 'num_step' ({num_step}) must divide the number of timepoints ({len(self.timepoint_arr) - 1}).")
         #
         if np.array_equal(forcing_input_arr, cn.NULL_ARRAY):
-            forcing_input_arr = self.l_roadrunner.getForcingInputs()
+            forcing_input_arr = self.forcing_input_arr
         if np.array_equal(jacobian_arr, cn.NULL_ARRAY):
             if self._jacobian_selection == cn.JAC_FITTED:
                 jacobian_arr = self.fitJacobian()
@@ -901,20 +917,25 @@ class Trajectory(object):
                 for itime in index_arr:
                     cur_time = self.timepoint_arr[itime]
                     pred_time = self.timepoint_arr[itime + num_step]
+                    t_evals = [t for t in self.timepoint_arr if cur_time < t <= pred_time]
                     initial_state_arr = self.l_roadrunner.timecourse_df.loc[cur_time].values # type: ignore
                     sol = solve_ivp(ode,
                             (cur_time, pred_time),
                             initial_state_arr,
-                            t_eval=[pred_time],
+                            t_eval=t_evals,
                             method='Radau')
-                    if sol.success and sol.y.shape == (n_species, 1):
-                        result_arr[itime + num_step] = sol.y.T
+                    if sol.success and sol.y.shape == (n_species, num_step):
+                        result_arr[itime+1:itime + num_step + 1] = sol.y.T
+                    else:
+                        raise ValueError(f"ODE solver failed at timepoint {cur_time} with message: {sol.message}")
             return result_arr
         except Exception as e:
-            return np.full((n_time, n_species), np.nan)
+            return result_arr
 
     def _sortArrays(self) -> None:
-        """Sort the jacobian_arr and timepoint_arr by timepoint."""
+        """Sort the jacobian_arr, timepoint_arr, and forcing_input_collection_arr by timepoint."""
         sort_indices = np.argsort(self.timepoint_arr)
         self.timepoint_arr = self.timepoint_arr[sort_indices]
         self.jacobian_collection_arr = self.jacobian_collection_arr[sort_indices]
+        if hasattr(self, "forcing_input_collection_arr") and self.forcing_input_collection_arr.size > 0:
+            self.forcing_input_collection_arr = self.forcing_input_collection_arr[sort_indices]

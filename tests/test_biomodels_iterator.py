@@ -9,7 +9,7 @@ from typing import List
 
 import pandas as pd # type: ignore
 import src.constants as cn
-from biomodels_iterator import BiomodelsItem, BiomodelsIterator  # type: ignore
+from biomodels_iterator import BiomodelsItem, BiomodelsIterator, getBiomodelsEndtimes  # type: ignore
 
 IGNORE_TESTS = False
 HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
@@ -93,6 +93,53 @@ class TestBiomodelsItem(unittest.TestCase):
             return
         item = BiomodelsItem(model_name="BIOMD0000000001", sbml_paths=[], sedml_paths=[])
         self.assertEqual(len(item.existing_df), 0)
+
+
+class TestBiomodelsItemModelNum(unittest.TestCase):
+    """Tests for BiomodelsItem.model_num and getModelNumber."""
+
+    def test_standard_model_name(self) -> None:
+        """model_num is the integer suffix of a standard BIOMD name."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem("BIOMD0000000001", [], [])
+        self.assertEqual(item.model_num, 1)
+
+    def test_large_model_number(self) -> None:
+        """model_num is correct for a larger model number."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem("BIOMD0000001234", [], [])
+        self.assertEqual(item.model_num, 1234)
+
+    def test_invalid_name_returns_minus_one(self) -> None:
+        """Non-BIOMD name returns model_num of -1."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem("NOT_A_MODEL", [], [])
+        self.assertEqual(item.model_num, -1)
+
+    def test_biomd_with_no_digits_returns_minus_one(self) -> None:
+        """'BIOMD' with no trailing digits returns model_num of -1."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem("BIOMD", [], [])
+        self.assertEqual(item.model_num, -1)
+
+    def test_iterator_item_model_num_matches_name(self) -> None:
+        """Items yielded by the iterator have model_num matching their model_name."""
+        if IGNORE_TESTS:
+            return
+        tmpdir = tempfile.mkdtemp()
+        try:
+            _make_model_dir(tmpdir, "BIOMD0000000007", xml_files=["model.xml"], sedml_files=[])
+            it = BiomodelsIterator(biomodels_dir=tmpdir, is_report=False)
+            items = list(it)
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0].model_num, 7)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 class TestGetProcessedModelsFromCSV(unittest.TestCase):
@@ -585,6 +632,142 @@ class TestBiomodelsIteratorReal(unittest.TestCase):
             return
         names = [item.model_name for item in self._iterator]
         self.assertEqual(names, sorted(names))
+
+
+class TestGetBiomodelsEndtimes(unittest.TestCase):
+    """Tests for getBiomodelsEndtimes."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def test_returns_dict(self) -> None:
+        """Returns a dict."""
+        if IGNORE_TESTS:
+            return
+        result = getBiomodelsEndtimes("/nonexistent/path.csv")
+        self.assertIsInstance(result, dict)
+
+    def test_missing_file_returns_empty_dict(self) -> None:
+        """Returns empty dict when the CSV file does not exist."""
+        if IGNORE_TESTS:
+            return
+        result = getBiomodelsEndtimes("/nonexistent/path.csv")
+        self.assertEqual(result, {})
+
+    def test_valid_csv_returns_mapping(self) -> None:
+        """Valid CSV with model_name and end_time columns returns correct mapping."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "endtimes.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+            writer.writerow(["BIOMD0000000002", "100.0"])
+        result = getBiomodelsEndtimes(csv_path)
+        self.assertAlmostEqual(result["BIOMD0000000001"], 25.0)
+        self.assertAlmostEqual(result["BIOMD0000000002"], 100.0)
+
+    def test_missing_model_name_column_returns_empty_dict(self) -> None:
+        """Returns empty dict when CSV is missing the model_name column."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "bad.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["wrong_col", cn.COL_ENDTIME])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+        result = getBiomodelsEndtimes(csv_path)
+        self.assertEqual(result, {})
+
+    def test_missing_end_time_column_returns_empty_dict(self) -> None:
+        """Returns empty dict when CSV is missing the end_time column."""
+        if IGNORE_TESTS:
+            return
+        csv_path = os.path.join(self._tmpdir, "bad.csv")
+        with open(csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([cn.COL_MODEL_NAME, "wrong_col"])
+            writer.writerow(["BIOMD0000000001", "25.0"])
+        result = getBiomodelsEndtimes(csv_path)
+        self.assertEqual(result, {})
+
+
+class TestBiomodelsItemEndTime(unittest.TestCase):
+    """Tests for the end_time field on BiomodelsItem."""
+
+    def test_end_time_defaults_to_none(self) -> None:
+        """end_time is None when not provided."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem("BIOMD0000000001", [], [])
+        self.assertIsNone(item.end_time)
+
+    def test_end_time_stored(self) -> None:
+        """end_time passed to constructor is accessible."""
+        if IGNORE_TESTS:
+            return
+        item = BiomodelsItem("BIOMD0000000001", [], [], end_time=42.0)
+        self.assertAlmostEqual(item.end_time, 42.0)
+
+    def test_iterator_stamps_end_time_from_csv(self) -> None:
+        """Iterator sets end_time on each item when the endtimes CSV is present."""
+        if IGNORE_TESTS:
+            return
+        tmpdir = tempfile.mkdtemp()
+        try:
+            # Build a fake BioModels directory with one model
+            model_name = "BIOMD0000000001"
+            model_dir = os.path.join(tmpdir, model_name)
+            os.makedirs(model_dir)
+            open(os.path.join(model_dir, f"{model_name}_url.xml"), "w").close()
+
+            # Write a matching endtimes CSV
+            csv_path = os.path.join(tmpdir, "endtimes.csv")
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([cn.COL_MODEL_NAME, cn.COL_ENDTIME])
+                writer.writerow([model_name, "99.5"])
+
+            iterator = BiomodelsIterator(
+                biomodels_dir=tmpdir,
+                is_report=False,
+            )
+            # Patch the endtime dict directly
+            iterator._endtime_dct = getBiomodelsEndtimes(csv_path)
+            items = list(iterator)
+            self.assertEqual(len(items), 1)
+            self.assertAlmostEqual(items[0].end_time, 99.5)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_iterator_sets_end_time_none_when_not_in_csv(self) -> None:
+        """Iterator sets end_time to None for models absent from the endtimes CSV."""
+        if IGNORE_TESTS:
+            return
+        tmpdir = tempfile.mkdtemp()
+        try:
+            model_name = "BIOMD0000000002"
+            model_dir = os.path.join(tmpdir, model_name)
+            os.makedirs(model_dir)
+            open(os.path.join(model_dir, f"{model_name}_url.xml"), "w").close()
+
+            iterator = BiomodelsIterator(
+                biomodels_dir=tmpdir,
+                is_report=False,
+            )
+            iterator._endtime_dct = {}  # empty — no CSV entries
+            items = list(iterator)
+            self.assertEqual(len(items), 1)
+            self.assertIsNone(items[0].end_time)
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ Usage::
 """
 import src.constants as cn  # type: ignore
 
+from collections import namedtuple
 import numpy as np  # type: ignore
 import os
 import pandas as pd  # type: ignore
@@ -27,32 +28,7 @@ SBML_DEFAULT_END_TIME = 10.0
 MAX_ITERATOR_STEP = 50*int(1e6)
 
 
-def getBiomodelsEndtimes(endtimes_csv_path: str=cn.CALCULATED_ENTIMES_PATH) -> dict[str, float]:
-    """
-    Load a mapping of BioModels IDs to end times from a CSV file.
-
-    The CSV file should have two columns: "biomodel_id" and "end_time", where "biomodel_id" contains the BioModels ID (e.g., "BIOMD0000000001") and "end_time" contains the corresponding end time as a float.
-
-    Parameters
-    ----------
-    endtimes_csv_path : str
-        Path to the CSV file containing BioModels end times.
-
-    Returns
-    -------
-    dict
-        A dictionary mapping BioModels IDs (str) to end times (float).
-    """
-    result_dct : dict[str, float] = {}
-    if os.path.exists(endtimes_csv_path):
-        df = pd.read_csv(endtimes_csv_path)
-        if not cn.COL_MODEL_NAME in df.columns or not cn.COL_ENDTIME in df.columns:
-            #print(f"Warning: End times CSV file at {endtimes_csv_path} is missing required columns. Returning empty end times mapping.")
-            result_dct = {}
-            result_dct = {}
-        else:
-            result_dct = dict(zip(df[cn.COL_MODEL_NAME], df[cn.COL_ENDTIME]))
-    return result_dct
+from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore  # re-export for backward compatibility
 
 
 class LRoadrunner(object):
@@ -461,8 +437,10 @@ class LRoadrunner(object):
             print(f"Error occurred while simulating: {e}")
             return np.array([]).reshape(0, 0)
         return np.array(result_arr[:, idx:])  # Exclude or include time column
-    
-    def makeJacobians(self)->Tuple[np.ndarray, np.ndarray]:
+
+    MakeJacobianResult = namedtuple("MakeJacobianResult",
+            ["jacobians", "timepoints", "forcing_inputs"]) 
+    def makeJacobians(self)->MakeJacobianResult:
         """
         Run simulations and collect the full Jacobian at each timepoint.
 
@@ -472,8 +450,9 @@ class LRoadrunner(object):
 
         Returns
         -------
-        Tuple[np.ndarray, np.ndarray]
-            A tuple containing the Jacobian matrices and their corresponding timepoints.
+        MakeJacobianResult
+            Named tuple with fields: jacobians (num_points, n, n), timepoints (num_points,),
+            forcing_inputs (num_points, n).
 
         Raises
         ------
@@ -492,8 +471,10 @@ class LRoadrunner(object):
         rr.reset()
         if self.start_time > 0:
             _ = rr.simulate(0, self.start_time, 2)
-        jacobians = []
+        jacobian_collection = []
         valid_times = []
+        forcing_input_collection: List[np.ndarray] = []
+        # Iterative simulate to obtain the Jacobians.
         for i, t in enumerate(time_arr):
             try:
                 if i == 0:
@@ -509,12 +490,16 @@ class LRoadrunner(object):
                 raise ValueError(f"Failed to get Jacobian at t={t}: {e}") from e    
             if np.all(np.isclose(jacobian_arr, 0.0)):
                 raise ValueError(f"Jacobian at time {t} is all zeros, which may indicate an issue with the model or simulation. Setting Jacobian to all zeros for this timepoint.")
-            jacobians.append(jacobian_arr)
+            jacobian_collection.append(jacobian_arr)
+            f_arr = np.array(rr.getRatesOfChange())
+            forcing_input_collection.append(f_arr - jacobian_arr @ self.getInitialValues())
             valid_times.append(t)
-        if not jacobians:
+        if not jacobian_collection:
             raise ValueError("No valid Jacobians could be computed (all timepoints failed, likely due to assignment-rule species).")
         _ = self.timecourse_df  # Cache the timecourse DataFrame for later use in plotting, to avoid simulating again. This is done after the Jacobian collection loop to avoid state corruption that can cause getFullJacobian to segfault even after reset().
-        return np.array(jacobians), np.array(valid_times)
+        return self.MakeJacobianResult(jacobians=np.array(jacobian_collection),
+                timepoints=np.array(valid_times),
+                forcing_inputs=np.array(forcing_input_collection))
 
     def _calculateEndtimeJacobian(self) -> float:
         """

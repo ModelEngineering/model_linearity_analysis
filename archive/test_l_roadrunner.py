@@ -304,42 +304,60 @@ class TestMakeJacobians(unittest.TestCase):
     def setUp(self) -> None:
         self.lr = LRoadrunner(ANTIMONY_MODEL, end_time=50.0, num_point=10)
 
-    def test_returns_tuple_of_two(self) -> None:
-        """makeJacobians returns a tuple of two elements."""
+    def test_returns_namedtuple_of_three(self) -> None:
+        """makeJacobians returns a MakeJacobianResult namedtuple with three fields."""
         if IGNORE_TESTS:
             return
         result = self.lr.makeJacobians()
         self.assertIsInstance(result, tuple)
-        self.assertEqual(len(result), 2)
+        self.assertEqual(len(result), 3)
+        self.assertTrue(hasattr(result, "jacobians"))
+        self.assertTrue(hasattr(result, "timepoints"))
+        self.assertTrue(hasattr(result, "forcing_inputs"))
 
     def test_jacobians_shape(self) -> None:
         """Jacobians array has shape (num_points, n_species, n_species)."""
         if IGNORE_TESTS:
             return
-        jacobians, _ = self.lr.makeJacobians()
+        result = self.lr.makeJacobians()
         n_species = len(self.lr.getRoadrunner().getFloatingSpeciesIds())
-        self.assertEqual(jacobians.shape, (self.lr.num_point, n_species, n_species))
+        self.assertEqual(result.jacobians.shape, (self.lr.num_point, n_species, n_species))
 
     def test_times_shape(self) -> None:
-        """Times array has shape (num_points,)."""
+        """Timepoints array has shape (num_points,)."""
         if IGNORE_TESTS:
             return
-        _, times = self.lr.makeJacobians()
-        self.assertEqual(times.shape, (self.lr.num_point,))
+        result = self.lr.makeJacobians()
+        self.assertEqual(result.timepoints.shape, (self.lr.num_point,))
 
     def test_times_are_monotonically_increasing(self) -> None:
         """Timepoints are strictly increasing."""
         if IGNORE_TESTS:
             return
-        _, times = self.lr.makeJacobians()
-        self.assertTrue(np.all(np.diff(times) > 0))
+        result = self.lr.makeJacobians()
+        self.assertTrue(np.all(np.diff(result.timepoints) > 0))
 
     def test_jacobians_are_finite(self) -> None:
         """All Jacobian entries are finite."""
         if IGNORE_TESTS:
             return
-        jacobians, _ = self.lr.makeJacobians()
-        self.assertTrue(np.all(np.isfinite(jacobians)))
+        result = self.lr.makeJacobians()
+        self.assertTrue(np.all(np.isfinite(result.jacobians)))
+
+    def test_forcing_inputs_shape(self) -> None:
+        """forcing_inputs array has shape (num_points, n_species)."""
+        if IGNORE_TESTS:
+            return
+        result = self.lr.makeJacobians()
+        n_species = len(self.lr.getRoadrunner().getFloatingSpeciesIds())
+        self.assertEqual(result.forcing_inputs.shape, (self.lr.num_point, n_species))
+
+    def test_forcing_inputs_are_finite(self) -> None:
+        """All forcing_inputs entries are finite."""
+        if IGNORE_TESTS:
+            return
+        result = self.lr.makeJacobians()
+        self.assertTrue(np.all(np.isfinite(result.forcing_inputs)))
 
     def test_raises_for_no_floating_species(self) -> None:
         """makeJacobians raises ValueError when the model has no floating species."""

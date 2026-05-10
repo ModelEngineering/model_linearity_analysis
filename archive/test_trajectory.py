@@ -53,15 +53,18 @@ BIOMODEL_NAMES = ["BIOMD0000000206", "BIOMD0000000054",
 def _make_trajectory_from_arrays(jacobian_collection_arr: np.ndarray, timepoints: np.ndarray) -> Trajectory:
     """Return a JacobianCollection from explicit arrays using a mock LRoadrunner."""
     lr = MagicMock(spec=LRoadrunner)
-    lr.makeJacobians.return_value = (jacobian_collection_arr, timepoints)
-    lr.start_time = 0.0
-    lr.end_time = 5.0
-    lr.num_speces = 3
-    lr.num_point = len(timepoints)
     if len(jacobian_collection_arr) == 0:
         num_species = 0
     else:
         num_species = jacobian_collection_arr.shape[1]
+    forcing_inputs = np.zeros((len(timepoints), num_species))
+    lr.makeJacobians.return_value = LRoadrunner.MakeJacobianResult(
+            jacobians=jacobian_collection_arr,
+            timepoints=timepoints,
+            forcing_inputs=forcing_inputs)
+    lr.start_time = 0.0
+    lr.end_time = 5.0
+    lr.num_point = len(timepoints)
     lr.simulate.return_value = np.zeros((len(timepoints), num_species))
     lr.getForcingInputs.return_value = np.zeros(num_species)
     lr.getInitialValues.return_value = np.zeros(num_species)
@@ -1078,7 +1081,7 @@ class TestGetGershgorinCircles(unittest.TestCase):
             self.assertTrue(np.all(np.isfinite(result[col].values)))
 
 
-#@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
 @unittest.skip("Too big.")
 class TestGetGershgorinCirclesBiomd153(unittest.TestCase):
     """Tests for Trajectory.getGershgorinCircles on BIOMD0000000153 (74 species)."""
@@ -1433,8 +1436,8 @@ class TestFitJacobianBiomd27(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(result)))
 
 
-@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
 @unittest.skipUnless(IS_BIG_TESTS, "Big tests are disabled")
+@unittest.skipUnless(os.path.isdir(cn.BIOMODELS_DIR), "BioModels data directory not found")
 class TestPlotPredictionsBiomd153(unittest.TestCase):
     """Tests for Trajectory.plotPredictions on BIOMD0000000153 (74 species)."""
 
@@ -1473,7 +1476,8 @@ class TestPlotPredictionsBiomd153(unittest.TestCase):
                 #jacobian_selection=cn.JAC_FITTED,
                 num_point=200)
                 #num_point=self.NUM_POINT)
-        trajectory.plotPrediction()
+        trajectory.plotPrediction(num_step=1)
+        trajectory.plotPrediction(num_step=-1)
         plt.show()
 
     def test_line_count_matches_species(self) -> None:
@@ -1536,8 +1540,8 @@ class TestPredictManyStep(unittest.TestCase):
         result = self.trajectory._predictManyStep(num_step=-1)
         self.assertFalse(np.any(np.isnan(result[0])))   # initial row always set
         self.assertFalse(np.any(np.isnan(result[-1])))  # final row predicted
-        # All intermediate rows should be NaN
-        self.assertTrue(np.all(np.isnan(result[1:-1])))
+        # All intermediate rows should be non-NaN
+        self.assertFalse(np.any(np.isnan(result[1:-1])))
 
     def test_predicted_positions_non_nan(self) -> None:
         """Positions at multiples of num_step are non-NaN."""
@@ -1549,17 +1553,6 @@ class TestPredictManyStep(unittest.TestCase):
         for pos in range(num_step, n, num_step):
             self.assertFalse(np.any(np.isnan(result[pos])),
                     msg=f"Expected non-NaN at position {pos}")
-
-    def test_unpredicted_positions_are_nan(self) -> None:
-        """Positions not at multiples of num_step (other than 0) are NaN."""
-        if IGNORE_TESTS:
-            return
-        num_step = 5
-        result = self.trajectory._predictManyStep(num_step=num_step)
-        for pos in range(1, self.NUM_POINT):
-            if pos % num_step != 0:
-                self.assertTrue(np.all(np.isnan(result[pos])),
-                        msg=f"Expected NaN at position {pos}")
 
     def test_invalid_num_step_zero_raises(self) -> None:
         """num_step=0 raises ValueError."""
