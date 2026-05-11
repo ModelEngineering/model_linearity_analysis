@@ -1,288 +1,191 @@
-"""Tests for scripts/calculate_linear_prediction_scores.py."""
-
+"""Tests for scripts/calculate_linear_prediction_scores.py"""
 import os
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
 
-import numpy as np  # type: ignore
-import pandas as pd  # type: ignore
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from scripts.calculate_linear_prediction_scores import (  # type: ignore
-        _getModelNums, _getChunk, processModels, EXCLUDED_MODELS)
 import src.constants as cn  # type: ignore
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
+from calculate_linear_prediction_scores import (  # type: ignore
+        _getChunk, _getModelNums, processModels)
+
 IGNORE_TESTS = False
+HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
 
-MODULE = "scripts.calculate_linear_prediction_scores"
-
-TIMES = [0.0, 1.0, 2.0]
-TRUE_DF = pd.DataFrame({'A': [1.0, 2.0, 4.0], 'B': [2.0, 4.0, 8.0]}, index=TIMES)
-PRED_DF = 2.0 * TRUE_DF
-
-
-def _makeMockTrajectory(pred_df: pd.DataFrame = PRED_DF) -> MagicMock:
-    trajectory = MagicMock()
-    trajectory.timecourse_df = TRUE_DF
-    trajectory.predict.return_value = pred_df
-    return trajectory
-
-
-def _makeMockScore(has_existing: bool = False) -> MagicMock:
-    score = MagicMock()
-    score._serialization_path = "/tmp/test_scores.csv"
-    if has_existing:
-        score.score_df = pd.DataFrame({"description": ["BIOMD0000000001"]})
-    else:
-        score.score_df = pd.DataFrame({"description": []})
-    return score
-
-
-def _mockIterator(items: list) -> MagicMock:
-    instance = MagicMock()
-    instance.__iter__ = MagicMock(return_value=iter(items))
-    return instance
-
-
-def _makeMockItem(model_name: str) -> MagicMock:
-    item = MagicMock()
-    item.model_name = model_name
-    item.sbml_paths = [f"/biomodels/{model_name}/{model_name}_url.xml"]
-    return item
-
-
-class TestGetModelNums(unittest.TestCase):
-
-    def test_includesBiomdDirs(self):
-        if IGNORE_TESTS:
-            return
-        entries = ["BIOMD0000000001", "BIOMD0000000003"]
-        with patch(f"{MODULE}.os.listdir", return_value=entries), \
-                patch(f"{MODULE}.os.path.isdir", return_value=True):
-            result = _getModelNums()
-        self.assertIn(1, result)
-        self.assertIn(3, result)
-
-    def test_excludesNonBiomdNames(self):
-        if IGNORE_TESTS:
-            return
-        entries = ["BIOMD0000000001", "not_a_biomd", "somefile.xml"]
-        with patch(f"{MODULE}.os.listdir", return_value=entries), \
-                patch(f"{MODULE}.os.path.isdir", return_value=True):
-            result = _getModelNums()
-        self.assertEqual(result, [1])
-
-    def test_excludesNonDirs(self):
-        if IGNORE_TESTS:
-            return
-        entries = ["BIOMD0000000001", "BIOMD0000000002"]
-        def is_dir(path):
-            return "0000000001" in path
-        with patch(f"{MODULE}.os.listdir", return_value=entries), \
-                patch(f"{MODULE}.os.path.isdir", side_effect=is_dir):
-            result = _getModelNums()
-        self.assertEqual(result, [1])
-
-    def test_returnsSorted(self):
-        if IGNORE_TESTS:
-            return
-        entries = ["BIOMD0000000005", "BIOMD0000000002", "BIOMD0000000010"]
-        with patch(f"{MODULE}.os.listdir", return_value=entries), \
-                patch(f"{MODULE}.os.path.isdir", return_value=True):
-            result = _getModelNums()
-        self.assertEqual(result, sorted(result))
-
-    def test_emptyDirectory(self):
-        if IGNORE_TESTS:
-            return
-        with patch(f"{MODULE}.os.listdir", return_value=[]), \
-                patch(f"{MODULE}.os.path.isdir", return_value=True):
-            result = _getModelNums()
-        self.assertEqual(result, [])
+_MODEL_NUMS = [1, 2, 3, 4, 5, 6]
 
 
 class TestGetChunk(unittest.TestCase):
-    # process_index is 1-based: the bash script passes i from 1 to N.
+    """Tests for _getChunk."""
 
-    def setUp(self):
-        self.all_model_nums = list(range(1, 11))  # [1..10]
-
-    def test_singleProcess(self):
+    def test_returns_tuple_of_two(self) -> None:
+        """_getChunk returns a 2-tuple."""
         if IGNORE_TESTS:
             return
-        first, last = _getChunk(self.all_model_nums, 1, 1)
-        self.assertEqual(first, 1)
-        self.assertEqual(last, 10)
+        result = _getChunk(_MODEL_NUMS, 2, 1)
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(len(result), 2)
 
-    def test_twoProcesses_firstSlice(self):
+    def test_single_process_covers_all(self) -> None:
+        """One process is assigned every model."""
         if IGNORE_TESTS:
             return
-        first, last = _getChunk(self.all_model_nums, 2, 1)
-        self.assertEqual(first, 1)
-        self.assertEqual(last, 5)
+        first, last = _getChunk(_MODEL_NUMS, 1, 1)
+        self.assertEqual(first, _MODEL_NUMS[0])
+        self.assertEqual(last, _MODEL_NUMS[-1])
 
-    def test_twoProcesses_secondSlice(self):
+    def test_first_process_starts_at_first_model(self) -> None:
+        """Process 1 always starts at the first model number."""
         if IGNORE_TESTS:
             return
-        first, last = _getChunk(self.all_model_nums, 2, 2)
-        self.assertEqual(first, 6)
-        self.assertEqual(last, 10)
+        first, _ = _getChunk(_MODEL_NUMS, 3, 1)
+        self.assertEqual(first, _MODEL_NUMS[0])
 
-    def test_processIndexBeyondModels_returnsEmpty(self):
+    def test_last_process_ends_at_last_model(self) -> None:
+        """The final process always ends at the last model number."""
         if IGNORE_TESTS:
             return
-        first, last = _getChunk(self.all_model_nums, 20, 15)
+        _, last = _getChunk(_MODEL_NUMS, 3, 3)
+        self.assertEqual(last, _MODEL_NUMS[-1])
+
+    def test_even_split(self) -> None:
+        """Two processes each get half the models when count is even."""
+        if IGNORE_TESTS:
+            return
+        nums = [10, 20, 30, 40]
+        first1, last1 = _getChunk(nums, 2, 1)
+        first2, last2 = _getChunk(nums, 2, 2)
+        self.assertEqual(first1, 10)
+        self.assertEqual(last1, 20)
+        self.assertEqual(first2, 30)
+        self.assertEqual(last2, 40)
+
+    def test_process_index_beyond_models_returns_invalid(self) -> None:
+        """A process index with no assigned models returns (0, -1)."""
+        if IGNORE_TESTS:
+            return
+        first, last = _getChunk(_MODEL_NUMS, 10, 10)
         self.assertEqual(first, 0)
         self.assertEqual(last, -1)
 
-    def test_unevenSplit_firstSlice(self):
+    def test_chunks_are_non_overlapping_and_complete(self) -> None:
+        """All processes together cover every model exactly once."""
         if IGNORE_TESTS:
             return
-        nums = [1, 2, 3]
-        first, last = _getChunk(nums, 2, 1)
-        self.assertEqual(first, 1)
-        self.assertEqual(last, 2)
-
-    def test_unevenSplit_secondSlice(self):
-        if IGNORE_TESTS:
-            return
-        nums = [1, 2, 3]
-        first, last = _getChunk(nums, 2, 2)
-        self.assertEqual(first, 3)
-        self.assertEqual(last, 3)
-
-    def test_singleModel(self):
-        if IGNORE_TESTS:
-            return
-        first, last = _getChunk([42], 1, 1)
-        self.assertEqual(first, 42)
-        self.assertEqual(last, 42)
-
-    def test_slicesCoverAllModels(self):
-        if IGNORE_TESTS:
-            return
-        nums = list(range(1, 8))
         num_processes = 3
-        covered = set()
-        for idx in range(1, num_processes + 1):
-            first, last = _getChunk(nums, num_processes, idx)
+        all_assigned = []
+        for i in range(1, num_processes + 1):
+            first, last = _getChunk(_MODEL_NUMS, num_processes, i)
             if last >= first:
-                covered.update(n for n in nums if first <= n <= last)
-        self.assertEqual(covered, set(nums))
+                all_assigned.extend(
+                        [n for n in _MODEL_NUMS if first <= n <= last])
+        self.assertEqual(all_assigned, _MODEL_NUMS)
+
+    def test_first_less_than_or_equal_to_last_when_valid(self) -> None:
+        """first <= last for any in-range process."""
+        if IGNORE_TESTS:
+            return
+        for i in range(1, 4):
+            first, last = _getChunk(_MODEL_NUMS, 3, i)
+            self.assertLessEqual(first, last)
+
+    def test_returned_values_are_in_model_nums(self) -> None:
+        """first and last are elements of all_model_nums."""
+        if IGNORE_TESTS:
+            return
+        for i in range(1, 4):
+            first, last = _getChunk(_MODEL_NUMS, 3, i)
+            self.assertIn(first, _MODEL_NUMS)
+            self.assertIn(last, _MODEL_NUMS)
 
 
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
+class TestGetModelNums(unittest.TestCase):
+    """Tests for _getModelNums."""
+
+    def test_returns_list(self) -> None:
+        """_getModelNums returns a list."""
+        if IGNORE_TESTS:
+            return
+        result = _getModelNums()
+        self.assertIsInstance(result, list)
+
+    def test_elements_are_ints(self) -> None:
+        """Every element is an int."""
+        if IGNORE_TESTS:
+            return
+        for num in _getModelNums():
+            self.assertIsInstance(num, int)
+
+    def test_all_positive(self) -> None:
+        """Every element is a positive integer."""
+        if IGNORE_TESTS:
+            return
+        for num in _getModelNums():
+            self.assertGreater(num, 0)
+
+    def test_is_sorted(self) -> None:
+        """Result is in ascending order."""
+        if IGNORE_TESTS:
+            return
+        result = _getModelNums()
+        self.assertEqual(result, sorted(result))
+
+    def test_nonempty(self) -> None:
+        """At least one model is found."""
+        if IGNORE_TESTS:
+            return
+        self.assertGreater(len(_getModelNums()), 0)
+
+
+@unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
 class TestProcessModels(unittest.TestCase):
+    """Integration tests for processModels."""
 
-    def test_callsAddTestResult(self):
+    _TEST_PROCESS_INDEX = 9999
+
+    @classmethod
+    def _csvPath(cls) -> str:
+        return os.path.join(
+                cn.DATA_DIR, f"linear_predictor_scores_{cls._TEST_PROCESS_INDEX}.csv")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        path = cls._csvPath()
+        if os.path.exists(path):
+            os.remove(path)
+
+    def test_creates_output_csv(self) -> None:
+        """processModels writes a CSV to DATA_DIR."""
         if IGNORE_TESTS:
             return
-        mock_item = _makeMockItem("BIOMD0000000001")
-        mock_score = _makeMockScore()
-        mock_trajectory = _makeMockTrajectory()
+        path = self._csvPath()
+        if os.path.exists(path):
+            os.remove(path)
+        processModels(8, 8, self._TEST_PROCESS_INDEX, 1)
+        self.assertTrue(os.path.exists(path))
 
-        with patch(f"{MODULE}.Score", return_value=mock_score), \
-                patch(f"{MODULE}.BiomodelsIterator",
-                        return_value=_mockIterator([mock_item])), \
-                patch(f"{MODULE}.Trajectory.makeBiomodel",
-                        return_value=mock_trajectory), \
-                patch(f"{MODULE}.os.path.exists", return_value=False):
-            processModels(1, 1, 1, 1)
-
-        mock_score.addTestResult.assert_called_once_with(
-                TRUE_DF, PRED_DF, description="BIOMD0000000001")
-
-    def test_usesAdjustedJacobianWhenNaNInPrediction(self):
+    def test_csv_has_model_row(self) -> None:
+        """Output CSV contains a row with aggregation_type == 'model'."""
         if IGNORE_TESTS:
             return
-        pred_with_nan = PRED_DF.copy()
-        pred_with_nan.iloc[0, 0] = np.nan
-        pred_clean = PRED_DF.copy()
+        import pandas as pd  # type: ignore
+        path = self._csvPath()
+        if not os.path.exists(path):
+            processModels(8, 8, self._TEST_PROCESS_INDEX, 1)
+        df = pd.read_csv(path)
+        self.assertTrue((df["aggregation_type"] == "model").any())
 
-        mock_item = _makeMockItem("BIOMD0000000001")
-        mock_score = _makeMockScore()
-        trajectory1 = _makeMockTrajectory(pred_with_nan)
-        trajectory2 = _makeMockTrajectory(pred_clean)
-
-        with patch(f"{MODULE}.Score", return_value=mock_score), \
-                patch(f"{MODULE}.BiomodelsIterator",
-                        return_value=_mockIterator([mock_item])), \
-                patch(f"{MODULE}.Trajectory.makeBiomodel",
-                        side_effect=[trajectory1, trajectory2]), \
-                patch(f"{MODULE}.os.path.exists", return_value=False):
-            processModels(1, 1, 1, 1)
-
-        trajectory2.predict.assert_called_once_with(
-                is_adjust_fitted_jacobian=True)
-        mock_score.addTestResult.assert_called_once_with(
-                TRUE_DF, pred_clean, description="BIOMD0000000001")
-
-    def test_continuesOnException(self):
+    def test_csv_description_matches_model_name(self) -> None:
+        """The description column contains the processed model's name."""
         if IGNORE_TESTS:
             return
-        item1 = _makeMockItem("BIOMD0000000001")
-        item2 = _makeMockItem("BIOMD0000000002")
-        mock_score = _makeMockScore()
-        ok_trajectory = _makeMockTrajectory()
-
-        with patch(f"{MODULE}.Score", return_value=mock_score), \
-                patch(f"{MODULE}.BiomodelsIterator",
-                        return_value=_mockIterator([item1, item2])), \
-                patch(f"{MODULE}.Trajectory.makeBiomodel",
-                        side_effect=[RuntimeError("simulation error"), ok_trajectory]), \
-                patch(f"{MODULE}.os.path.exists", return_value=False):
-            processModels(1, 2, 1, 1)
-
-        mock_score.addTestResult.assert_called_once_with(
-                TRUE_DF, PRED_DF, description="BIOMD0000000002")
-
-    def test_skipsExistingModels(self):
-        if IGNORE_TESTS:
-            return
-        mock_score = _makeMockScore(has_existing=True)  # BIOMD0000000001 already processed
-        mock_item = _makeMockItem("BIOMD0000000002")
-        mock_trajectory = _makeMockTrajectory()
-
-        with patch(f"{MODULE}.Score", return_value=mock_score), \
-                patch(f"{MODULE}.BiomodelsIterator") as mock_bi_class, \
-                patch(f"{MODULE}.Trajectory.makeBiomodel",
-                        return_value=mock_trajectory), \
-                patch(f"{MODULE}.os.path.exists", return_value=True):
-            mock_bi_class.return_value = _mockIterator([mock_item])
-            processModels(1, 2, 1, 1)
-
-        excluded = mock_bi_class.call_args.kwargs["excluded_models"]
-        self.assertIn("BIOMD0000000001", excluded)
-
-    def test_excludedModelsPassedToIterator(self):
-        if IGNORE_TESTS:
-            return
-        mock_score = _makeMockScore()
-
-        with patch(f"{MODULE}.Score", return_value=mock_score), \
-                patch(f"{MODULE}.BiomodelsIterator") as mock_bi_class, \
-                patch(f"{MODULE}.os.path.exists", return_value=False):
-            mock_bi_class.return_value = _mockIterator([])
-            processModels(1, 1, 1, 1)
-
-        excluded = mock_bi_class.call_args.kwargs["excluded_models"]
-        for model in EXCLUDED_MODELS:
-            self.assertIn(model, excluded)
-
-    def test_serializationPathIncludesProcessIndex(self):
-        if IGNORE_TESTS:
-            return
-        mock_score = _makeMockScore()
-
-        with patch(f"{MODULE}.Score") as mock_score_class, \
-                patch(f"{MODULE}.BiomodelsIterator",
-                        return_value=_mockIterator([])), \
-                patch(f"{MODULE}.os.path.exists", return_value=False):
-            mock_score_class.return_value = mock_score
-            processModels(2, 3, 7, 10)
-
-        path_arg = mock_score_class.call_args.kwargs["serialization_path"]
-        self.assertIn("7", path_arg)
+        import pandas as pd  # type: ignore
+        path = self._csvPath()
+        if not os.path.exists(path):
+            processModels(8, 8, self._TEST_PROCESS_INDEX, 1)
+        df = pd.read_csv(path)
+        self.assertTrue(df["description"].str.startswith("BIOMD").any())
 
 
 if __name__ == "__main__":

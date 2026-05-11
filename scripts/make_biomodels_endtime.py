@@ -1,8 +1,8 @@
 '''Script that creates a CSV file of BioModels end times.'''
 
 import src.constants as cn  # type: ignore
-from src.l_roadrunner import LRoadrunner # type: ignore
 from src.biomodels_iterator import BiomodelsIterator, BiomodelsItem # type: ignore
+from src.trajectory import Trajectory  # type: ignore
 
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
@@ -34,22 +34,15 @@ def main(output_path: str = cn.CALCULATED_ENTIMES_PATH, is_report: bool = True) 
         if len(item.sbml_paths) == 0:
             continue
         #
-        with open(item.sbml_paths[0], 'r') as f:
-            sbml_str = f.read()
-        # Find the SEDML file in the directory
-        sedml_str : Optional[str] = None
-        if len(item.sedml_paths) > 0:
-            with open(item.sedml_paths[0], 'r') as f:
-                sedml_str = f.read()
-        # Find the end time
         try:
-            lrr = LRoadrunner(sbml_str, sedml_str=sedml_str)
+            trajectory = Trajectory.makeBiomodel(item.model_num)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")
             continue
+        #
         result_dct[cn.COL_MODEL_NAME].append(model_name)
-        result_dct[cn.COL_ENDTIME].append(lrr.end_time)
-        result_dct[cn.COL_ENDTIME_SOURCE].append(lrr.end_time_source)
+        result_dct[cn.COL_ENDTIME].append(trajectory.end_time)
+        result_dct[cn.COL_ENDTIME_SOURCE].append(trajectory.end_time_source)
         existing_df : pd.DataFrame = item.existing_df
         df = pd.DataFrame(result_dct)
         if len(df) > 0 and len(existing_df) > 0:

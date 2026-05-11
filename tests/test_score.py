@@ -2,7 +2,6 @@
 
 import os
 import shutil  # type: ignore
-import sys
 import tempfile  # type: ignore
 import unittest
 from unittest.mock import patch
@@ -13,8 +12,10 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
+from src.trajectory import Trajectory  # type: ignore
 from src.score import (Score, ScoreInfo,  # type: ignore
         AGGREGATION_TYPE, AGGREGATION_MEAN, AGGREGATION_COUNT)
+from linear_predictor import LinearPredictor  # type: ignore
 
 BIOMODELS_DIR = cn.BIOMODELS_DIR
 HAS_BIOMODELS = os.path.isdir(BIOMODELS_DIR)
@@ -453,21 +454,18 @@ class TestScoreBiomodels(unittest.TestCase):
         """Run full pipeline for one BioModel and assert valid score statistics."""
         if IGNORE_TESTS:
             return
-        from src.l_roadrunner import LRoadrunner  # type: ignore
-        from src.trajectory import Trajectory  # type: ignore
-        l_roadrunner = LRoadrunner.makeBiomodel(model_num=model_num, start_time=0.0, end_time=end_time, num_point=11)
-        true_df = l_roadrunner.timecourse_df
-        trajectory = Trajectory(l_roadrunner)
+        trajectory = Trajectory.makeBiomodel(model_num=model_num, start_time=0.0, end_time=end_time, num_point=11)
+        predictor = LinearPredictor(trajectory)
         try:
-            pred_df = trajectory.predict(is_adjust_fitted_jacobian=True)
+            pred_df = predictor.predict()
         except ValueError as e:
             self.skipTest(
                     f"predictLinear raised ValueError for model {model_num}: {e}")
         score = Score(serialization_path=_temp_csv_path())
-        score.addTestResult(true_df, pred_df,
+        score.addTestResult(trajectory.timecourse_df, pred_df,
                 description=f"BIOMD{model_num:010d}")
         # Correct row structure
-        n_species = len(true_df.columns)
+        n_species = trajectory.model.num_species
         self.assertEqual(len(score.score_df), 1 + n_species)
         # Model row statistics are valid
         model_row = score.score_df[
@@ -482,7 +480,7 @@ class TestScoreBiomodels(unittest.TestCase):
                 score.score_df[AGGREGATION_TYPE] != "model"]
         self.assertEqual(
                 list(species_rows[AGGREGATION_TYPE]),
-                list(true_df.columns))
+                list(trajectory.timecourse_df.columns))
 
     def test_biomd8(self) -> None:
         """Full pipeline for BIOMD0000000008."""

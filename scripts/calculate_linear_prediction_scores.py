@@ -11,9 +11,8 @@ Each instance processes a distinct slice of available BioModels and writes
 results to a per-instance CSV (linear_predictor_scores2_<process_index>.csv).
 """
 import src.constants as cn # type: ignore
-from src.l_roadrunner import LRoadrunner # type: ignore
+from src.linear_predictor import LinearPredictor # type: ignore
 from src.score import Score # type: ignore
-from src.trajectory import Trajectory # type: ignore
 from src.biomodels_iterator import BiomodelsIterator # type: ignore
 
 import argparse
@@ -112,21 +111,13 @@ def processModels(first_model_num: int, last_model_num: int, process_index: int,
     #
     for item in iterator:
         model_name = item.model_name
-        # Find the file
-        paths = [p for p in item.sbml_paths if model_name in p]
-        if len(paths) > 0:
-            path = paths[0]
-        else:
-            paths = [p for p in item.sbml_paths if "model.xml" in p]
-            if len(paths) > 0:
-                path = paths[0]
-            else:
-                print(f"Model {model_name}: no SBML file found, skipping.")
-                continue
         try:
-            trajectory = Trajectory.makeBiomodel(path=path)
-            prediction_df = trajectory.predict(num_step=-1)
-            score.addTestResult(trajectory.timecourse_df, prediction_df, description=model_name)
+            predictor = LinearPredictor.makeFromBiomodels(
+                    model_name=model_name, num_step=-1)
+            prediction_df = predictor.predict()
+            score.addTestResult(
+                    predictor.trajectory.timecourse_df, prediction_df,
+                    description=model_name)
         except Exception as e:
             print(f"Error occurred while processing model {model_name}: {e}")
             continue

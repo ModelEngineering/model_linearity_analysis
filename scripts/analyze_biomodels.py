@@ -43,7 +43,6 @@ EXCLUDED_MODELS = [
 ]
 
 import src.constants as cn  # noqa: E402
-from linear_analyzer import LinearAnalyzer  # type: ignore
 
 N_CLUSTER = 5
 OUTPUT_FILENAME = f"{N_CLUSTER}_model_linearity_analysis_data.csv"
