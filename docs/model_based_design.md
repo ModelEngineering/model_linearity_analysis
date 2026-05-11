@@ -63,21 +63,21 @@ This class does linear prediction and evaluations of these predictions. It is co
 This class represents a collection of ``Trajectory`` with the same
 ``Model``. Methods include:
 
-* ``plotTimecourse`` pieces together the timecourse for each ``DynamicModel``, and plots it with a vertical dashed line separating each ``DynamicModel``.
-* ``__eq__`` which checks if it's the same as another ``DynamicModelCollection`` by comparing each ``DynamicModel``.
-* ``__lt`` if the last timepoint of the first Trajector equals the first timepoint of the second trajectory.
-* ``split`` takes as input timepoints to create multiple Trajectory objects. A timepoint specifies the last time for the preceeding Trajectory and the first time for the next Trajectory.
+* Constructor takes a list of ``Tracjectory`` all of which have the same ``Model``. Error checking is done to ensure that timepoints do not overlap. The list is sorted using ``Trajectory.__lt__``. The constructor does not verify that adjacent ``Trajectory`` overlap their end_time and start_time.
+* ``plotTimecourse`` pieces together the timecourse for each ``DynamicModel``, and plots it with a vertical dashed line separating each ``Trajectory``. The arguments to this method are the kwards used by PlotOptions. Internally, the method uses PlotOptions. It should return PlotOptions.
+* ``__eq__`` which checks if it's the same as another ``TrajectoryCollection`` by comparing each ``Trajectory``.
+* ``split`` is a class method that takes as input timepoints to create multiple Trajectory objects. Its signature is ``split(cls, trajectory: Trajectory, timepoints: List[float])``.
+    * A timepoint specifies the last time for the preceeding Trajectory and the first time for the next Trajectory.
+    * Returns ``TrajectoryCollection``.
+    * If a split time falls between existing timepoints (i.e., not exactly in timepoint_arr), it snaps to the nearest timepoint.
 
 ### ``MultipleLinearPredictor``
 
 This class performs piece-wise linear prediction. The times at which
-there is a partition of the linear model is a "split point". Using slicing, we can easily construct the DynamicModels for a collection of split points. (Of course, all will have the same StaticModel.) If there are n split points, then there are n + 1 linear models.
-Note that the old Trajectory.sequentialPartition / nonsequentialPartition aren't mentioned beause their implementation is deferred.
+there is a partition of the linear model is a "split point".
 
-* When splitting a ``DynamicModel``, slicing is used, not simulation.
-* ``split`` can be called with specific split times or without any split time specified. A split time t1 specifies the time at which the previous DynamicModel ends and the second timepoint of the new Dynamics model.
-**Does this belong here?**
-* ``predict``
+* Constructor has the arguments ``TrajectoryCollection`` and ``num_step``, the number of steps ahead for which prediction is done.
+* ``predict`` uses LinearPredictor.predict for each Trajectory.
 * ``score``
 * ``plotPrediction`` The plot shows predicted and actual (simulated) values with vertical dashed lines to indicate regions for submodels.
 
