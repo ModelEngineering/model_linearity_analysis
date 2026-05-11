@@ -3,6 +3,7 @@
 import src.constants as cn  # type: ignore
 from src.biomodels_iterator import getBiomodelsEndtimes  # type: ignore
 from src.model import Model  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
@@ -127,6 +128,31 @@ class Trajectory(object):
                 timecourse_df=self.timecourse_df.loc[tc_mask],
                 end_time_source=self.end_time_source,
         )
+
+    def plotTimecourse(self, **kwargs) -> PlotOptions:
+        """Plot the simulated timecourse for all species.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to PlotOptions. Supported keys: ax, fig, title, xlabel,
+            ylabel, legend, xlim, ylim, model_name.
+
+        Returns
+        -------
+        PlotOptions
+        """
+        plot_options = PlotOptions(**kwargs)
+        ax = plot_options.ax
+        for i, name in enumerate(self.model.species_names):
+            ax.plot(
+                    self.timecourse_df.index,
+                    self.timecourse_df[name],
+                    color=f"C{i}",
+                    label=name,
+            )
+        plot_options.apply()
+        return plot_options
 
     @classmethod
     def makeBiomodel(cls,

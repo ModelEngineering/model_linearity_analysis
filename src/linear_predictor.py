@@ -325,12 +325,17 @@ class LinearPredictor(object):
         """
         prediction_df = self.predict()
         actual_df = self.trajectory.timecourse_df
-        species_names = self.trajectory.model.species_names
+        score = Score(is_initialize=True)
+        score.addTestResult(prediction_df, actual_df)
+        p95 = score.score_df.loc[0, "p95"]
 
+        if not "title" in kwargs:
+            kwargs["title"] = (f"{self.trajectory.model.model_name} "
+                    f"num_step={self.num_step}, p95={p95:.2f}")    
         plot_options = PlotOptions(**kwargs)
         ax = plot_options.ax
 
-        for i, name in enumerate(species_names):
+        for i, name in enumerate(prediction_df.columns):
             color = f"C{i}"
             ax.plot(actual_df.index, actual_df[name], color=color,
                     label=f"{name} (actual)")

@@ -5,8 +5,12 @@ import unittest
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
+import matplotlib  # type: ignore
+matplotlib.use("Agg")
+
 import src.constants as cn  # type: ignore
 from model import Model  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
 from trajectory import Trajectory  # type: ignore
 
 IGNORE_TESTS = False
@@ -551,6 +555,34 @@ class TestTrajectoryMakeBiomodel(unittest.TestCase):
                 self.trajectory.jacobian_collection_arr.shape,
                 (self.trajectory.num_point, n, n),
         )
+
+
+class TestTrajectoryPlotTimecourse(unittest.TestCase):
+    """Tests for Trajectory.plotTimecourse."""
+
+    def setUp(self) -> None:
+        self.trajectory = _makeTrajectory()
+
+    def test_returns_plot_options(self) -> None:
+        """plotTimecourse returns a PlotOptions instance."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.plotTimecourse()
+        self.assertIsInstance(result, PlotOptions)
+
+    def test_line_count_matches_species(self) -> None:
+        """One line per species is drawn."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.plotTimecourse()
+        self.assertEqual(len(result.ax.lines), NUM_SPECIES)
+
+    def test_kwargs_passed_to_plot_options(self) -> None:
+        """kwargs such as title are forwarded to PlotOptions."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory.plotTimecourse(title="Test")
+        self.assertEqual(result.ax.get_title(), "Test")
 
 
 if __name__ == "__main__":
