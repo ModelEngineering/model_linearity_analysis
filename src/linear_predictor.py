@@ -30,7 +30,7 @@ class LinearPredictor(object):
     def __init__(self,
             trajectory: Trajectory,
             jacobian_selection: str = cn.JAC_MEDIAN,
-            num_step: int = 1) -> None:
+            num_step: int = -1) -> None:
         """
         Parameters
         ----------
@@ -360,9 +360,9 @@ class LinearPredictor(object):
 
         for i, name in enumerate(prediction_df.columns):
             color = f"C{i}"
-            ax.plot(actual_df.index, actual_df[name], color=color,
+            ax.plot(actual_df.index, actual_df[name], color=color,  # type: ignore
                     label=f"{name} (actual)")
-            ax.plot(prediction_df.index, prediction_df[name], color=color,
+            ax.plot(prediction_df.index, prediction_df[name], color=color,  # type: ignore
                     linestyle="--", label=f"{name} (predicted)")
 
         plot_options.apply()

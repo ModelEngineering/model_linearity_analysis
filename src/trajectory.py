@@ -145,7 +145,7 @@ class Trajectory(object):
         plot_options = PlotOptions(**kwargs)
         ax = plot_options.ax
         for i, name in enumerate(self.model.species_names):
-            ax.plot(
+            ax.plot(  # type: ignore
                     self.timecourse_df.index,
                     self.timecourse_df[name],
                     color=f"C{i}",

@@ -13,6 +13,7 @@ from trajectory import Trajectory  # type: ignore
 from linear_predictor import LinearPredictor  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 
+# pylint: disable=invalid-name
 IGNORE_TESTS = False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
@@ -92,11 +93,11 @@ class TestLinearPredictorInit(unittest.TestCase):
                 self.trajectory, jacobian_selection=cn.JAC_FIRST)
         self.assertEqual(predictor.jacobian_selection, cn.JAC_FIRST)
 
-    def test_default_num_step(self) -> None:
+    def test_num_equal_1_step(self) -> None:
         """Default num_step is 1."""
         if IGNORE_TESTS:
             return
-        predictor = LinearPredictor(self.trajectory)
+        predictor = LinearPredictor(self.trajectory, num_step=1)
         self.assertEqual(predictor.num_step, 1)
 
     def test_stores_num_step(self) -> None:
@@ -123,6 +124,7 @@ class TestLinearPredictorInit(unittest.TestCase):
 
 class TestLinearPredictorGetJacobian(unittest.TestCase):
     """Tests for LinearPredictor._getJacobian."""
+    # pylint: disable=protected-access
 
     def setUp(self) -> None:
         self.trajectory = _makeTrajectory()
@@ -414,7 +416,7 @@ class TestLinearPredictorPlotPrediction(unittest.TestCase):
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction()
-        self.assertEqual(len(plot_options.fig.axes), 1)
+        self.assertEqual(len(plot_options.fig.axes), 1)  # type: ignore
 
     def test_uses_provided_axes(self) -> None:
         """plotPrediction draws onto the supplied axes."""
@@ -430,22 +432,22 @@ class TestLinearPredictorPlotPrediction(unittest.TestCase):
             return
         n_species = self.trajectory.model.num_species
         plot_options = self.predictor.plotPrediction()
-        self.assertEqual(len(plot_options.ax.lines), 2 * n_species)
+        self.assertEqual(len(plot_options.ax.lines), 2 * n_species)  # type: ignore
 
     def test_axis_labels(self) -> None:
         """Default xlabel and ylabel are applied to the axes."""
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction()
-        self.assertEqual(plot_options.ax.get_xlabel(), plot_options.xlabel)
-        self.assertEqual(plot_options.ax.get_ylabel(), plot_options.ylabel)
+        self.assertEqual(plot_options.ax.get_xlabel(), plot_options.xlabel) # type: ignore
+        self.assertEqual(plot_options.ax.get_ylabel(), plot_options.ylabel) # type: ignore
 
     def test_has_legend(self) -> None:
         """plotPrediction adds a legend by default."""
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction()
-        self.assertIsNotNone(plot_options.ax.get_legend())
+        self.assertIsNotNone(plot_options.ax.get_legend())  # type: ignore
 
     def test_prediction_lines_dashed(self) -> None:
         """Prediction lines use dashed linestyle."""
@@ -453,7 +455,7 @@ class TestLinearPredictorPlotPrediction(unittest.TestCase):
             return
         n_species = self.trajectory.model.num_species
         plot_options = self.predictor.plotPrediction()
-        dashed = [ln for ln in plot_options.ax.lines if ln.get_linestyle() == "--"]
+        dashed = [ln for ln in plot_options.ax.lines if ln.get_linestyle() == "--"] # type: ignore
         self.assertEqual(len(dashed), n_species)
 
     def test_custom_title(self) -> None:
@@ -461,14 +463,14 @@ class TestLinearPredictorPlotPrediction(unittest.TestCase):
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction(title="My Title")
-        self.assertEqual(plot_options.ax.get_title(), "My Title")
+        self.assertEqual(plot_options.ax.get_title(), "My Title")  # type: ignore
 
     def test_xlim_applied(self) -> None:
         """xlim kwarg is applied to the axes."""
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction(xlim=(1.0, 5.0))
-        lo, hi = plot_options.ax.get_xlim()
+        lo, hi = plot_options.ax.get_xlim() # type: ignore
         self.assertAlmostEqual(lo, 1.0)
         self.assertAlmostEqual(hi, 5.0)
 
@@ -477,7 +479,7 @@ class TestLinearPredictorPlotPrediction(unittest.TestCase):
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction(ylim=(0.0, 20.0))
-        lo, hi = plot_options.ax.get_ylim()
+        lo, hi = plot_options.ax.get_ylim() # type: ignore
         self.assertAlmostEqual(lo, 0.0)
         self.assertAlmostEqual(hi, 20.0)
 
@@ -487,12 +489,13 @@ class TestLinearPredictorPlotPrediction(unittest.TestCase):
             return
         plot_options = self.predictor.plotPrediction(
                 title="Prediction", model_name="BIOMD8")
-        self.assertIn("BIOMD8", plot_options.ax.get_title())
-        self.assertIn("Prediction", plot_options.ax.get_title())
+        self.assertIn("BIOMD8", plot_options.ax.get_title())  # type: ignore
+        self.assertIn("Prediction", plot_options.ax.get_title())  # type: ignore
 
 
 class TestLinearPredictorPredictWithJacobian(unittest.TestCase):
     """Tests for LinearPredictor._predictWithJacobian."""
+    # pylint: disable=protected-access
 
     def setUp(self) -> None:
         self.traj = _makeAnalyticalTrajectory()
@@ -615,7 +618,7 @@ class TestLinearPredictorBiomodel8(unittest.TestCase):
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction()
-        self.assertEqual(len(plot_options.ax.lines), 2 * self.model.num_species)
+        self.assertEqual(len(plot_options.ax.lines), 2 * self.model.num_species)  # type: ignore
 
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")
@@ -677,7 +680,7 @@ class TestLinearPredictorBiomodel40(unittest.TestCase):
         if IGNORE_TESTS:
             return
         plot_options = self.predictor.plotPrediction()
-        self.assertEqual(len(plot_options.ax.lines), 2 * self.model.num_species)
+        self.assertEqual(len(plot_options.ax.lines), 2 * self.model.num_species)  # type: ignore
 
 
 @unittest.skipUnless(HAS_BIOMODELS, "BioModels data directory not found")

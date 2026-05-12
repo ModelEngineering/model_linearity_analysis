@@ -5,6 +5,7 @@ from src.plot_options import PlotOptions  # type: ignore
 from src.trajectory import Trajectory  # type: ignore
 
 import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
 from typing import List, Optional
 
 
@@ -71,14 +72,14 @@ class TrajectoryCollection(object):
             color = f"C{i}"
             for j, traj in enumerate(self.trajectories):
                 label = name if j == 0 else None
-                ax.plot(
+                ax.plot(                                           # type: ignore 
                         traj.timecourse_df.index,
                         traj.timecourse_df[name],
                         color=color,
                         label=label,
                 )
         for traj in self.trajectories[:-1]:
-            ax.axvline(x=traj.end_time, color="black", linestyle="--",
+            ax.axvline(x=traj.end_time, color="black", linestyle="--",   # type: ignore
                     linewidth=0.8)
         plot_options.apply()
         return plot_options
@@ -146,8 +147,8 @@ class TrajectoryCollection(object):
 
         jacobian_selection = cn.JAC_MEDIAN
         tp_arr = trajectory.timepoint_arr
-        n = len(tp_arr)
-        num_split = max(0, min(num_split, n - 2))
+        num_point = trajectory.num_point
+        num_split = max(0, min(num_split, num_point - 2))
 
         if num_split == 0:
             return cls([trajectory])
@@ -156,6 +157,9 @@ class TrajectoryCollection(object):
         cost_cache: dict = {}
 
         def _segmentCost(i: int, j: int) -> float:
+            # llambda is a regularization parameter, lowering cost for longer segments
+            if i == j:
+                return 0.0
             if (i, j) in cost_cache:
                 return cost_cache[(i, j)]
             sub_traj = trajectory.makeSubmodel(float(tp_arr[i]), float(tp_arr[j]))
@@ -173,14 +177,14 @@ class TrajectoryCollection(object):
             best_k = None
             best_cost = INF
             for k in range(istart + 1, iend):
-                c = _segmentCost(istart, k) + _segmentCost(k, iend)
+                c = 1/np.max([_segmentCost(istart, k), _segmentCost(k, iend)])
                 if c < best_cost:
                     best_cost = c
                     best_k = k
             return best_k, best_cost
 
         # Maintain active segments as a dict: (istart, iend) -> segment cost.
-        segments_dct: dict = {(0, n - 1): _segmentCost(0, n - 1)}
+        segments_dct: dict = {(0, num_point - 1): _segmentCost(0, num_point - 1)}
 
         for _ in range(num_split):
             # Among all segments' best splits, pick the one with the greatest gain.
@@ -189,6 +193,8 @@ class TrajectoryCollection(object):
             best_split_k = None
 
             for (istart, iend), seg_cost in segments_dct.items():
+                if iend - istart <= 3:
+                    continue
                 split_k, split_cost = _bestSplitForSegment(istart, iend)
                 if split_k is None:
                     continue

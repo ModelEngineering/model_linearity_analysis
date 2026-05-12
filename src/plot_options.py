@@ -5,14 +5,11 @@ from typing import Optional, Tuple
 import src.constants as cn
 import numpy as np # type: ignore
 
-AX = plt.gca()
-FIG = plt.gcf()
-
 class PlotOptions(object):
 
     def __init__(self,
-            ax=AX, 
-            fig = FIG,   # type: ignore
+            ax=None,
+            fig=None,
             title: Optional[str] = None,
             xlabel: str = "time",
             ylabel: str = "concentration",
@@ -21,7 +18,7 @@ class PlotOptions(object):
             ylim: Optional[Tuple[float, float]] = None,
             model_name: str = "",
             ):
-        if (AX == ax) and (FIG == fig):
+        if ax is None and fig is None:
             fig, ax = plt.subplots()
         self.ax = ax
         self.fig = fig

@@ -424,12 +424,12 @@ class TestTrajectoryCollectionAutoSplit(unittest.TestCase):
             self.assertIn(traj.end_time, self.trajectory.timepoint_arr)
 
     def test_excessive_splits_clamped(self) -> None:
-        """num_split larger than n-2 is clamped to n-2."""
+        """num_split larger than n-2 never produces more than n-1 segments."""
         if IGNORE_TESTS:
             return
         n = len(self.trajectory.timepoint_arr)  # 11
         tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=100)
-        self.assertEqual(len(tc.trajectories), n - 1)  # at most n-1 segments
+        self.assertLessEqual(len(tc.trajectories), n - 1)
 
     def test_finds_optimal_single_split(self) -> None:
         """autoSplit result has cost <= every explicit single split."""
