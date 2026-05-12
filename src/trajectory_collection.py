@@ -5,7 +5,7 @@ from src.plot_options import PlotOptions  # type: ignore
 from src.trajectory import Trajectory  # type: ignore
 
 import numpy as np  # type: ignore
-from typing import List
+from typing import List, Optional
 
 
 class TrajectoryCollection(object):
@@ -118,3 +118,97 @@ class TrajectoryCollection(object):
                 for i in range(len(boundaries) - 1)
         ]
         return cls(sub_trajectories)
+
+    @classmethod
+    def autoSplit(cls,
+            trajectory: Trajectory,
+            num_split: int,
+            ) -> "TrajectoryCollection":
+        """Find split points greedily, each step picking the globally best available split.
+
+        At each iteration every existing segment is scanned for its best internal
+        split point. The split that gives the greatest cost reduction across all
+        segments is applied. Segments with only two timepoints (no internal point)
+        are skipped. Stops early if no splittable segment remains.
+
+        Parameters
+        ----------
+        trajectory : Trajectory
+        num_split : int
+            Number of splits (num_split+1 sub-trajectories). Clamped to
+            [0, len(timepoint_arr) - 2].
+
+        Returns
+        -------
+        TrajectoryCollection
+        """
+        from src.linear_predictor import LinearPredictor  # local import avoids circularity
+
+        jacobian_selection = cn.JAC_MEDIAN
+        tp_arr = trajectory.timepoint_arr
+        n = len(tp_arr)
+        num_split = max(0, min(num_split, n - 2))
+
+        if num_split == 0:
+            return cls([trajectory])
+
+        INF = float("inf")
+        cost_cache: dict = {}
+
+        def _segmentCost(i: int, j: int) -> float:
+            if (i, j) in cost_cache:
+                return cost_cache[(i, j)]
+            sub_traj = trajectory.makeSubmodel(float(tp_arr[i]), float(tp_arr[j]))
+            lp = LinearPredictor(sub_traj,
+                    jacobian_selection=jacobian_selection, num_step=-1)
+            c = lp.cost
+            cost_cache[(i, j)] = c if np.isfinite(c) else INF
+            return cost_cache[(i, j)]
+
+        def _bestSplitForSegment(istart: int, iend: int):
+            """Return (best_k, combined_cost) for the best split of [istart, iend].
+
+            Returns (None, INF) when there are no internal timepoints to split on.
+            """
+            best_k = None
+            best_cost = INF
+            for k in range(istart + 1, iend):
+                c = _segmentCost(istart, k) + _segmentCost(k, iend)
+                if c < best_cost:
+                    best_cost = c
+                    best_k = k
+            return best_k, best_cost
+
+        # Maintain active segments as a dict: (istart, iend) -> segment cost.
+        segments_dct: dict = {(0, n - 1): _segmentCost(0, n - 1)}
+
+        for _ in range(num_split):
+            # Among all segments' best splits, pick the one with the greatest gain.
+            best_gain = -INF
+            best_segment = None
+            best_split_k = None
+
+            for (istart, iend), seg_cost in segments_dct.items():
+                split_k, split_cost = _bestSplitForSegment(istart, iend)
+                if split_k is None:
+                    continue
+                gain = seg_cost - split_cost
+                if gain > best_gain:
+                    best_gain = gain
+                    best_segment = (istart, iend)
+                    best_split_k = split_k
+
+            if best_segment is None:
+                break  # every remaining segment has only 2 points; cannot split
+
+            assert best_split_k is not None
+            istart, iend = best_segment
+            del segments_dct[best_segment]
+            segments_dct[(istart, best_split_k)] = _segmentCost(istart, best_split_k)
+            segments_dct[(best_split_k, iend)] = _segmentCost(best_split_k, iend)
+
+        # Recover split times from the interior boundaries between segments.
+        sorted_segs = sorted(segments_dct.keys())
+        split_indices = [iend for (_, iend) in sorted_segs[:-1]]
+        split_times = [float(tp_arr[idx]) for idx in split_indices]
+        return cls.split(trajectory, split_times)

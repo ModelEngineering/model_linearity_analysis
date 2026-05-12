@@ -2,17 +2,20 @@
 import unittest
 
 import matplotlib  # type: ignore
-matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 
 import src.constants as cn  # type: ignore
+from src.linear_predictor import LinearPredictor  # type: ignore
 from model import Model  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from trajectory import Trajectory  # type: ignore
 from trajectory_collection import TrajectoryCollection  # type: ignore
 
 IGNORE_TESTS = False
+if not IGNORE_TESTS:
+    matplotlib.use("Agg")
 
 ANTIMONY_MODEL = """
 S1 -> S2; k1*S1
@@ -220,7 +223,7 @@ class TestTrajectoryCollectionPlotTimecourse(unittest.TestCase):
         plot_options = tc.plotTimecourse()
         ax = plot_options.ax
         # axvline adds a Line2D; count lines whose xdata is a scalar (vertical)
-        vlines = [ln for ln in ax.lines if len(set(ln.get_xdata())) == 1]
+        vlines = [ln for ln in ax.lines if len(set(ln.get_xdata())) == 1]  # type: ignore
         self.assertEqual(len(vlines), 2)
 
     def test_line_count_matches_species(self) -> None:
@@ -231,7 +234,7 @@ class TestTrajectoryCollectionPlotTimecourse(unittest.TestCase):
         tc = TrajectoryCollection([t1, t2])
         plot_options = tc.plotTimecourse()
         ax = plot_options.ax
-        non_vlines = [ln for ln in ax.lines if len(set(ln.get_xdata())) > 1]
+        non_vlines = [ln for ln in ax.lines if len(set(ln.get_xdata())) > 1]  # type: ignore
         self.assertEqual(len(non_vlines), NUM_SPECIES * 2)
 
 
@@ -339,6 +342,118 @@ class TestTrajectoryCollectionSplit(unittest.TestCase):
         tc = TrajectoryCollection.split(self.trajectory, [3.0, 7.0])
         for traj in tc.trajectories:
             self.assertEqual(traj.model, self.trajectory.model)
+
+
+
+# ---------------------------------------------------------------------------
+# autoSplit
+# ---------------------------------------------------------------------------
+
+class TestTrajectoryCollectionAutoSplit(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self.trajectory = _makeWideTrajectory(num_point=11)  # [0, 10], 11 pts
+
+    def test_returns_trajectory_collection(self) -> None:
+        """autoSplit returns a TrajectoryCollection."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=1)
+        self.assertIsInstance(tc, TrajectoryCollection)
+
+    def test_zero_splits_gives_one_trajectory(self) -> None:
+        """num_split=0 returns a single-trajectory collection."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=0)
+        self.assertEqual(len(tc.trajectories), 1)
+
+    def test_one_split_gives_two_trajectories(self) -> None:
+        """num_split=1 returns two sub-trajectories."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=1)
+        self.assertEqual(len(tc.trajectories), 2)
+
+    def test_two_splits_give_three_trajectories(self) -> None:
+        """num_split=2 returns three sub-trajectories."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=2)
+        self.assertEqual(len(tc.trajectories), 3)
+
+    def test_split_reduces_cost(self) -> None:
+        """autoSplit with num_split=1 finds a split no worse than splitting at the midpoint."""
+        if IGNORE_TESTS:
+            return
+        model = _makeModel()
+        trajectory = Trajectory.makeFromSimulation(
+                model, start_time=0.0, end_time=10.0, num_point=11)
+        jac_sel = cn.JAC_MEDIAN
+        num_step = 1
+        tc_auto = TrajectoryCollection.autoSplit(
+                trajectory, num_split=1)
+        auto_cost = sum(
+                LinearPredictor(t, jacobian_selection=jac_sel, num_step=num_step).cost
+                for t in tc_auto.trajectories)
+        mid_idx = len(trajectory.timepoint_arr) // 2
+        mid_time = float(trajectory.timepoint_arr[mid_idx])
+        tc_mid = TrajectoryCollection.split(trajectory, [mid_time])
+        mid_cost = sum(
+                LinearPredictor(t, jacobian_selection=jac_sel, num_step=num_step).cost
+                for t in tc_mid.trajectories)
+        self.assertLessEqual(auto_cost, mid_cost + 1e-9)
+
+    def test_covers_full_time_range(self) -> None:
+        """autoSplit result spans the original start and end times."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=2)
+        self.assertAlmostEqual(tc.trajectories[0].start_time,
+                self.trajectory.start_time)
+        self.assertAlmostEqual(tc.trajectories[-1].end_time,
+                self.trajectory.end_time)
+
+    def test_split_times_are_valid_timepoints(self) -> None:
+        """Every boundary between sub-trajectories is in the original timepoint_arr."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=2)
+        for traj in tc.trajectories:
+            self.assertIn(traj.start_time, self.trajectory.timepoint_arr)
+            self.assertIn(traj.end_time, self.trajectory.timepoint_arr)
+
+    def test_excessive_splits_clamped(self) -> None:
+        """num_split larger than n-2 is clamped to n-2."""
+        if IGNORE_TESTS:
+            return
+        n = len(self.trajectory.timepoint_arr)  # 11
+        tc = TrajectoryCollection.autoSplit(self.trajectory, num_split=100)
+        self.assertEqual(len(tc.trajectories), n - 1)  # at most n-1 segments
+
+    def test_finds_optimal_single_split(self) -> None:
+        """autoSplit result has cost <= every explicit single split."""
+        if IGNORE_TESTS:
+            return
+        from src.linear_predictor import LinearPredictor
+
+        model = _makeModel()
+        trajectory = Trajectory.makeFromSimulation(
+                model, start_time=0.0, end_time=10.0, num_point=11)
+
+        tc_auto = TrajectoryCollection.autoSplit(trajectory, num_split=1)
+        auto_cost = sum(
+                LinearPredictor(t, num_step=1).cost
+                for t in tc_auto.trajectories)
+
+        tp_arr = trajectory.timepoint_arr
+        for idx in range(1, len(tp_arr) - 1):
+            split_time = float(tp_arr[idx])
+            tc_manual = TrajectoryCollection.split(trajectory, [split_time])
+            manual_cost = sum(
+                    LinearPredictor(t, num_step=1).cost
+                    for t in tc_manual.trajectories)
+            self.assertLessEqual(auto_cost, manual_cost + 1e-9)
 
 
 if __name__ == "__main__":

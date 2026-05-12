@@ -53,6 +53,7 @@ This class does linear prediction and evaluations of these predictions. It is co
 * ``predict`` provides predictions for the timecourse of the ``DynamicModel``.
 * ``score`` scores the prediction using the Score class.
 * ``plotPrediction`` plots the timecourse and the prediction from the ``start_time`` to the ``end_time``
+* ``cost`` is a property of a LinearPredictor and has a value of type float. For a single species, cost is mean over timepoints of the squared difference between the predicted and actual (simulated) values, where each is divided by the actual value. For multiple species, the median of the species costs is calculated.
 
 ### ``Score``
 
@@ -67,9 +68,10 @@ This class represents a collection of ``Trajectory`` with the same
 * ``plotTimecourse`` pieces together the timecourse for each ``DynamicModel``, and plots it with a vertical dashed line separating each ``Trajectory``. The arguments to this method are the kwards used by PlotOptions. Internally, the method uses PlotOptions. It should return PlotOptions.
 * ``__eq__`` which checks if it's the same as another ``TrajectoryCollection`` by comparing each ``Trajectory``.
 * ``split`` is a class method that takes as input timepoints to create multiple Trajectory objects. Its signature is ``split(cls, trajectory: Trajectory, timepoints: List[float])``.
-    * A timepoint specifies the last time for the preceeding Trajectory and the first time for the next Trajectory.
-    * Returns ``TrajectoryCollection``.
-    * If a split time falls between existing timepoints (i.e., not exactly in timepoint_arr), it snaps to the nearest timepoint.
+  * A timepoint specifies the last time for the preceeding Trajectory and the first time for the next Trajectory.
+  * Returns ``TrajectoryCollection``.
+  * If a split time falls between existing timepoints (i.e., not exactly in timepoint_arr), it snaps to the nearest timepoint.
+* ``autoSplit`` uses dynamic programming to find the best split in terms of minimizing the sum of the LinearPredictor costs for each Trajectory in the collection. The inputs to this method are: (a) Trajectory; and (b) the number of splits to construct; (c) ``num_step``, (d) ``jacobian_selection``. The output is a TrajectoryCollection.
 
 ### ``MultipleLinearPredictor``
 

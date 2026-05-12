@@ -306,6 +306,29 @@ class LinearPredictor(object):
                 description, self.trajectory.timecourse_df, prediction_df)
         return pd.DataFrame([info.__dict__ for info in score_infos])
 
+    @property
+    def cost(self) -> float:
+        """Mean squared relative prediction error, aggregated across species.
+
+        For each species: mean over timepoints of ((predicted - actual) / actual)²,
+        skipping the first timepoint (exact by construction) and any timepoints
+        where actual == 0.  Returns the median of the per-species costs.
+
+        Returns
+        -------
+        float
+        """
+        actual_arr = self.trajectory.timecourse_df.values[1:]
+        predicted_arr = self.predict().values[1:]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rel_arr = np.where(
+                    actual_arr == 0,
+                    np.nan,
+                    (predicted_arr - actual_arr) / actual_arr,
+            )
+        species_costs = np.nanmean(rel_arr ** 2, axis=0)
+        return float(np.nanmedian(species_costs))
+
     def plotPrediction(self, **kwargs) -> PlotOptions:
         """Plot actual and predicted timecourses.
 

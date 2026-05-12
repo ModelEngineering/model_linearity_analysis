@@ -347,6 +347,48 @@ class TestLinearPredictorScore(unittest.TestCase):
         self.assertTrue(np.isfinite(model_mean))
 
 
+class TestLinearPredictorCost(unittest.TestCase):
+    """Tests for LinearPredictor.cost."""
+
+    def test_returns_float(self) -> None:
+        """cost returns a float."""
+        if IGNORE_TESTS:
+            return
+        predictor = LinearPredictor(_makeAnalyticalTrajectory())
+        self.assertIsInstance(predictor.cost, float)
+
+    def test_non_negative(self) -> None:
+        """cost is non-negative."""
+        if IGNORE_TESTS:
+            return
+        predictor = LinearPredictor(_makeAnalyticalTrajectory())
+        self.assertGreaterEqual(predictor.cost, 0.0)
+
+    def test_near_zero_for_exact_model(self) -> None:
+        """cost is near zero for the analytical decay model with its exact Jacobian."""
+        if IGNORE_TESTS:
+            return
+        predictor = LinearPredictor(_makeAnalyticalTrajectory(),
+                jacobian_selection=cn.JAC_MEDIAN)
+        self.assertAlmostEqual(predictor.cost, 0.0, places=4)
+
+    def test_larger_num_step_increases_cost(self) -> None:
+        """cost increases as num_step grows for a non-trivial model."""
+        if IGNORE_TESTS:
+            return
+        traj = _makeTrajectory()
+        cost_1 = LinearPredictor(traj, num_step=1).cost
+        cost_large = LinearPredictor(traj, num_step=traj.num_point - 1).cost
+        self.assertLessEqual(cost_1, cost_large)
+
+    def test_multi_species_returns_scalar(self) -> None:
+        """cost returns a single float for a multi-species model."""
+        if IGNORE_TESTS:
+            return
+        predictor = LinearPredictor(_makeTrajectory())
+        self.assertIsInstance(predictor.cost, float)
+
+
 class TestLinearPredictorPlotPrediction(unittest.TestCase):
     """Tests for LinearPredictor.plotPrediction."""
     trajectory: Trajectory
