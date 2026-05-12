@@ -78,10 +78,11 @@ This class represents a collection of ``Trajectory`` with the same
 This class performs piece-wise linear prediction. The times at which
 there is a partition of the linear model is a "split point".
 
-* Constructor has the arguments ``TrajectoryCollection`` and ``num_step``, the number of steps ahead for which prediction is done.
-* ``predict`` uses LinearPredictor.predict for each Trajectory.
-* ``score``
-* ``plotPrediction`` The plot shows predicted and actual (simulated) values with vertical dashed lines to indicate regions for submodels.
+* Constructor has the arguments ``TrajectoryCollection``, ``jacobian_selection``, and ``num_step``, the number of steps ahead for which prediction is done.
+* ``predict`` uses LinearPredictor.predict for each Trajectory, dropping the starting timepoint of interior segements.
+* ``score`` constructs the concatenation of the predictions for each split and similarly the concatenation of timecourse_df for each segment.
+* ``plotPrediction`` The plot shows predicted and actual (simulated) values with vertical dashed lines to indicate regions for submodels. It has arguments PlotOptions and should use PlotOptions internally.
+* ``cost`` property is calculated using the predictions and timecourse used in score.
 
 ### Prompts
 

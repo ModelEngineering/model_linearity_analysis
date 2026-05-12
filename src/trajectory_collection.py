@@ -49,6 +49,22 @@ class TrajectoryCollection(object):
             return False
         return all(t1 == t2 for t1, t2 in zip(self.trajectories, other.trajectories))
 
+    def makeTimecourse(self) -> pd.DataFrame:
+        """Concatenate actual timecourses, dropping duplicate boundary rows.
+
+        Returns
+        -------
+        pd.DataFrame
+            Time-indexed DataFrame with one row per unique timepoint.
+        """
+        dfs = []
+        for i, traj in enumerate(self.trajectories):
+            tc_df = traj.timecourse_df
+            if i > 0:
+                tc_df = tc_df.iloc[1:]
+            dfs.append(tc_df)
+        return pd.concat(dfs)
+
     def plotTimecourse(self, **kwargs) -> PlotOptions:
         """Plot the pieced-together timecourse with dashed vertical separators.
 

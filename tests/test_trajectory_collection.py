@@ -239,6 +239,72 @@ class TestTrajectoryCollectionPlotTimecourse(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# makeTimecourse
+# ---------------------------------------------------------------------------
+
+class TestTrajectoryCollectionMakeTimecourse(unittest.TestCase):
+
+    def setUp(self) -> None:
+        self.trajectory = _makeWideTrajectory(num_point=21)  # [0, 10], 21 pts
+        self.trajectory_collection = TrajectoryCollection.split(
+                self.trajectory, [5.0])
+
+    def test_returns_dataframe(self) -> None:
+        """makeTimecourse returns a DataFrame."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory_collection.makeTimecourse()
+        self.assertIsInstance(result, pd.DataFrame)
+
+    def test_columns_are_species_names(self) -> None:
+        """Columns match the model species names."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory_collection.makeTimecourse()
+        self.assertListEqual(list(result.columns),
+                self.trajectory_collection.model.species_names)
+
+    def test_no_duplicate_index(self) -> None:
+        """Boundary timepoints appear exactly once in the concatenated timecourse."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory_collection.makeTimecourse()
+        self.assertTrue(result.index.is_unique)
+
+    def test_total_rows_equals_original(self) -> None:
+        """Total rows equal the number of timepoints in the original trajectory."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory_collection.makeTimecourse()
+        self.assertEqual(len(result), len(self.trajectory.timepoint_arr))
+
+    def test_total_rows_formula(self) -> None:
+        """Total rows = sum of per-segment rows minus one per interior boundary."""
+        if IGNORE_TESTS:
+            return
+        trajs = self.trajectory_collection.trajectories
+        expected = sum(len(t.timecourse_df) for t in trajs) - (len(trajs) - 1)
+        result = self.trajectory_collection.makeTimecourse()
+        self.assertEqual(len(result), expected)
+
+    def test_single_trajectory_no_rows_dropped(self) -> None:
+        """A single-trajectory collection returns all rows unchanged."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection([self.trajectory])
+        result = tc.makeTimecourse()
+        self.assertEqual(len(result), len(self.trajectory.timecourse_df))
+
+    def test_first_and_last_timepoints_preserved(self) -> None:
+        """The concatenated timecourse starts and ends at the original bounds."""
+        if IGNORE_TESTS:
+            return
+        result = self.trajectory_collection.makeTimecourse()
+        self.assertAlmostEqual(result.index[0], self.trajectory.start_time)
+        self.assertAlmostEqual(result.index[-1], self.trajectory.end_time)
+
+
+# ---------------------------------------------------------------------------
 # split
 # ---------------------------------------------------------------------------
 
