@@ -1,0 +1,154 @@
+"""Piece-wise linear prediction using a TrajectoryCollection."""
+
+import src.constants as cn  # type: ignore
+from src.linear_predictor import LinearPredictor  # type: ignore
+from src.plot_options import PlotOptions  # type: ignore
+from src.score import Score  # type: ignore
+from src.trajectory_collection import TrajectoryCollection  # type: ignore
+
+import numpy as np  # type: ignore
+import pandas as pd  # type: ignore
+
+
+class MultipleLinearPredictor(object):
+    """Piece-wise linear predictor across a TrajectoryCollection.
+
+    Each Trajectory is predicted independently with LinearPredictor; results
+    are concatenated into a single timecourse.  Boundary timepoints shared
+    between adjacent segments appear once in the output (the duplicate first
+    row of each interior segment is dropped).
+    """
+
+    def __init__(self,
+            trajectory_collection: TrajectoryCollection,
+            jacobian_selection: str = cn.JAC_FITTED,
+            num_step: int = -1) -> None:
+        """
+        Parameters
+        ----------
+        trajectory_collection : TrajectoryCollection
+        jacobian_selection : str
+            Passed to each LinearPredictor.
+        num_step : int
+            Number of steps ahead for windowed prediction.
+        """
+        self.trajectory_collection = trajectory_collection
+        self.jacobian_selection = jacobian_selection
+        self.num_step = num_step
+
+    def _makeTimecourse(self) -> pd.DataFrame:
+        """Concatenate actual timecourses, dropping duplicate boundary rows.
+
+        Returns
+        -------
+        pd.DataFrame
+            Time-indexed DataFrame with one row per unique timepoint.
+        """
+        dfs = []
+        for i, traj in enumerate(self.trajectory_collection.trajectories):
+            tc_df = traj.timecourse_df
+            if i > 0:
+                tc_df = tc_df.iloc[1:]
+            dfs.append(tc_df)
+        return pd.concat(dfs)
+
+    def predict(self) -> pd.DataFrame:
+        """Predict concentrations across all segments.
+
+        Each segment is predicted by an independent LinearPredictor.  Duplicate
+        boundary rows are dropped to produce a single time-indexed DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            Time-indexed DataFrame with columns matching the model's species names.
+        """
+        dfs = []
+        for i, traj in enumerate(self.trajectory_collection.trajectories):
+            lp = LinearPredictor(traj,
+                    jacobian_selection=self.jacobian_selection,
+                    num_step=self.num_step)
+            pred_df = lp.predict()
+            if i > 0:
+                pred_df = pred_df.iloc[1:]
+            dfs.append(pred_df)
+        return pd.concat(dfs)
+
+    def score(self, description: str = "") -> pd.DataFrame:
+        """Score the piece-wise prediction against the actual timecourse.
+
+        Parameters
+        ----------
+        description : str
+            Label stored in the 'description' column of the returned DataFrame.
+
+        Returns
+        -------
+        pd.DataFrame
+            One row per aggregation level (model + one per species).
+        """
+        prediction_df = self.predict()
+        actual_df = self.trajectory_collection.makeTimecourse()
+        scorer = Score()
+        score_infos = scorer.makeScoreInfo(description, actual_df, prediction_df)
+        return pd.DataFrame([info.__dict__ for info in score_infos])
+
+    def plotPrediction(self, **kwargs) -> PlotOptions:
+        """Plot actual and predicted timecourses with segment boundary lines.
+
+        Actual values are solid lines; predictions are dashed.  Vertical dashed
+        lines mark boundaries between adjacent segments.
+
+        Parameters
+        ----------
+        **kwargs
+            Passed to PlotOptions.
+
+        Returns
+        -------
+        PlotOptions
+        """
+        prediction_df = self.predict()
+        actual_df = self.trajectory_collection.makeTimecourse()
+        if "title" not in kwargs:
+            scorer = Score()
+            score_infos = scorer.makeScoreInfo("", actual_df, prediction_df)
+            p95 = score_infos[0].p95
+            model_name = self.trajectory_collection.model.model_name
+            n_seg = len(self.trajectory_collection.trajectories)
+            kwargs["title"] = f"{model_name} n_seg={n_seg}, p95={p95:.2f}"
+        plot_options = PlotOptions(**kwargs)
+        ax = plot_options.ax
+        for i, name in enumerate(self.trajectory_collection.model.species_names):
+            color = f"C{i}"
+            ax.plot(actual_df.index, actual_df[name],  # type: ignore
+                    color=color, label=f"{name} (actual)")
+            ax.plot(prediction_df.index, prediction_df[name],  # type: ignore
+                    color=color, linestyle="--", label=f"{name} (predicted)")
+        for traj in self.trajectory_collection.trajectories[:-1]:
+            ax.axvline(x=traj.end_time, color="black",  # type: ignore
+                    linestyle="--", linewidth=0.8)
+        plot_options.apply()
+        return plot_options
+
+    @property
+    def cost(self) -> float:
+        """Mean squared relative prediction error, aggregated across species.
+
+        Computed on the concatenated timecourse with the first row dropped.
+        Returns the median of per-species mean squared relative errors.
+
+        Returns
+        -------
+        float
+        """
+        actual_arr = self.trajectory_collection.makeTimecourse().values[1:]
+        predicted_arr = self.predict().values[1:]
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rel_arr = np.where(
+                    actual_arr == 0,
+                    np.nan,
+                    (predicted_arr - actual_arr) / actual_arr,
+            )
+        species_costs = np.nanmean(rel_arr ** 2, axis=0)
+        return float(np.nanmedian(species_costs))

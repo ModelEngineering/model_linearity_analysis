@@ -103,12 +103,19 @@ class LinearPredictor(object):
 
     def _getJacobian(self) -> np.ndarray:
         """Return the Jacobian matrix selected by jacobian_selection."""
+        if self.jacobian_selection == cn.JAC_FITTED:
+            if self.trajectory.model.num_species > self.trajectory.num_point:
+                print(
+                        f"Cannot use JAC_FITTED: num_species "
+                        f"({self.trajectory.model.num_species}) > num_point "
+                        f"({self.trajectory.num_point}).")
+                return self.trajectory.jacobian_median_arr
+            else:
+                return self._fitJacobian()
         if self.jacobian_selection == cn.JAC_MEDIAN:
             return self.trajectory.jacobian_median_arr
         if self.jacobian_selection == cn.JAC_FIRST:
             return self.trajectory.jacobian_collection_arr[0]
-        if self.jacobian_selection == cn.JAC_FITTED:
-            return self._fitJacobian()
         raise ValueError(
                 f"Unknown jacobian_selection: {self.jacobian_selection!r}. "
                 f"Must be {cn.JAC_MEDIAN!r}, {cn.JAC_FIRST!r}, or "
