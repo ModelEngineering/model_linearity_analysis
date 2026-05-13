@@ -4,9 +4,12 @@ import src.constants as cn  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.trajectory import Trajectory  # type: ignore
 
+from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from typing import List, Optional
+
+Segment = namedtuple("Segment", ["trajectory", "start_time", "end_time"])
 
 
 class TrajectoryCollection(object):
@@ -27,13 +30,19 @@ class TrajectoryCollection(object):
         if not trajectories:
             raise ValueError("trajectories must not be empty.")
         self.trajectories = sorted(trajectories)
+        if not self.isConsecutive():
+            raise ValueError("Trajectories must be consecutive (no gaps or overlaps). "
+                    "continuous time range.")
+        #
         self.model = self.trajectories[0].model
+        self.segments = [Segment(traj, traj.start_time, traj.end_time)
+                for traj in self.trajectories]
         for traj in trajectories[1:]:
             if traj.model != self.model:
                 raise ValueError(
                         "All trajectories must share the same Model.")
-        self.start_time = self.trajectories[0].start_time
-        self.end_time = self.trajectories[-1].end_time
+        self.start_time = self.segments[0].start_time
+        self.end_time = self.segments[-1].end_time
 
     def isConsecutive(self) -> bool:
         """True iff trajectories are consecutive (no gaps or overlaps)."""
