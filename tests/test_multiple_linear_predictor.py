@@ -100,7 +100,7 @@ class TestMultipleLinearPredictorPredict(unittest.TestCase):
         cls.trajectory = _makeTrajectory()
         cls.trajectory_collection = _makeCollection(cls.trajectory)
         cls.multiple_linear_predictor = _makeMlp(cls.trajectory_collection)
-        cls.prediction_df = cls.multiple_linear_predictor.predict()
+        cls.prediction_df = cls.multiple_linear_predictor.predict().prediction_df
         cls.timecourse_df = cls.multiple_linear_predictor.trajectory_collection.makeTimecourse()
 
     def test_returns_dataframe(self) -> None:

@@ -6,8 +6,14 @@ from src.plot_options import PlotOptions  # type: ignore
 from src.score import Score  # type: ignore
 from src.trajectory_collection import TrajectoryCollection  # type: ignore
 
+from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
+from typing import List
+
+
+SegmentResult = namedtuple("SegmentResult", ["actual_df", "prediction_df"])
+PredictionResult = namedtuple("PredictionResult", ["actual_df", "prediction_df", "segment_results"])
 
 
 class MultipleLinearPredictor(object):
@@ -52,7 +58,7 @@ class MultipleLinearPredictor(object):
             dfs.append(tc_df)
         return pd.concat(dfs)
 
-    def predict(self) -> pd.DataFrame:
+    def predict(self) -> PredictionResult:
         """Predict concentrations across all segments.
 
         Each segment is predicted by an independent LinearPredictor.  Duplicate
@@ -60,19 +66,33 @@ class MultipleLinearPredictor(object):
 
         Returns
         -------
-        pd.DataFrame
-            Time-indexed DataFrame with columns matching the model's species names.
+        PredictionResult
+            Result containing actual and predicted timecourses along with segment results.
         """
-        dfs = []
+        segment_results: List[SegmentResult] = []
+        pred_dfs: List[pd.DataFrame] = []
+        actual_dfs: List[pd.DataFrame] = []
         for i, traj in enumerate(self.trajectory_collection.trajectories):
             lp = LinearPredictor(traj,
                     jacobian_selection=self.jacobian_selection,
                     num_step=self.num_step)
-            pred_df = lp.predict()
+            prediction_df = lp.predict()
             if i > 0:
-                pred_df = pred_df.iloc[1:]
-            dfs.append(pred_df)
-        return pd.concat(dfs)
+                prediction_df = prediction_df.iloc[1:]
+                segment_result = SegmentResult(prediction_df=prediction_df,
+                        actual_df=traj.timecourse_df.iloc[1:])
+            else:
+                segment_result = SegmentResult(prediction_df=prediction_df,
+                        actual_df=traj.timecourse_df)
+            segment_results.append(segment_result)
+            pred_dfs.append(segment_result.prediction_df)
+            actual_dfs.append(segment_result.actual_df)
+        pred_all_df = pd.concat(pred_dfs)
+        actual_all_df = pd.concat(actual_dfs)
+        # FIXME: get the actual timecourse from the TrajectoryCollection instead of re-constructing it here
+        prediction_result = PredictionResult(prediction_df=pred_all_df,
+                actual_df=actual_all_df, segment_results=segment_results)
+        return prediction_result
 
     def score(self, description: str = "") -> pd.DataFrame:
         """Score the piece-wise prediction against the actual timecourse.
@@ -87,7 +107,7 @@ class MultipleLinearPredictor(object):
         pd.DataFrame
             One row per aggregation level (model + one per species).
         """
-        prediction_df = self.predict()
+        prediction_df = self.predict().prediction_df
         actual_df = self.trajectory_collection.makeTimecourse()
         scorer = Score()
         score_infos = scorer.makeScoreInfo(description, actual_df, prediction_df)
@@ -108,7 +128,7 @@ class MultipleLinearPredictor(object):
         -------
         PlotOptions
         """
-        prediction_df = self.predict()
+        prediction_df = self.predict().prediction_df
         actual_df = self.trajectory_collection.makeTimecourse()
         if "title" not in kwargs:
             scorer = Score()
@@ -143,12 +163,12 @@ class MultipleLinearPredictor(object):
         float
         """
         actual_arr = self.trajectory_collection.makeTimecourse().values[1:]
-        predicted_arr = self.predict().values[1:]
+        prediction_arr = self.predict().prediction_df.values[1:]
         with np.errstate(divide='ignore', invalid='ignore'):
             rel_arr = np.where(
                     actual_arr == 0,
                     np.nan,
-                    (predicted_arr - actual_arr) / actual_arr,
+                    (prediction_arr - actual_arr) / actual_arr,
             )
         species_costs = np.nanmean(rel_arr ** 2, axis=0)
         return float(np.nanmedian(species_costs))

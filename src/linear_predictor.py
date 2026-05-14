@@ -111,7 +111,13 @@ class LinearPredictor(object):
                         f"({self.trajectory.num_point}).")
                 return self.trajectory.jacobian_median_arr
             else:
-                return self._fitJacobian()
+                try:
+                    jacobian = self._fitJacobian()
+                    return jacobian
+                except Exception as e:
+                    print(f"Error fitting Jacobian: {e}")
+                    print("Falling back to JAC_MEDIAN.")
+                    return self.trajectory.jacobian_median_arr
         if self.jacobian_selection == cn.JAC_MEDIAN:
             return self.trajectory.jacobian_median_arr
         if self.jacobian_selection == cn.JAC_FIRST:

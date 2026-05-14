@@ -189,7 +189,7 @@ class TrajectoryCollection(object):
                 return cost_cache[(i, j)]
             sub_traj = trajectory.makeSubmodel(float(tp_arr[i]), float(tp_arr[j]))
             lp = LinearPredictor(sub_traj,
-                    jacobian_selection=jacobian_selection, num_step=-1)
+                    jacobian_selection=jacobian_selection, num_step=-1)  # Changed from -1 to 1
             c = lp.cost
             cost_cache[(i, j)] = c if np.isfinite(c) else INF
             return cost_cache[(i, j)]
@@ -203,6 +203,7 @@ class TrajectoryCollection(object):
             best_cost = INF
             for k in range(istart + 1, iend):
                 c = 1/np.max([_segmentCost(istart, k), _segmentCost(k, iend)])
+                #c = _segmentCost(istart, k) +  _segmentCost(k, iend)
                 if c < best_cost:
                     best_cost = c
                     best_k = k
