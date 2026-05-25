@@ -7,7 +7,7 @@ from src.trajectory import Trajectory  # type: ignore
 from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List, Optional
+from typing import List, Optional, Union
 
 Segment = namedtuple("Segment", ["trajectory", "start_time", "end_time"])
 
@@ -149,6 +149,9 @@ class TrajectoryCollection(object):
     def autoSplit(cls,
             trajectory: Trajectory,
             num_split: int,
+            is_slow_subspace: bool = False,
+            is_species_prediction: bool = False,
+            min_num_point_per_segment: int = 3,
             ) -> "TrajectoryCollection":
         """Find split points greedily, each step picking the globally best available split.
 
@@ -163,12 +166,15 @@ class TrajectoryCollection(object):
         num_split : int
             Number of splits (num_split+1 sub-trajectories). Clamped to
             [0, len(timepoint_arr) - 2].
+        min_num_point_per_segment : int
+            Minimum number of timepoints required for a segment to be considered splittable.
 
         Returns
         -------
         TrajectoryCollection
         """
         from src.linear_predictor import LinearPredictor  # local import avoids circularity
+        from src.slow_subspace_predictor import SlowSubspacePredictor  # local import avoids circularity
 
         jacobian_selection = cn.JAC_MEDIAN
         tp_arr = trajectory.timepoint_arr
@@ -188,8 +194,13 @@ class TrajectoryCollection(object):
             if (i, j) in cost_cache:
                 return cost_cache[(i, j)]
             sub_traj = trajectory.makeSubmodel(float(tp_arr[i]), float(tp_arr[j]))
-            lp = LinearPredictor(sub_traj,
-                    jacobian_selection=jacobian_selection, num_step=-1)  # Changed from -1 to 1
+            if is_slow_subspace:
+                lp: Union[SlowSubspacePredictor, LinearPredictor] = SlowSubspacePredictor(sub_traj,
+                        num_step=-1)
+            else:
+                lp = LinearPredictor(sub_traj,
+                        jacobian_selection=jacobian_selection, num_step=-1,
+                        is_species_prediction=is_species_prediction)  # Changed from -1 to 1
             c = lp.cost
             cost_cache[(i, j)] = c if np.isfinite(c) else INF
             return cost_cache[(i, j)]
@@ -219,7 +230,7 @@ class TrajectoryCollection(object):
             best_split_k = None
 
             for (istart, iend), seg_cost in segments_dct.items():
-                if iend - istart <= 3:
+                if iend - istart < min_num_point_per_segment:
                     continue
                 split_k, split_cost = _bestSplitForSegment(istart, iend)
                 if split_k is None:

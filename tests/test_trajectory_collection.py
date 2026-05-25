@@ -506,5 +506,144 @@ class TestTrajectoryCollectionAutoSplit(unittest.TestCase):
             self.assertLessEqual(auto_cost, manual_cost + 1e-9)
 
 
+# ---------------------------------------------------------------------------
+# autoSplit with is_slow_subspace=True
+# ---------------------------------------------------------------------------
+
+class TestTrajectoryCollectionAutoSplitSlowSubspace(unittest.TestCase):
+    """Tests for autoSplit(is_slow_subspace=True).
+
+    Uses real simulation trajectories because SlowSubspacePredictor requires
+    a proper Jacobian and forcing arrays derived from the ODE.
+    """
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from src.slow_subspace_predictor import SlowSubspacePredictor  # type: ignore
+        cls.SlowSubspacePredictor = SlowSubspacePredictor
+        cls.trajectory = Trajectory.makeFromSimulation(
+                _makeModel(),
+                start_time=0.0,
+                end_time=10.0,
+                num_point=11,
+        )
+
+    def _sspCost(self, trajectory: Trajectory) -> float:
+        return self.SlowSubspacePredictor(trajectory, num_step=-1).cost
+
+    def test_returns_trajectory_collection(self) -> None:
+        """autoSplit(is_slow_subspace=True) returns a TrajectoryCollection."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=1, is_slow_subspace=True)
+        self.assertIsInstance(tc, TrajectoryCollection)
+
+    def test_one_split_gives_two_trajectories(self) -> None:
+        """num_split=1 with is_slow_subspace=True returns two sub-trajectories."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=1, is_slow_subspace=True)
+        self.assertEqual(len(tc.trajectories), 2)
+
+    def test_two_splits_give_three_trajectories(self) -> None:
+        """num_split=2 with is_slow_subspace=True returns three sub-trajectories."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=2, is_slow_subspace=True)
+        self.assertEqual(len(tc.trajectories), 3)
+
+    def test_covers_full_time_range(self) -> None:
+        """autoSplit(is_slow_subspace=True) spans the original time range."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=2, is_slow_subspace=True)
+        self.assertAlmostEqual(tc.trajectories[0].start_time,
+                self.trajectory.start_time)
+        self.assertAlmostEqual(tc.trajectories[-1].end_time,
+                self.trajectory.end_time)
+
+    def test_split_times_are_valid_timepoints(self) -> None:
+        """Every boundary is in the original timepoint_arr."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=2, is_slow_subspace=True)
+        for traj in tc.trajectories:
+            self.assertIn(traj.start_time, self.trajectory.timepoint_arr)
+            self.assertIn(traj.end_time, self.trajectory.timepoint_arr)
+
+    def test_split_reduces_ssp_cost(self) -> None:
+        """Splitting with is_slow_subspace=True gives total SSP cost <= unsplit."""
+        if IGNORE_TESTS:
+            return
+        tc = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=1, is_slow_subspace=True)
+        split_cost = sum(self._sspCost(t) for t in tc.trajectories)
+        unsplit_cost = self._sspCost(self.trajectory)
+        self.assertLessEqual(split_cost, unsplit_cost + 1e-9)
+
+    def test_finds_optimal_single_split_by_ssp(self) -> None:
+        """SSP-guided split gives SSP cost <= every explicit single split."""
+        if IGNORE_TESTS:
+            return
+        tc_auto = TrajectoryCollection.autoSplit(
+                self.trajectory, num_split=1, is_slow_subspace=True)
+        auto_cost = sum(self._sspCost(t) for t in tc_auto.trajectories)
+
+        tp_arr = self.trajectory.timepoint_arr
+        for idx in range(1, len(tp_arr) - 1):
+            split_time = float(tp_arr[idx])
+            tc_manual = TrajectoryCollection.split(self.trajectory, [split_time])
+            manual_cost = sum(self._sspCost(t) for t in tc_manual.trajectories)
+            self.assertLessEqual(auto_cost, manual_cost + 1e-9,
+                    msg=f"auto_cost={auto_cost:.6f} > manual_cost={manual_cost:.6f}"
+                        f" at split idx={idx}")
+
+    def test_stiff_model_ssp_guided_cost_is_finite(self) -> None:
+        """On BIOMD0000000599 with SSP-guided splits, MSSP cost is finite."""
+        if IGNORE_TESTS:
+            return
+        from src.multiple_slow_subspace_predictor import MultipleSlowSubspacePredictor  # type: ignore
+        model = Model.makeBiomodel("BIOMD0000000599")
+        trajectory = Trajectory.makeFromSimulation(
+                model, start_time=0.0, end_time=None, num_point=101)
+        tc = TrajectoryCollection.autoSplit(
+                trajectory, num_split=2, is_slow_subspace=True)
+        mssp = MultipleSlowSubspacePredictor(tc, num_step=1)
+        self.assertTrue(np.isfinite(mssp.cost))
+
+    def test_stiff_model_ssp_guided_single_split_is_optimal_by_formula(self) -> None:
+        """On BIOMD0000000599, the SSP-guided split minimises 1/max(SSP_left, SSP_right)
+        vs a representative sample of explicit splits.
+
+        autoSplit uses the 1/max cost formula internally.  With num_split=1 the
+        greedy algorithm finds the global minimum of 1/max(left, right), so
+        the auto split should have 1/max <= every explicitly sampled split.
+        """
+        if IGNORE_TESTS:
+            return
+        model = Model.makeBiomodel("BIOMD0000000599")
+        trajectory = Trajectory.makeFromSimulation(
+                model, start_time=0.0, end_time=None, num_point=101)
+
+        tc_auto = TrajectoryCollection.autoSplit(
+                trajectory, num_split=1, is_slow_subspace=True)
+        auto_metric = 1.0 / np.max([self._sspCost(t) for t in tc_auto.trajectories])
+
+        tp_arr = trajectory.timepoint_arr
+        for idx in [1, 10, 25, 50, 75, 90, 99]:
+            split_time = float(tp_arr[idx])
+            tc_manual = TrajectoryCollection.split(trajectory, [split_time])
+            manual_metric = 1.0 / np.max(
+                    [self._sspCost(t) for t in tc_manual.trajectories])
+            self.assertLessEqual(auto_metric, manual_metric + 1e-9,
+                    msg=f"auto 1/max={auto_metric:.6f} > manual 1/max={manual_metric:.6f}"
+                        f" at split idx={idx}")
+
+
 if __name__ == "__main__":
     unittest.main()

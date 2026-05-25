@@ -78,7 +78,8 @@ class Score:
 
     def __init__(self, serialization_path: str = SERIALIZATION_PATH,
             is_ignore_first_prediction: bool = True,
-            is_initialize: bool = False) -> None:
+            is_initialize: bool = False,
+            min_true_value: float = 0.01) -> None:
         """
         Parameters
         ----------
@@ -88,13 +89,17 @@ class Score:
             Whether to ignore the first prediction when computing scores, since it may be an outlier.
         is_initialize : bool
             Whether to initialize the CSV file by writing an empty DataFrame with the appropriate columns.
+        min_true_value : float
+            Minimum value for true timecourse to avoid division by zero.
         """
+        self._min_true_value = min_true_value
         self._serializer = DataframeSerializer(serialization_path,
                 is_initialize=is_initialize)
         self._serialization_path = serialization_path
         self._is_ignore_first_prediction = is_ignore_first_prediction
         if is_initialize:
             self._serializer.serialize([])
+
     @property
     def score_df(self) -> pd.DataFrame:
         return self._serializer.dataframe
@@ -140,9 +145,10 @@ class Score:
         """Computes ARE = abs(prediction - true) / true; NaN where true == 0."""
         with np.errstate(divide='ignore', invalid='ignore'):
             are_arr = np.where(
-                    true_df.values == 0,
+                    true_df.values <= self._min_true_value,
                     np.nan,
-                    np.abs(prediction_df.values - true_df.values) / true_df.values)
+                    np.abs(prediction_df - true_df) / np.abs(true_df.values)
+            )
         if self._is_ignore_first_prediction:
             first_idx = 1
         else:

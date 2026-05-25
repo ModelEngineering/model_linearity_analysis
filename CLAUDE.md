@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Most import
+## Most important
 
 1. Don’t assume. Don’t hide confusion. Surface tradeoffs.
 2. Minimum code that solves the problem. Nothing speculative.
@@ -40,19 +40,9 @@ source activate.sh && python3 -m pytest tests/ --cov=src
 
 ## Architecture
 
-All code lives in `src/`, all tests in `tests/`. There are two modules:
+All code lives in `src/`, all tests in `tests/`. 
 
 **[src/constants.py](src/constants.py)** — Project-wide paths: `PROJECT_DIR` (repo root) and `DATA_DIR` (`<repo>/data/`).
-
-**[src/linear_analyzer.py](src/linear_analyzer.py)** — `LinearAnalyzer` class that:
-
-1. Accepts an SBML XML string or Antimony string (auto-detected: SBML starts with `<?xml` or `<sbml`).
-2. Uses [tellurium](https://tellurium.readthedocs.io/) / RoadRunner to simulate the model.
-3. `collectJacobians()` — resets the model, runs a first simulation to obtain timepoints, then resets again and steps forward timepoint-by-timepoint calling `rr.getFullJacobian()` at each step. Returns `ndarray` of shape `(num_points, n_species, n_species)`. Only floating species appear in the Jacobian. Cached in `_jacobian_arr`.
-4. `makeJacobianCVs()` — computes CV = |std/mean| across timepoints per Jacobian entry (zero-mean entries become NaN). Returns `ndarray` of shape `(n_species, n_species)`. Calls `collectJacobians()` automatically if not yet cached.
-5. `plot()` — renders a seaborn heatmap of the CV matrix from `makeJacobianCVs()`. Returns `plt.Figure`.
-6. `processBioModels(directory)` — class method that walks subdirectories, finds the first non-`manifest.xml` XML file in each, loads it as SBML, calls `collectJacobians()`, and returns `List[Tuple[str, LinearAnalyzer]]`. Failures are printed as warnings and skipped.
-7. `processBioModelsCVs(directory, data_file)` — class method like `processBioModels` but calls `makeJacobianCVs()` instead. Returns `Dict[str, np.ndarray]` and writes results to a NaN-padded CSV at `data_file` (default: `data/model_linearity_analysis_data.csv`).
 
 ## BioModels Data
 
@@ -60,21 +50,8 @@ SBML models are stored in `/Users/jlheller/home/Technical/repos/temp-biomodels/f
 
 ## Coding Style
 
-Per `docs/specification.md`:
+Delegate all coding style to ``python-coder.md``.
 
-- Method names: camelCase
-- Variable names: lower_case_with_underscores with required type suffixes:
-  - `_dct` for dicts, `_arr` for arrays, `_df` for DataFrames, `_ser` for Series
-  - Lists end in `s` (no suffix), e.g. `results`, `jacobians`
-- All functions have docstrings and type-annotated signatures
-- Use unittest not pytest.
-- All tests should be preceeded by the following guard and the top of tests should have IGNORE_TESTS = False.
-  - if IGNORE_TEST
-    - return
-- Avoid "brittle" tests that fail when there is a change in a symbol name or a change in the format of a text string.
-- For objects that are constructed for classes in this project, name the object using snake case of the class name. For example, a FooBar object would be named foo_bar.
-- Avoid duplication of the same coding sequences. Create a new function or method instead.
-- All methods internal to a class begin with underscore "_".
-- Unless otherwise stated, when requested to implement a method or function, also implement tests for the method or function, and run the tests to ensure that they pass. If they don't pass, make appropriate changes until tests do pass.
-- Continuation lines should be indented by two tabs.
-- After all imports, use " # type: ignore" to avoid typing errors
+## Tests
+
+Delegate all coding style to ``test-builder.md``.

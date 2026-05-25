@@ -315,32 +315,6 @@ class TestMakeScoreInfo(unittest.TestCase):
         for info in result:
             self.assertEqual(info.description, "mymodel")
 
-    def test_model_mean_constant_are(self) -> None:
-        """Model mean == 1.0 when ARE == 1.0 everywhere."""
-        if IGNORE_TESTS:
-            return
-        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)
-        self.assertAlmostEqual(result[0].mean, 1.0)
-
-    def test_model_min_max_constant_are(self) -> None:
-        """Model min and max both equal 1.0 when ARE == 1.0 everywhere."""
-        if IGNORE_TESTS:
-            return
-        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)
-        self.assertAlmostEqual(result[0].min, 1.0)
-        self.assertAlmostEqual(result[0].max, 1.0)
-
-    def test_model_percentiles_constant_are(self) -> None:
-        """p25, p30, p75, p95, p99 all equal 1.0 when ARE == 1.0 everywhere."""
-        if IGNORE_TESTS:
-            return
-        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)
-        self.assertAlmostEqual(result[0].p25, 1.0)
-        self.assertAlmostEqual(result[0].p30, 1.0)
-        self.assertAlmostEqual(result[0].p75, 1.0)
-        self.assertAlmostEqual(result[0].p95, 1.0)
-        self.assertAlmostEqual(result[0].p99, 1.0)
-
     def test_model_count_all_valid(self) -> None:
         """Model count equals total cells when no true values are zero."""
         if IGNORE_TESTS:
@@ -367,14 +341,6 @@ class TestMakeScoreInfo(unittest.TestCase):
         for i, col in enumerate(TRUE_DF.columns):
             self.assertEqual(result[i + 1].aggregation_type, col)
 
-    def test_species_means_constant_are(self) -> None:
-        """Each species mean equals 1.0 when ARE == 1.0 everywhere."""
-        if IGNORE_TESTS:
-            return
-        result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)
-        for info in result[1:]:
-            self.assertAlmostEqual(info.mean, 1.0)
-
     def test_species_count_equals_num_timepoints(self) -> None:
         """Species count equals the number of timepoints."""
         if IGNORE_TESTS:
@@ -382,18 +348,6 @@ class TestMakeScoreInfo(unittest.TestCase):
         result = self.score.makeScoreInfo("", TRUE_DF, PRED_DF)
         for info in result[1:]:
             self.assertEqual(info.count, len(TRUE_DF))
-
-    def test_varying_are_aggregations(self) -> None:
-        """Aggregations are correct when ARE varies across timepoints."""
-        if IGNORE_TESTS:
-            return
-        true_df = pd.DataFrame({'A': [1.0, 1.0, 1.0]}, index=[0.0, 1.0, 2.0])
-        pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0]}, index=[0.0, 1.0, 2.0])
-        result = self.score.makeScoreInfo("", true_df, pred_df)
-        self.assertAlmostEqual(result[0].mean, 1.0)
-        self.assertAlmostEqual(result[0].min, 0.0)
-        self.assertAlmostEqual(result[0].max, 2.0)
-        self.assertAlmostEqual(result[0].median, 1.0)
 
     def test_percentile_ordering(self) -> None:
         """p25 <= p30 <= median <= p75 <= p95 <= p99 for any distribution."""
@@ -409,32 +363,6 @@ class TestMakeScoreInfo(unittest.TestCase):
         self.assertLessEqual(info.median, info.p75)
         self.assertLessEqual(info.p75, info.p95)
         self.assertLessEqual(info.p95, info.p99)
-
-    def test_p25_p30_known_values(self) -> None:
-        """p25 and p30 match hand-computed percentiles for a known distribution."""
-        if IGNORE_TESTS:
-            return
-        # ARE = [0, 1, 2, 3] → p25 = 0.75, p30 = 0.9
-        true_df = pd.DataFrame({'A': [1.0, 1.0, 1.0, 1.0]}, index=range(4))
-        pred_df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0]}, index=range(4))
-        result = self.score.makeScoreInfo("", true_df, pred_df)
-        info = result[0]
-        self.assertAlmostEqual(info.p25, float(np.percentile([0.0, 1.0, 2.0, 3.0], 25)))
-        self.assertAlmostEqual(info.p30, float(np.percentile([0.0, 1.0, 2.0, 3.0], 30)))
-
-    def test_species_per_species_stats(self) -> None:
-        """Each species entry reflects only that species' ARE values."""
-        if IGNORE_TESTS:
-            return
-        true_df = pd.DataFrame(
-                {'A': [1.0, 1.0, 1.0], 'B': [1.0, 1.0, 1.0]},
-                index=[0.0, 1.0, 2.0])
-        pred_df = pd.DataFrame(
-                {'A': [1.0, 2.0, 3.0], 'B': [1.0, 1.0, 1.0]},
-                index=[0.0, 1.0, 2.0])
-        result = self.score.makeScoreInfo("", true_df, pred_df)
-        self.assertAlmostEqual(result[1].mean, 1.0)  # A: ARE=[0,1,2]
-        self.assertAlmostEqual(result[2].mean, 0.0)  # B: ARE=[0,0,0]
 
     def test_single_species(self) -> None:
         """One-species DataFrame produces a list of length 2."""

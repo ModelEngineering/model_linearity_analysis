@@ -30,7 +30,8 @@ class LinearPredictor(object):
     def __init__(self,
             trajectory: Trajectory,
             jacobian_selection: str = cn.JAC_MEDIAN,
-            num_step: int = -1) -> None:
+            num_step: int = -1,
+            is_species_prediction: bool = False) -> None:
         """
         Parameters
         ----------
@@ -41,6 +42,9 @@ class LinearPredictor(object):
             Window size in timepoints. The ODE is restarted from the actual
             observed state every num_step points. Must be >= 1, or -1 to use
             num_point - 1 (single window covering the full trajectory).
+        is_species_prediction : bool
+            If True, predict each species in isolation, using the actual observed values of the other species at each timepoint.
+            If False, predict all species concentrations without using other actual values
         """
         self.trajectory = trajectory
         self.jacobian_selection = jacobian_selection
@@ -49,6 +53,9 @@ class LinearPredictor(object):
         if num_step < 1:
             raise ValueError(f"num_step must be >= 1 or -1, got {num_step}.")
         self.num_step = num_step
+        self.is_species_prediction = is_species_prediction
+        self.forcing_input_arr = np.median(self.trajectory.forcing_input_collection_arr, axis=0)
+        self._fitted_jacobian_arr = np.array([])
 
     @classmethod
     def makeFromBiomodels(cls,
@@ -128,7 +135,8 @@ class LinearPredictor(object):
                 f"{cn.JAC_FITTED!r}.")
 
     def _predictWithJacobian(self, jacobian_arr: np.ndarray,
-            num_step: Optional[int] = None) -> np.ndarray:
+            num_step: Optional[int] = None,
+            ) -> np.ndarray:
         """Predict the trajectory using num_step-sized windows.
 
         For each window [t[i], t[i+num_step]], integrates the linear ODE
@@ -151,7 +159,6 @@ class LinearPredictor(object):
         if num_step is None:
             num_step = self.num_step
         #
-        forcing_arr = np.median(self.trajectory.forcing_input_collection_arr, axis=0)
         timecourse_arr = self.trajectory.timecourse_df.values
         timepoints = self.trajectory.timepoint_arr
         num_point = len(timepoints)
@@ -160,8 +167,21 @@ class LinearPredictor(object):
         prediction_arr = np.empty((num_point, num_species))
         prediction_arr[0] = timecourse_arr[0]
 
+        ##
         def _ode(t: float, x: np.ndarray) -> np.ndarray:
-            return jacobian_arr @ x + forcing_arr
+            if self.is_species_prediction:
+                matches = np.where(timepoints <= t)[0]
+                idx = matches[-1] if len(matches) > 0 else 0
+                actual_arr = timecourse_arr[idx]
+                results = []
+                for i in range(num_species):
+                    x_i = actual_arr.copy()
+                    x_i[i] = x[i]
+                    results.append(jacobian_arr[i] @ x_i + self.forcing_input_arr[i])
+                return np.array(results)
+            else:
+                return jacobian_arr @ x + self.forcing_input_arr
+        ##
 
         window_start = 0
         while window_start < num_point - 1:
@@ -250,6 +270,10 @@ class LinearPredictor(object):
         np.ndarray
             Fitted Jacobian of shape (num_species, num_species).
         """
+        # Check if computed previously
+        if self._fitted_jacobian_arr.size > 0:
+            return self._fitted_jacobian_arr
+        #
         num_species = self.trajectory.model.num_species
         if self.trajectory.num_point < num_species:
             raise ValueError(
@@ -278,7 +302,7 @@ class LinearPredictor(object):
             jacobian_arr[ispecies] = [result.params[f"d{idx}"].value  # type: ignore
                     for idx in range(jacobian_arr.shape[1])]
 
-        self._fitted_jacobian_arr: np.ndarray = jacobian_arr
+        self._fitted_jacobian_arr = jacobian_arr
         return self._fitted_jacobian_arr
 
     def predict(self) -> pd.DataFrame:
@@ -314,10 +338,11 @@ class LinearPredictor(object):
             (aggregation_type='model') and one per species.
         """
         prediction_df = self.predict()
-        scorer = Score()
+        scorer = Score(is_initialize=True)
         score_infos = scorer.makeScoreInfo(
                 description, self.trajectory.timecourse_df, prediction_df)
-        return pd.DataFrame([info.__dict__ for info in score_infos])
+        df = pd.DataFrame([info.__dict__ for info in score_infos])
+        return df
 
     @property
     def cost(self) -> float:

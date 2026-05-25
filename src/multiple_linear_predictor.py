@@ -5,11 +5,12 @@ from src.linear_predictor import LinearPredictor  # type: ignore
 from src.plot_options import PlotOptions  # type: ignore
 from src.score import Score  # type: ignore
 from src.trajectory_collection import TrajectoryCollection  # type: ignore
+from src.slow_subspace_predictor import SlowSubspacePredictor  # type: ignore
 
 from collections import namedtuple
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from typing import List
+from typing import List, Union
 
 
 SegmentResult = namedtuple("SegmentResult", ["actual_df", "prediction_df"])
@@ -28,7 +29,9 @@ class MultipleLinearPredictor(object):
     def __init__(self,
             trajectory_collection: TrajectoryCollection,
             jacobian_selection: str = cn.JAC_FITTED,
-            num_step: int = -1) -> None:
+            num_step: int = -1,
+            is_slow_subspace: bool = False,
+            is_species_prediction: bool = False) -> None:
         """
         Parameters
         ----------
@@ -37,10 +40,14 @@ class MultipleLinearPredictor(object):
             Passed to each LinearPredictor.
         num_step : int
             Number of steps ahead for windowed prediction.
+        is_species_prediction : bool
+            Whether to predict species concentrations.
         """
         self.trajectory_collection = trajectory_collection
         self.jacobian_selection = jacobian_selection
         self.num_step = num_step
+        self.is_slow_subspace = is_slow_subspace
+        self.is_species_prediction = is_species_prediction
 
     def _makeTimecourse(self) -> pd.DataFrame:
         """Concatenate actual timecourses, dropping duplicate boundary rows.
@@ -73,9 +80,14 @@ class MultipleLinearPredictor(object):
         pred_dfs: List[pd.DataFrame] = []
         actual_dfs: List[pd.DataFrame] = []
         for i, traj in enumerate(self.trajectory_collection.trajectories):
-            lp = LinearPredictor(traj,
-                    jacobian_selection=self.jacobian_selection,
-                    num_step=self.num_step)
+            if self.is_slow_subspace:
+                lp: Union[SlowSubspacePredictor, LinearPredictor] = SlowSubspacePredictor(traj,
+                        num_step=self.num_step)
+            else:
+                lp = LinearPredictor(traj,
+                        jacobian_selection=self.jacobian_selection,
+                        num_step=self.num_step,
+                        is_species_prediction=self.is_species_prediction)
             prediction_df = lp.predict()
             if i > 0:
                 prediction_df = prediction_df.iloc[1:]
@@ -128,7 +140,8 @@ class MultipleLinearPredictor(object):
         -------
         PlotOptions
         """
-        prediction_df = self.predict().prediction_df
+        prediction_result = self.predict()
+        prediction_df = prediction_result.prediction_df
         actual_df = self.trajectory_collection.makeTimecourse()
         if "title" not in kwargs:
             scorer = Score()
@@ -137,6 +150,18 @@ class MultipleLinearPredictor(object):
             model_name = self.trajectory_collection.model.model_name
             n_seg = len(self.trajectory_collection.trajectories)
             kwargs["title"] = f"{model_name} n_seg={n_seg}, p95={p95:.2f}"
+        # Get the score information for each segement
+        segment_score_p95s:list = []
+        scorer = Score()
+        for i, segment_result in enumerate(prediction_result.segment_results):
+            try:
+                score_info = scorer.makeScoreInfo(f"Segment {i}",
+                        segment_result.actual_df, segment_result.prediction_df)
+                p95 = score_info[0].p95
+            except Exception as e:
+                print(f"Error occurred while processing segment {i}: {e}")
+                p95 = np.nan
+            segment_score_p95s.append(p95)
         plot_options = PlotOptions(**kwargs)
         ax = plot_options.ax
         for i, name in enumerate(self.trajectory_collection.model.species_names):
@@ -148,6 +173,10 @@ class MultipleLinearPredictor(object):
         for traj in self.trajectory_collection.trajectories[:-1]:
             ax.axvline(x=traj.end_time, color="black",  # type: ignore
                     linestyle="--", linewidth=0.8)
+        for i, traj in enumerate(self.trajectory_collection.trajectories):
+            xpos = traj.start_time + 0.4 * (traj.end_time - traj.start_time)
+            ax.text(xpos, ax.get_ylim()[1], f"{segment_score_p95s[i]:.2f}",  # type: ignore
+                    ha="center", va="top", fontsize=8)
         plot_options.apply()
         return plot_options
 
