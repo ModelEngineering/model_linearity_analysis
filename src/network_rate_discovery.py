@@ -20,7 +20,7 @@ A pandas DataFrame with:
 
 Usage
 -----
-    from chemical_network_sindy import NetworkDiscovery
+    from chemical_network_sindy import NetworkRateDiscovery
 
     discovery = NetworkRateDiscovery(
         df,
