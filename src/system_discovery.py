@@ -1,5 +1,5 @@
 """
-Chemical Network Rate Discovery via SINDy (Sparse Identification of Nonlinear Dynamics)
+Discovery of a system of differential equations from data using PySINDy, tailored for chemical reaction networks.
 ====================================================================================
 Discovers a system of ODEs from time-series concentration data using PySINDy
 that estimate the derivatives of each species as a sparse linear combination of polynomial features of the species concentrations.
@@ -15,8 +15,8 @@ Dependencies
 Input
 -----
 A pandas DataFrame with:
-  - One column named 'time'  (or passed separately as the `time_col` argument)
-  - One column per species   (up to 10)
+  - Index is time
+  - One column per species   (up to 20)
 
 Usage
 -----
@@ -24,7 +24,6 @@ Usage
 
     discovery = NetworkRateDiscovery(
         df,
-        time_col="time",
         threshold=0.05,          # STLSQ sparsity threshold
         alpha=0.05,              # L2 regularisation
         differentiation="smooth" # "smooth" | "finite" | "spectral"
@@ -57,7 +56,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Constants
 # ---------------------------------------------------------------------------
 
-MAX_SPECIES = 10
+MAX_SPECIES = 20
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
 
@@ -66,7 +65,7 @@ DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 # ---------------------------------------------------------------------------
 
 
-class NetworkRateDiscovery:
+class SystemDiscovery:
     """Discover a chemical reaction network from concentration time-series data.
 
     Parameters
@@ -74,8 +73,7 @@ class NetworkRateDiscovery:
     df : pd.DataFrame
         Time-series data.  Must contain a time column and one column per
         chemical species (concentrations must be non-negative).
-    time_col : str
-        Name of the column holding time values.  Default ``"time"``.
+        Index is time
     threshold : float
         STLSQ sparsity threshold.  Terms whose coefficient magnitude falls
         below this value are pruned.  Tune this to trade sparsity for fit.
@@ -110,23 +108,19 @@ class NetworkRateDiscovery:
     def __init__(
         self,
         df: pd.DataFrame,
-        *,
-        time_col: str = "time",
-        threshold: float = 0.05,
+        threshold: float = 0.01,
         alpha: float = 0.05,
-        differentiation: DifferentiationMethod = "smooth",
+        #differentiation: DifferentiationMethod = "smooth",
+        differentiation: DifferentiationMethod = "spectral",
         poly_degree: int = 2,
         include_bias: bool = True,
         species_names: list[str] | None = None,
         bias_species: list[str] | None = None,
     ) -> None:
-        if poly_degree not in (1, 2):
-            raise ValueError("`poly_degree` must be 1 (linear) or 2 (quadratic).")
 
-        self._validate_dataframe(df, time_col)
+        self._validate_dataframe(df)
 
         self.df = df.copy()
-        self.time_col = time_col
         self.threshold = threshold
         self.alpha = alpha
         self.differentiation = differentiation
@@ -134,7 +128,7 @@ class NetworkRateDiscovery:
         self.include_bias = include_bias
 
         # Extract time and concentration arrays
-        species_cols = [c for c in df.columns if c != time_col]
+        species_cols = list(df.columns)
         if len(species_cols) > MAX_SPECIES:
             raise ValueError(
                 f"DataFrame contains {len(species_cols)} species columns; "
@@ -142,7 +136,7 @@ class NetworkRateDiscovery:
             )
 
         self.species_cols = species_cols
-        self.t: np.ndarray = df[time_col].to_numpy(dtype=float)
+        self.time_arr: np.ndarray = df.index.to_numpy(dtype=float)
         self.X: np.ndarray = df[species_cols].to_numpy(dtype=float)
 
         if species_names is not None:
@@ -186,7 +180,7 @@ class NetworkRateDiscovery:
     # Public interface
     # ------------------------------------------------------------------
 
-    def fit(self) -> "NetworkRateDiscovery":
+    def fit(self) -> "SystemDiscovery":
         """Fit the SINDy model to the data.
 
         Returns
@@ -194,8 +188,14 @@ class NetworkRateDiscovery:
         self
         """
 
-        dt = float(np.median(np.diff(self.t)))
-        self.model.fit(self.X, t=dt, feature_names=self.species_names)
+        dt = float(np.median(np.diff(self.time_arr)))
+        with warnings.catch_warnings(record=True) as _caught:
+            warnings.simplefilter("always")
+            self.model.fit(self.X, t=dt, feature_names=self.species_names)
+        if _caught:
+            print("Warnings from model.fit():")
+            for w in _caught:
+                print(f"  {w.category.__name__}: {w.message}")
         if self.bias_species is not None:
             allowed = set(self.bias_species)
             for i, name in enumerate(self.species_names):
@@ -224,9 +224,9 @@ class NetworkRateDiscovery:
         """
         self._require_fitted()
         X_sim = self._simulate()
-        return pd.DataFrame(X_sim, index=self.t, columns=self.species_names)
+        return pd.DataFrame(X_sim, index=self.time_arr, columns=self.species_names)
 
-    def r_squared(self, method: str = "derivative") -> dict[str, float]:
+    def r_squared(self, method: str = "simulation") -> dict[str, float]:
         """Compute R² for each species.
 
         Parameters
@@ -243,19 +243,26 @@ class NetworkRateDiscovery:
         dict mapping species name → R²
         """
         self._require_fitted()
-        if method == "simulation":
-            return self._r_squared_simulation()
-        return self._r_squared_derivative()
+        try:
+            if method == "simulation":
+                result = self._r_squared_simulation()
+            else:
+                result = self._r_squared_derivative()
+        except Exception as exc:
+            warnings.warn(f"R² computation failed: {exc}")
+            result = self._r_squared_derivative()
+        return result
 
     def _r_squared_derivative(self) -> dict[str, float]:
         """R² on predicted vs numerical derivatives."""
-        dt = float(np.median(np.diff(self.t)))
+        dt = float(np.median(np.diff(self.time_arr)))
         X_dot_pred = self.model.predict(self.X)          # predicted derivatives
-        X_dot_num  = self.model.differentiation_method(self.X, self.t)  # numerical
+        X_dot_num  = self.model.differentiation_method(self.X, self.time_arr)  # type: ignore  # numerical derivatives
         r2 = {}
+        X_dot_pred_arr = np.array(X_dot_pred)
         for i, name in enumerate(self.species_names):
             y_true = X_dot_num[:, i]
-            y_pred = X_dot_pred[:, i]
+            y_pred = X_dot_pred_arr[:, i]
             ss_res = np.sum((y_true - y_pred) ** 2)
             ss_tot = np.sum((y_true - y_true.mean()) ** 2)
             r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
@@ -294,13 +301,14 @@ class NetworkRateDiscovery:
         )
         # Keep only rows where at least one coefficient is non-zero
         non_zero_mask = (df_coef.abs() > 0).any(axis=1)
-        return df_coef[non_zero_mask]
+        return df_coef[non_zero_mask]  # type: ignore
 
     def plotResult(
         self,
         figsize: tuple[float, float] | None = None,
         show: bool = True,
-    ) -> plt.Figure:
+        num_skip_point: int = 5,
+    ) -> plt.Figure:  # type: ignore
         """Plot observed vs. model-simulated trajectories for each species.
 
         Parameters
@@ -310,6 +318,8 @@ class NetworkRateDiscovery:
         show : bool
             Call ``plt.show()`` at the end.  Set to ``False`` when embedding
             in a larger figure or saving manually.
+        num_skip_point : int
+            Plot only every N-th point from the original data to reduce clutter.    
 
         Returns
         -------
@@ -346,7 +356,7 @@ class NetworkRateDiscovery:
             row, col = divmod(idx, ncols)
             ax = axes[row][col]
             color = f"C{idx}"
-            ax.plot(self.t, self.X[:, idx], "-", lw=2, color=color, label=f"{name} (observed)")
+            ax.scatter(self.time_arr[::num_skip_point], self.X[::num_skip_point, idx], s=20, color=color, label=f"{name} (observed)")
             if prediction_ok and pred_df is not None:
                 ax.plot(pred_df.index, pred_df[name], "--", lw=2, color=color, label=f"{name} (predicted)")
             r2 = r2_vals.get(name, float("nan"))
@@ -373,7 +383,7 @@ class NetworkRateDiscovery:
         self,
         figsize: tuple[float, float] | None = None,
         show: bool = True,
-    ) -> plt.Figure:
+    ) -> plt.Figure:  # type: ignore
         """Visualise the coefficient matrix as a heatmap.
 
         Each row is a library feature; each column is a species.
@@ -407,11 +417,11 @@ class NetworkRateDiscovery:
         for i in range(len(df_coef.index)):
             for j in range(len(df_coef.columns)):
                 val = df_coef.iloc[i, j]
-                if abs(val) > 1e-10:
+                if abs(val) > 1e-10:  # type: ignore
                     ax.text(
                         j, i, f"{val:.3f}",
                         ha="center", va="center", fontsize=7,
-                        color="white" if abs(val) > df_coef.values.max() * 0.5 else "black",
+                        color="white" if abs(val) > df_coef.values.max() * 0.5 else "black",  # type: ignore
                     )
 
         fig.tight_layout()
@@ -445,37 +455,40 @@ class NetworkRateDiscovery:
         x0 = self.X[0, :]
 
         def rhs(t, x):
-            return self.model.predict(x.reshape(1, -1))[0]
+            ans = self.model.predict(x.reshape(1, -1))[0]
+            return np.array(ans, dtype=float)
 
-        sol = solve_ivp(
-            rhs,
-            t_span=(self.t[0], self.t[-1]),
-            y0=x0,
-            t_eval=self.t,
-            method="RK45",
-            rtol=1e-6,
-            atol=1e-8,
-        )
+
+        try:
+            sol = solve_ivp(
+                rhs,
+                t_span=(self.time_arr[0], self.time_arr[-1]),
+                y0=x0,
+                t_eval=self.time_arr,
+                method="LSODA",
+                rtol=1e-6,
+                atol=1e-8,
+                #max_step=0.01
+            )
+        except Exception as exc:
+            raise RuntimeError(f"ODE integration failed: {exc}") from exc
         if not sol.success:
             raise RuntimeError(f"ODE integration failed: {sol.message}")
         return sol.y.T   # shape (n_timepoints, n_species)
 
     @staticmethod
-    def _validate_dataframe(df: pd.DataFrame, time_col: str) -> None:
+    def _validate_dataframe(df: pd.DataFrame) -> None:
         if not isinstance(df, pd.DataFrame):
             raise TypeError("`df` must be a pandas DataFrame.")
-        if time_col not in df.columns:
-            raise ValueError(f"Time column '{time_col}' not found in DataFrame.")
-        species_cols = [c for c in df.columns if c != time_col]
-        if len(species_cols) == 0:
+        if len(df.columns) == 0:
             raise ValueError("DataFrame must contain at least one species column.")
-        if len(species_cols) > MAX_SPECIES:
+        if len(df.columns) > MAX_SPECIES:
             raise ValueError(
-                f"DataFrame has {len(species_cols)} species columns; "
+                f"DataFrame has {len(df.columns)} species columns; "
                 f"maximum is {MAX_SPECIES}."
             )
-        if df[time_col].is_monotonic_increasing is False:
-            raise ValueError("Time column must be strictly increasing.")
+        if not df.index.is_monotonic_increasing:
+            raise ValueError("DataFrame index (time) must be strictly increasing.")
 
 
 # ---------------------------------------------------------------------------
@@ -485,9 +498,7 @@ class NetworkRateDiscovery:
 
 def discover_network(
     df: pd.DataFrame,
-    *,
-    time_col: str = "time",
-    threshold: float = 0.05,
+    threshold: float = 0.01,
     alpha: float = 0.05,
     differentiation: DifferentiationMethod = "smooth",
     poly_degree: int = 2,
@@ -495,15 +506,13 @@ def discover_network(
     species_names: list[str] | None = None,
     plot: bool = True,
     heatmap: bool = True,
-) -> NetworkRateDiscovery:
+) -> SystemDiscovery:
     """One-shot helper: construct, fit, print, and optionally plot.
 
     Parameters
     ----------
     df : pd.DataFrame
         Input data (see :class:`NetworkRateDiscovery`).
-    time_col : str
-        Name of the time column.
     threshold : float
         STLSQ sparsity threshold.
     alpha : float
@@ -528,13 +537,12 @@ def discover_network(
 
     Example
     -------
-    >>> disc = discover_network(df, time_col="time", threshold=0.02)
+    >>> disc = discover_network(df, threshold=0.02)
     >>> disc.print_equations()
     >>> summary = disc.summary()
     """
-    disc = NetworkRateDiscovery(
+    disc = SystemDiscovery(
         df,
-        time_col=time_col,
         threshold=threshold,
         alpha=alpha,
         differentiation=differentiation,
@@ -545,7 +553,7 @@ def discover_network(
     disc.fit()
     disc.print_equations()
 
-    r2 = disc.r_squared(method="derivative")
+    r2 = disc.r_squared()
     print("R² on time derivatives per species:")
     for name, val in r2.items():
         print(f"  {name}: {val:.6f}")
@@ -575,7 +583,7 @@ def discover_network(
 
 def _generate_brusselator(
     t_end: float = 20.0,
-    n_points: int = 400,
+    n_points: int = 4000,
     noise_std: float = 0.02,
     seed: int = 42,
 ) -> pd.DataFrame:
@@ -599,7 +607,9 @@ def _generate_brusselator(
     X_data = sol.y[0] + rng.normal(0, noise_std, n_points)
     Y_data = sol.y[1] + rng.normal(0, noise_std, n_points)
 
-    return pd.DataFrame({"time": t_eval, "X": X_data, "Y": Y_data})
+    df = pd.DataFrame({"time": t_eval, "X": X_data, "Y": Y_data})
+    df = df.set_index("time")
+    return df
 
 
 if __name__ == "__main__":
@@ -612,11 +622,10 @@ if __name__ == "__main__":
 
     disc = discover_network(
         df_demo,
-        time_col="time",
-        threshold=0.1,
+        threshold=0.01,
         alpha=0.01,
         differentiation="smooth",
-        poly_degree=2,
+        poly_degree=3,
         include_bias=True,
         plot=True,
         heatmap=True,

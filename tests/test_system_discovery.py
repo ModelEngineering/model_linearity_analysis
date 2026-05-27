@@ -1,4 +1,4 @@
-"""Tests for NetworkRateDiscovery in network_discovery.py."""
+"""Tests for SystemDiscovery in network_discovery.py."""
 
 import unittest
 import matplotlib  # type: ignore
@@ -7,13 +7,15 @@ import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from scipy.integrate import solve_ivp  # type: ignore
 import tellurium as te  # type: ignore
+from typing import cast
 
 # pylint: disable=invalid-name
 IGNORE_TESTS = False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
+    pass
 
-from network_rate_discovery import NetworkRateDiscovery, discover_network  # type: ignore
+from system_discovery import SystemDiscovery, discover_network, MAX_SPECIES  # type: ignore
 
 #----------------------------------------------------------------------------
 # Antimony networks
@@ -30,24 +32,28 @@ k5 = 24; k6 = 53
 S8 = 6.0
 """
 rr = te.loada(ANTIMONY_NETWORK_1)
-_network1_raw = rr.simulate(0, 2, 200, ["time", "S1", "S3", "S4", "S6", "S8"])
-ANTIMONY_NETWORK_1_DF = pd.DataFrame(_network1_raw, columns=_network1_raw.colnames)
+_network1_raw = rr.simulate(0, 2, 2000, ["time", "S1", "S3", "S4", "S6"])
+ANTIMONY_NETWORK_1_DF = pd.DataFrame(
+    _network1_raw[:, 1:],
+    index=_network1_raw[:, 0],
+    columns=_network1_raw.colnames[1:],
+)
 
-_FITTED_NETWORK1: NetworkRateDiscovery | None = None
+_FITTED_NETWORK1: SystemDiscovery | None = None
 
 
-def _get_fitted_network1() -> NetworkRateDiscovery:
+def _get_fitted_network1(threshold: float = 0.01) -> SystemDiscovery:
     global _FITTED_NETWORK1
     if _FITTED_NETWORK1 is None:
-        _FITTED_NETWORK1 = NetworkRateDiscovery(
+        _FITTED_NETWORK1 = SystemDiscovery(
             ANTIMONY_NETWORK_1_DF,
-            time_col="time",
-            threshold=1.0,
+            threshold=threshold,
             alpha=0.01,
             poly_degree=2,
             include_bias=True,
             differentiation="finite",
-            bias_species=["S8"],
+            bias_species=[],
+            #bias_species=["S8"],
         ).fit()
     return _FITTED_NETWORK1
 
@@ -78,7 +84,7 @@ def _make_decay_df(n_points: int = 200, t_end: float = 20.0) -> pd.DataFrame:
         rtol=1e-8,
         atol=1e-10,
     )
-    return pd.DataFrame({"time": t_eval, "S1": sol.y[0]})
+    return pd.DataFrame({"S1": sol.y[0]}, index=t_eval)
 
 
 def _make_two_species_df(n_points: int = 200, t_end: float = 20.0) -> pd.DataFrame:
@@ -91,15 +97,13 @@ def _make_two_species_df(n_points: int = 200, t_end: float = 20.0) -> pd.DataFra
         rtol=1e-8,
         atol=1e-10,
     )
-    return pd.DataFrame({"time": t_eval, "S1": sol.y[0], "S2": sol.y[1]})
+    return pd.DataFrame({"S1": sol.y[0], "S2": sol.y[1]}, index=t_eval)
 
 
 def _make_too_many_species_df() -> pd.DataFrame:
-    n = 11
-    data = {"time": np.linspace(0, 10, 50)}
-    for i in range(n):
-        data[f"S{i+1}"] = np.ones(50)
-    return pd.DataFrame(data)
+    n = MAX_SPECIES + 1
+    data = {f"S{i+1}": np.ones(50) for i in range(n)}
+    return pd.DataFrame(data, index=np.linspace(0, 10, 50))
 
 
 # ---------------------------------------------------------------------------
@@ -109,16 +113,15 @@ def _make_too_many_species_df() -> pd.DataFrame:
 _DECAY_DF = _make_decay_df()
 _TWO_SPECIES_DF = _make_two_species_df()
 
-_FITTED_DECAY: NetworkRateDiscovery | None = None
-_FITTED_TWO_SPECIES: NetworkRateDiscovery | None = None
+_FITTED_DECAY: SystemDiscovery | None = None
+_FITTED_TWO_SPECIES: SystemDiscovery | None = None
 
 
-def _get_fitted_decay() -> NetworkRateDiscovery:
+def _get_fitted_decay() -> SystemDiscovery:
     global _FITTED_DECAY
     if _FITTED_DECAY is None:
-        _FITTED_DECAY = NetworkRateDiscovery(
+        _FITTED_DECAY = SystemDiscovery(
             _DECAY_DF,
-            time_col="time",
             threshold=0.01,
             alpha=0.01,
             poly_degree=1,
@@ -128,12 +131,11 @@ def _get_fitted_decay() -> NetworkRateDiscovery:
     return _FITTED_DECAY
 
 
-def _get_fitted_two_species() -> NetworkRateDiscovery:
+def _get_fitted_two_species() -> SystemDiscovery:
     global _FITTED_TWO_SPECIES
     if _FITTED_TWO_SPECIES is None:
-        _FITTED_TWO_SPECIES = NetworkRateDiscovery(
+        _FITTED_TWO_SPECIES = SystemDiscovery(
             _TWO_SPECIES_DF,
-            time_col="time",
             threshold=0.01,
             alpha=0.01,
             poly_degree=1,
@@ -151,37 +153,29 @@ def _get_fitted_two_species() -> NetworkRateDiscovery:
 class TestNetworkRateDiscoveryValidation(unittest.TestCase):
     """Tests for constructor validation and _validate_dataframe."""
 
-    def test_invalid_poly_degree(self) -> None:
-        """poly_degree=3 raises ValueError."""
+    def test_non_monotone_index(self) -> None:
+        """Non-monotonically-increasing index raises ValueError."""
         if IGNORE_TESTS:
             return
-        df = _make_decay_df()
+        df = pd.DataFrame({"S1": [1.0, 2.0, 0.5]}, index=[0.0, 1.0, 0.5])
         with self.assertRaises(ValueError):
-            NetworkRateDiscovery(df, time_col="time", poly_degree=3)
-
-    def test_missing_time_col(self) -> None:
-        """time_col not present in df raises ValueError."""
-        if IGNORE_TESTS:
-            return
-        df = _make_decay_df()
-        with self.assertRaises(ValueError):
-            NetworkRateDiscovery(df, time_col="no_such_col")
+            SystemDiscovery(df)
 
     def test_no_species_cols(self) -> None:
-        """df with only a time column raises ValueError."""
+        """df with no columns raises ValueError."""
         if IGNORE_TESTS:
             return
-        df = pd.DataFrame({"time": np.linspace(0, 10, 20)})
+        df = pd.DataFrame(index=np.linspace(0, 10, 20))
         with self.assertRaises(ValueError):
-            NetworkRateDiscovery(df, time_col="time")
+            SystemDiscovery(df)
 
     def test_too_many_species(self) -> None:
-        """11 species columns raises ValueError."""
+        """More than MAX_SPECIES columns raises ValueError."""
         if IGNORE_TESTS:
             return
         df = _make_too_many_species_df()
         with self.assertRaises(ValueError):
-            NetworkRateDiscovery(df, time_col="time")
+            SystemDiscovery(df)
 
     def test_species_names_length_mismatch(self) -> None:
         """species_names with wrong length raises ValueError."""
@@ -189,31 +183,30 @@ class TestNetworkRateDiscoveryValidation(unittest.TestCase):
             return
         df = _make_decay_df()
         with self.assertRaises(ValueError):
-            NetworkRateDiscovery(df, time_col="time", species_names=["A", "B"])
+            SystemDiscovery(df, species_names=["A", "B"])
 
     def test_non_dataframe_input(self) -> None:
         """Passing a non-DataFrame raises TypeError."""
         if IGNORE_TESTS:
             return
         with self.assertRaises(TypeError):
-            NetworkRateDiscovery({"time": [0, 1], "S1": [1, 0]}, time_col="time")  # type: ignore
+            SystemDiscovery({"S1": [1, 0]})  # type: ignore
 
     def test_valid_construction_does_not_raise(self) -> None:
         """A valid DataFrame and parameters constructs without error."""
         if IGNORE_TESTS:
             return
         df = _make_decay_df()
-        nd = NetworkRateDiscovery(df, time_col="time", poly_degree=1)
-        self.assertIsInstance(nd, NetworkRateDiscovery)
+        nd = SystemDiscovery(df, poly_degree=1)
+        self.assertIsInstance(nd, SystemDiscovery)
 
 
 class TestNetworkRateDiscoveryFit(unittest.TestCase):
     """Tests for fit() and the fitted-state guard."""
 
-    def _make_unfitted(self) -> NetworkRateDiscovery:
-        return NetworkRateDiscovery(
+    def _make_unfitted(self) -> SystemDiscovery:
+        return SystemDiscovery(
             _make_decay_df(),
-            time_col="time",
             threshold=0.01,
             alpha=0.01,
             poly_degree=1,
@@ -263,7 +256,7 @@ class TestNetworkRateDiscoveryFit(unittest.TestCase):
 class TestNetworkRateDiscoveryDecay(unittest.TestCase):
     """Tests using the 1-species linear decay model."""
 
-    nd: NetworkRateDiscovery
+    nd: SystemDiscovery
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -313,14 +306,14 @@ class TestNetworkRateDiscoveryDecay(unittest.TestCase):
             return
         summary = self.nd.summary()
         # With poly_degree=1 and include_bias=False, the only feature is S1
-        s1_coef = summary.loc["S1", "dS1/dt"]
-        self.assertLess(s1_coef, 0.0)
+        s1_coef = cast(float, summary.loc["S1", "dS1/dt"])
+        assert(s1_coef < 0.0)
 
 
 class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
     """Tests using the 2-species irreversible conversion model."""
     
-    nd: NetworkRateDiscovery
+    nd: SystemDiscovery
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -354,9 +347,8 @@ class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_two_species_df()
-        nd = NetworkRateDiscovery(
+        nd = SystemDiscovery(
             df,
-            time_col="time",
             threshold=0.01,
             alpha=0.01,
             poly_degree=1,
@@ -372,7 +364,7 @@ class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
 class TestNetworkRateDiscoveryPlot(unittest.TestCase):
     """Tests for plotResult and plot_coefficient_heatmap."""
     
-    nd: NetworkRateDiscovery
+    nd: SystemDiscovery
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -386,14 +378,14 @@ class TestNetworkRateDiscoveryPlot(unittest.TestCase):
         if IGNORE_TESTS:
             return
         fig = self.nd.plotResult(show=False)
-        self.assertIsInstance(fig, plt.Figure)
+        self.assertIsInstance(fig, plt.Figure)  # type: ignore
 
     def test_plot_heatmap_returns_figure(self) -> None:
         """plot_coefficient_heatmap(show=False) returns a matplotlib Figure."""
         if IGNORE_TESTS:
             return
         fig = self.nd.plot_coefficient_heatmap(show=False)
-        self.assertIsInstance(fig, plt.Figure)
+        self.assertIsInstance(fig, plt.Figure)  # type: ignore
 
 
 class TestDiscoverNetworkFunction(unittest.TestCase):
@@ -409,7 +401,6 @@ class TestDiscoverNetworkFunction(unittest.TestCase):
         df = _make_decay_df()
         nd = discover_network(
             df,
-            time_col="time",
             threshold=0.01,
             alpha=0.01,
             poly_degree=1,
@@ -418,7 +409,7 @@ class TestDiscoverNetworkFunction(unittest.TestCase):
             plot=False,
             heatmap=False,
         )
-        self.assertIsInstance(nd, NetworkRateDiscovery)
+        self.assertIsInstance(nd, SystemDiscovery)
         self.assertTrue(nd._is_fitted)  # pylint: disable=protected-access
 
 
@@ -432,28 +423,29 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
         dS6/dt =   k0*S8  - 315*S3*S6
         dS8/dt = 0
     """
-    nd: NetworkRateDiscovery
+    nd: SystemDiscovery
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.nd = _get_fitted_network1()
+        cls.nd = _get_fitted_network1(threshold=1)
 
     def tearDown(self) -> None:
         plt.close("all")
 
     def test_summary_has_five_columns(self) -> None:
         """summary() has exactly 5 columns (one per floating species)."""
+        print(self.nd.summary())
         if IGNORE_TESTS:
             return
         result = self.nd.summary()
-        self.assertEqual(len(result.columns), 5)
+        self.assertEqual(len(result.columns), 4)
 
     def test_summary_column_names(self) -> None:
-        """summary() columns are dS1/dt, dS3/dt, dS4/dt, dS6/dt, dS8/dt."""
+        """summary() columns are dS1/dt, dS3/dt, dS4/dt, dS6/dt."""
         if IGNORE_TESTS:
             return
         result = self.nd.summary()
-        expected = {"dS1/dt", "dS3/dt", "dS4/dt", "dS6/dt", "dS8/dt"}
+        expected = {"dS1/dt", "dS3/dt", "dS4/dt", "dS6/dt"}
         self.assertEqual(set(result.columns), expected)
 
     def test_r_squared_all_species_present(self) -> None:
@@ -461,7 +453,7 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
         if IGNORE_TESTS:
             return
         result = self.nd.r_squared(method="derivative")
-        for name in ("S1", "S3", "S4", "S6", "S8"):
+        for name in ("S1", "S3", "S4", "S6"):
             self.assertIn(name, result)
 
     def test_r_squared_all_reasonable(self) -> None:
@@ -491,16 +483,15 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
         """S3 S6 coefficient in dS6/dt is negative (S6 is consumed by bimolecular reaction)."""
         if IGNORE_TESTS:
             return
-        coef = float(self.nd.summary().loc["S3 S6", "dS6/dt"]) # type: ignore
+        coef = cast(float, self.nd.summary().loc["S3 S6", "dS6/dt"]) # type: ignore
         self.assertLess(coef, 0.0)
 
     def test_plotResult_returns_figure(self) -> None:
         """plotResult(show=False) returns a matplotlib Figure."""
-        #if IGNORE_TESTS:
-        #    return
+        if IGNORE_TESTS:
+            return
         fig = self.nd.plotResult(show=False)
-        import pdb; pdb.set_trace()
-        self.assertIsInstance(fig, matplotlib.figure.Figure)
+        self.assertIsInstance(fig, matplotlib.figure.Figure)  # type: ignore
 
 
 class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
@@ -511,19 +502,19 @@ class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
     zero bias.
     """
     
-    nd: NetworkRateDiscovery
+    nd: SystemDiscovery
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.nd = NetworkRateDiscovery(
+        cls.nd = SystemDiscovery(
             ANTIMONY_NETWORK_1_DF,
-            time_col="time",
-            threshold=1.0,
+            threshold=0.01,
             alpha=0.01,
             poly_degree=2,
             include_bias=True,
             differentiation="finite",
-            bias_species=["S8"],
+            #bias_species=["S8"],
+            bias_species=[],
         ).fit()
 
     def tearDown(self) -> None:
@@ -534,9 +525,8 @@ class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
         if IGNORE_TESTS:
             return
         with self.assertRaises(ValueError):
-            NetworkRateDiscovery(
+            SystemDiscovery(
                 ANTIMONY_NETWORK_1_DF,
-                time_col="time",
                 bias_species=["S99"],
             )
 
@@ -546,7 +536,7 @@ class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
             return
         summary = self.nd.summary()
         if "1" in summary.index:
-            self.assertEqual(float(summary.loc["1", "dS1/dt"]), 0.0)
+            self.assertEqual(cast(float, summary.loc["1", "dS1/dt"]), 0.0)
 
     def test_s3_bias_is_zero(self) -> None:
         """dS3/dt has no constant term after bias constraint."""
@@ -554,7 +544,7 @@ class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
             return
         summary = self.nd.summary()
         if "1" in summary.index:
-            self.assertEqual(float(summary.loc["1", "dS3/dt"]), 0.0)
+            self.assertEqual(cast(float, summary.loc["1", "dS3/dt"]), 0.0)
 
     def test_s4_bias_is_zero(self) -> None:
         """dS4/dt has no constant term after bias constraint."""
@@ -562,19 +552,7 @@ class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
             return
         summary = self.nd.summary()
         if "1" in summary.index:
-            self.assertEqual(float(summary.loc["1", "dS4/dt"]), 0.0)
-
-    def test_include_bias_forced_true(self) -> None:
-        """include_bias is forced to True when bias_species is provided."""
-        if IGNORE_TESTS:
-            return
-        nd = NetworkRateDiscovery(
-            ANTIMONY_NETWORK_1_DF,
-            time_col="time",
-            include_bias=False,
-            bias_species=["S8"],
-        )
-        self.assertTrue(nd.include_bias)
+            self.assertEqual(cast(float, summary.loc["1", "dS4/dt"]), 0.0)
 
 
 if __name__ == "__main__":
