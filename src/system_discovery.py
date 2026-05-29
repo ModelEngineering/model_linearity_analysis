@@ -107,20 +107,31 @@ class SystemDiscovery:
 
     def __init__(
         self,
-        df: pd.DataFrame,
+        df: pd.DataFrame | list[pd.DataFrame],
         threshold: float = 0.01,
         alpha: float = 0.05,
-        #differentiation: DifferentiationMethod = "smooth",
-        differentiation: DifferentiationMethod = "spectral",
+        differentiation: DifferentiationMethod = "smooth",
         poly_degree: int = 2,
         include_bias: bool = True,
         species_names: list[str] | None = None,
         bias_species: list[str] | None = None,
     ) -> None:
 
-        self._validate_dataframe(df)
+        dfs: list[pd.DataFrame] = [df] if isinstance(df, pd.DataFrame) else list(df)
+        if not dfs:
+            raise ValueError("`df` must be a non-empty DataFrame or list of DataFrames.")
+        for d in dfs:
+            self._validate_dataframe(d)
 
-        self.df = df.copy()
+        ref_cols = list(dfs[0].columns)
+        for i, d in enumerate(dfs[1:], start=1):
+            if list(d.columns) != ref_cols:
+                raise ValueError(
+                    f"All DataFrames must have identical columns. "
+                    f"DataFrame 0: {ref_cols}, DataFrame {i}: {list(d.columns)}."
+                )
+
+        self.df = dfs[0].copy()
         self.threshold = threshold
         self.alpha = alpha
         self.differentiation = differentiation
@@ -128,7 +139,7 @@ class SystemDiscovery:
         self.include_bias = include_bias
 
         # Extract time and concentration arrays
-        species_cols = list(df.columns)
+        species_cols = ref_cols
         if len(species_cols) > MAX_SPECIES:
             raise ValueError(
                 f"DataFrame contains {len(species_cols)} species columns; "
@@ -136,8 +147,11 @@ class SystemDiscovery:
             )
 
         self.species_cols = species_cols
-        self.time_arr: np.ndarray = df.index.to_numpy(dtype=float)
-        self.X: np.ndarray = df[species_cols].to_numpy(dtype=float)
+        self._X_list: list[np.ndarray] = [d[species_cols].to_numpy(dtype=float) for d in dfs]
+        self._time_list: list[np.ndarray] = [d.index.to_numpy(dtype=float) for d in dfs]
+        # First trajectory used for simulation and plotting
+        self.time_arr: np.ndarray = self._time_list[0]
+        self.X: np.ndarray = self._X_list[0]
 
         if species_names is not None:
             if len(species_names) != len(species_cols):
@@ -188,10 +202,14 @@ class SystemDiscovery:
         self
         """
 
-        dt = float(np.median(np.diff(self.time_arr)))
+        X_all = np.vstack(self._X_list)
+        self._species_std: np.ndarray = X_all.std(axis=0)
+        self._species_std = np.where(self._species_std == 0, 1.0, self._species_std)
+        Z_list = [X / self._species_std for X in self._X_list]
+
         with warnings.catch_warnings(record=True) as _caught:
             warnings.simplefilter("always")
-            self.model.fit(self.X, t=dt, feature_names=self.species_names)
+            self.model.fit(Z_list, t=self._time_list, feature_names=self.species_names)
         if _caught:
             print("Warnings from model.fit():")
             for w in _caught:
@@ -254,15 +272,19 @@ class SystemDiscovery:
         return result
 
     def _r_squared_derivative(self) -> dict[str, float]:
-        """R² on predicted vs numerical derivatives."""
-        dt = float(np.median(np.diff(self.time_arr)))
-        X_dot_pred = self.model.predict(self.X)          # predicted derivatives
-        X_dot_num  = self.model.differentiation_method(self.X, self.time_arr)  # type: ignore  # numerical derivatives
+        """R² on predicted vs numerical dZ/dt (normalized space, all trajectories)."""
+        Zdot_pred_parts = []
+        Zdot_num_parts = []
+        for X, t in zip(self._X_list, self._time_list):
+            Z = X / self._species_std
+            Zdot_pred_parts.append(np.array(self.model.predict(Z)))
+            Zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
+        Zdot_pred = np.vstack(Zdot_pred_parts)
+        Zdot_num  = np.vstack(Zdot_num_parts)
         r2 = {}
-        X_dot_pred_arr = np.array(X_dot_pred)
         for i, name in enumerate(self.species_names):
-            y_true = X_dot_num[:, i]
-            y_pred = X_dot_pred_arr[:, i]
+            y_true = Zdot_num[:, i]
+            y_pred = Zdot_pred[:, i]
             ss_res = np.sum((y_true - y_pred) ** 2)
             ss_tot = np.sum((y_true - y_true.mean()) ** 2)
             r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
@@ -283,7 +305,13 @@ class SystemDiscovery:
             return {name: float("nan") for name in self.species_names}
 
     def summary(self) -> pd.DataFrame:
-        """Return a DataFrame of non-zero coefficients for all species.
+        """Return a DataFrame of denormalized non-zero coefficients for all species.
+
+        Coefficients are adjusted from the normalized fit back to original-space
+        units: each raw coefficient c' is multiplied by σ_i / Π_j σ_j^{p_j},
+        where σ_i is the std of the output species (column) and σ_j^{p_j} are
+        the stds of the input species in the polynomial term (row) raised to
+        their powers.
 
         Rows are candidate library terms; columns are species.
 
@@ -299,9 +327,22 @@ class SystemDiscovery:
             index=feature_names,
             columns=[f"d{n}/dt" for n in self.species_names],
         )
-        # Keep only rows where at least one coefficient is non-zero
         non_zero_mask = (df_coef.abs() > 0).any(axis=1)
-        return df_coef[non_zero_mask]  # type: ignore
+        df_coef = df_coef[non_zero_mask].copy()   # type: ignore
+
+        std_map = dict(zip(self.species_names, self._species_std))
+        for feat_name in df_coef.index:
+            powers = self._parse_feature_powers(feat_name)
+            row_denom = 1.0
+            for sp_name, power in powers.items():
+                if sp_name in std_map:
+                    row_denom *= float(std_map[sp_name]) ** power
+            for sp_name in self.species_names:
+                col_name = f"d{sp_name}/dt"
+                adjustment = float(std_map[sp_name]) / row_denom
+                df_coef.loc[feat_name, col_name] *= adjustment
+
+        return df_coef  # type: ignore[return-value]
 
     def plotResult(
         self,
@@ -358,7 +399,7 @@ class SystemDiscovery:
             color = f"C{idx}"
             ax.scatter(self.time_arr[::num_skip_point], self.X[::num_skip_point, idx], s=20, color=color, label=f"{name} (observed)")
             if prediction_ok and pred_df is not None:
-                ax.plot(pred_df.index, pred_df[name], "--", lw=2, color=color, label=f"{name} (predicted)")
+                ax.plot(pred_df.index, pred_df[name], "-", lw=2, color=color, label=f"{name} (predicted)")
             r2 = r2_vals.get(name, float("nan"))
             title = f"{name}"
             if not np.isnan(r2):
@@ -450,13 +491,32 @@ class SystemDiscovery:
                 "Choose from: 'smooth', 'finite', 'spectral'."
             )
 
+    def _parse_feature_powers(self, feature_name: str) -> dict[str, int]:
+        """Parse a PySINDy feature name into {species_name: power}.
+
+        Handles: '1' → {}, 'X' → {'X': 1}, 'X^2' → {'X': 2}, 'X Y' → {'X': 1, 'Y': 1}.
+        """
+        if feature_name == "1":
+            return {}
+        powers: dict[str, int] = {}
+        for factor in feature_name.split(" "):
+            if not factor:
+                continue
+            if "^" in factor:
+                name, exp = factor.split("^", 1)
+                powers[name] = int(exp)
+            else:
+                powers[factor] = 1
+        return powers
+
     def _simulate(self) -> np.ndarray:
         """Integrate the discovered ODE forward from the first observation."""
         x0 = self.X[0, :]
 
         def rhs(t, x):
-            ans = self.model.predict(x.reshape(1, -1))[0]
-            return np.array(ans, dtype=float)
+            z = x / self._species_std
+            dz_dt = self.model.predict(z.reshape(1, -1))[0]
+            return np.array(dz_dt * self._species_std, dtype=float)
 
 
         try:
@@ -497,7 +557,7 @@ class SystemDiscovery:
 
 
 def discover_network(
-    df: pd.DataFrame,
+    df: pd.DataFrame | list[pd.DataFrame],
     threshold: float = 0.01,
     alpha: float = 0.05,
     differentiation: DifferentiationMethod = "smooth",
@@ -511,8 +571,8 @@ def discover_network(
 
     Parameters
     ----------
-    df : pd.DataFrame
-        Input data (see :class:`NetworkRateDiscovery`).
+    df : pd.DataFrame or list[pd.DataFrame]
+        One trajectory or a list of trajectories (see :class:`SystemDiscovery`).
     threshold : float
         STLSQ sparsity threshold.
     alpha : float

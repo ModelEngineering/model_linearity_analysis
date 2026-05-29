@@ -585,5 +585,122 @@ class TestTrajectoryPlotTimecourse(unittest.TestCase):
         self.assertEqual(result.ax.get_title(), "Test")
 
 
+class TestTrajectoryMakeTimecourse(unittest.TestCase):
+    """Tests for Trajectory.makeTimecourse."""
+    model: Model
+    df: pd.DataFrame
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.model = Model(ANTIMONY_MODEL)
+        cls.df = Trajectory.makeTimecourse(
+                cls.model,
+                end_time=10.0,
+                num_point=NUM_POINT,
+        )
+
+    def test_returns_dataframe(self) -> None:
+        """makeTimecourse returns a pd.DataFrame."""
+        if IGNORE_TESTS:
+            return
+        self.assertIsInstance(self.df, pd.DataFrame)
+
+    def test_columns_match_species_names(self) -> None:
+        """DataFrame columns equal model.species_names."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(list(self.df.columns), self.model.species_names)
+
+    def test_num_point_rows(self) -> None:
+        """DataFrame has exactly num_point rows."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(len(self.df), NUM_POINT)
+
+    def test_index_is_monotonically_increasing(self) -> None:
+        """Time index is strictly monotonically increasing."""
+        if IGNORE_TESTS:
+            return
+        self.assertTrue(self.df.index.is_monotonic_increasing)
+
+    def test_end_time_respected(self) -> None:
+        """Last index value is approximately 10.0."""
+        if IGNORE_TESTS:
+            return
+        self.assertAlmostEqual(self.df.index[-1], 10.0, places=5)
+
+    def test_start_time_defaults_to_cn_start_time(self) -> None:
+        """First index value is approximately cn.START_TIME (0.0)."""
+        if IGNORE_TESTS:
+            return
+        self.assertAlmostEqual(self.df.index[0], cn.START_TIME, places=5)
+
+    def test_nonzero_start_time(self) -> None:
+        """With start_time=2.0 the first index value is approximately 2.0."""
+        if IGNORE_TESTS:
+            return
+        df2 = Trajectory.makeTimecourse(
+                self.model,
+                start_time=2.0,
+                end_time=10.0,
+                num_point=NUM_POINT,
+        )
+        self.assertAlmostEqual(df2.index[0], 2.0, places=5)
+
+    def test_nonzero_start_time_num_point(self) -> None:
+        """With start_time=2.0 the DataFrame still has exactly NUM_POINT rows."""
+        if IGNORE_TESTS:
+            return
+        df2 = Trajectory.makeTimecourse(
+                self.model,
+                start_time=2.0,
+                end_time=10.0,
+                num_point=NUM_POINT,
+        )
+        self.assertEqual(len(df2), NUM_POINT)
+
+    def test_concentrations_nonnegative(self) -> None:
+        """All concentration values in the DataFrame are >= 0."""
+        if IGNORE_TESTS:
+            return
+        self.assertTrue((self.df.values >= 0).all())
+
+    def test_perturbation_changes_trajectory(self) -> None:
+        """A non-zero perturbation produces different S1 values than baseline."""
+        if IGNORE_TESTS:
+            return
+        df_perturbed = Trajectory.makeTimecourse(
+                self.model,
+                perturbation=0.2,
+                end_time=10.0,
+                num_point=NUM_POINT,
+        )
+        self.assertFalse(np.allclose(df_perturbed["S1"].values, self.df["S1"].values))
+
+    def test_zero_perturbation_matches_baseline(self) -> None:
+        """perturbation=0 returns the same result as the setUpClass baseline."""
+        if IGNORE_TESTS:
+            return
+        df_zero = Trajectory.makeTimecourse(
+                self.model,
+                perturbation=0,
+                end_time=10.0,
+                num_point=NUM_POINT,
+        )
+        pd.testing.assert_frame_equal(df_zero, self.df)
+
+    def test_zero_initial_concentration_unaffected_by_perturbation(self) -> None:
+        """S2 starts at 0; perturbation=1.0 leaves initial S2 value at ~0."""
+        if IGNORE_TESTS:
+            return
+        df_big = Trajectory.makeTimecourse(
+                self.model,
+                perturbation=1.0,
+                end_time=10.0,
+                num_point=NUM_POINT,
+        )
+        self.assertAlmostEqual(df_big["S2"].iloc[0], 0.0, places=5)
+
+
 if __name__ == "__main__":
     unittest.main()

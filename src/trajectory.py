@@ -185,7 +185,68 @@ class Trajectory(object):
                 end_time=end_time,
                 num_point=num_point,
         )
+    
+    @classmethod
+    def makeTimecourse(cls,
+            model: Model,
+            perturbation: float = 0,
+            start_time: float = cn.START_TIME,
+            end_time: Optional[float] = 10.0,
+            num_point: int = cn.NUM_POINTS) -> pd.DataFrame:
 
+        """Create a timecourse DataFrame by running a simulation with a perturbation
+        in non-zero initial values.
+
+        Parameters
+        ----------
+        model : Model
+        perturbation : float
+            fraction by which to perturb each initial value, e.g. 0.1 for +10%
+        start_time : float
+        end_time : Optional[float]
+            None triggers auto-detection.
+        num_point : int
+
+        Returns
+        -------
+        pd.DataFrame
+            index: time, 
+            columns: species names, 
+            values: concentrations.
+    """
+        end_time, _ = cls._getEndtime(end_time, model.model_name)
+        rr = te.loadSBMLModel(model.sbml_str) 
+        rr.reset()
+        rr.integrator.setValue('maximum_num_steps', MAX_ITERATOR_STEP)
+        for species_name in model.species_names:
+            init_val = rr.getValue(f'init({species_name})')
+            perturbed_val = init_val * (1 + perturbation)
+            rr.setValue(f'init({species_name})', perturbed_val)
+        rr.reset()
+        # Do the simulation
+        if start_time > 0:
+            # Warm up needed
+            rr.simulate(0, start_time, 2)
+        data = rr.simulate(start_time, end_time, num_point)
+        return pd.DataFrame(
+                data[:, 1:],
+                index=data[:, 0],
+                columns=model.species_names,
+        )
+    
+    @staticmethod
+    def _getEndtime(end_time: Optional[float], model_name: str) \
+            -> Tuple[Optional[float], str]:
+        """Determine the end time and its source."""
+        if end_time is not None:
+            return end_time, cn.ENDTIME_SOURCE_USER_SPECIFIED
+        if model_name.startswith("BIOMD"):
+            endtime_dct = getBiomodelsEndtimes()
+            csv_end_time = endtime_dct.get(model_name, None)
+            if csv_end_time is not None:
+                return csv_end_time, cn.ENDTIME_SOURCE_SEDML
+        return None, ""
+    
     @classmethod
     def makeFromSimulation(cls,
             model: Model,
@@ -218,17 +279,7 @@ class Trajectory(object):
         rr.integrator.setValue('maximum_num_steps', MAX_ITERATOR_STEP)
 
         # Resolve end_time and record its source
-        end_time_source = ""
-        if end_time is not None:
-            end_time_source = cn.ENDTIME_SOURCE_USER_SPECIFIED
-        elif model.model_name.startswith("BIOMD"):
-            endtime_dct = getBiomodelsEndtimes()
-            csv_end_time = endtime_dct.get(model.model_name, None)
-            if csv_end_time is not None:
-                end_time = csv_end_time
-                end_time_source = cn.ENDTIME_SOURCE_SEDML
-        if end_time is None:
-            end_time, end_time_source = cls._makeEndtime(rr, start_time, num_point)
+        end_time, end_time_source = cls._getEndtime(end_time, model.model_name)
 
         # Timecourse simulation
         rr.reset()
