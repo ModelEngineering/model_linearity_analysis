@@ -15,6 +15,7 @@ regex
 scikit-learn
 scipy
 seaborn
+smblnetwork
 tellurium
 toml
 twine

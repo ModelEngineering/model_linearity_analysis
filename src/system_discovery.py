@@ -32,12 +32,14 @@ Usage
     discovery.print_equations()
     discovery.plot_results()
     summary = discovery.summary()
+
+To Do:
+1. Integrate normalizer
 """
 
 from __future__ import annotations
 
-import warnings
-from typing import Literal
+from scaler import Scaler  # type: ignore
 
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
@@ -45,6 +47,8 @@ import pandas as pd # type: ignore
 import pysindy as ps # type: ignore
 from pysindy.feature_library import PolynomialLibrary # type: ignore
 from scipy.integrate import solve_ivp # type: ignore
+from typing import Literal
+import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -103,6 +107,8 @@ class SystemDiscovery:
         When provided, ``include_bias`` is forced to ``True`` so that the
         constant feature exists in the library.  Default ``None`` (no
         per-species restriction).
+    is_normalize : bool
+        Whether to normalize the data before fitting.  Default ``True``.
     """
 
     def __init__(
@@ -115,7 +121,9 @@ class SystemDiscovery:
         include_bias: bool = True,
         species_names: list[str] | None = None,
         bias_species: list[str] | None = None,
+        is_normalize: bool = True,
     ) -> None:
+        self._is_normalize = is_normalize
 
         dfs: list[pd.DataFrame] = [df] if isinstance(df, pd.DataFrame) else list(df)
         if not dfs:
@@ -152,7 +160,7 @@ class SystemDiscovery:
         # First trajectory used for simulation and plotting
         self.time_arr: np.ndarray = self._time_list[0]
         self.X: np.ndarray = self._X_list[0]
-
+        #
         if species_names is not None:
             if len(species_names) != len(species_cols):
                 raise ValueError(
@@ -161,6 +169,12 @@ class SystemDiscovery:
             self.species_names = species_names
         else:
             self.species_names = species_cols
+        self.species_names = [n[1:-1] if n.startswith("[") else n for n in self.species_names]
+        # Build Scaler with species_names as column labels so Scaler keys match
+        # the feature names PySINDy generates from species_names.
+        scaler_df = pd.concat(dfs, ignore_index=True)
+        scaler_df.columns = pd.Index(self.species_names)
+        self._normalizer = Scaler(scaler_df, is_null_scaler=not is_normalize)
 
         if bias_species is not None:
             invalid = set(bias_species) - set(self.species_names)
@@ -179,7 +193,7 @@ class SystemDiscovery:
             include_interaction=True,
         )
 
-        optimizer = ps.STLSQ(threshold=self.threshold, alpha=self.alpha)
+        optimizer = ps.STLSQ(threshold=0, alpha=self.alpha)
 
         diff_method = self._build_differentiator()
 
@@ -201,11 +215,11 @@ class SystemDiscovery:
         -------
         self
         """
-
-        X_all = np.vstack(self._X_list)
-        self._species_std: np.ndarray = X_all.std(axis=0)
-        self._species_std = np.where(self._species_std == 0, 1.0, self._species_std)
-        Z_list = [X / self._species_std for X in self._X_list]
+        Z_list: list[np.ndarray] = [self._normalizer.normalize(X) for X in self._X_list]
+        """ if self._is_normalize:
+            Z_list = [X / self._species_std for X in self._X_list]
+        else:
+            Z_list = self._X_list """
 
         with warnings.catch_warnings(record=True) as _caught:
             warnings.simplefilter("always")
@@ -219,6 +233,7 @@ class SystemDiscovery:
             for i, name in enumerate(self.species_names):
                 if name not in allowed:
                     self.model.optimizer.coef_[i, 0] = 0.0
+        self._apply_threshold()
         self._is_fitted = True
         return self
 
@@ -272,15 +287,17 @@ class SystemDiscovery:
         return result
 
     def _r_squared_derivative(self) -> dict[str, float]:
-        """R² on predicted vs numerical dZ/dt (normalized space, all trajectories)."""
-        Zdot_pred_parts = []
-        Zdot_num_parts = []
+        """
+        R² on predicted vs actual.
+        """
+        zdot_pred_parts = []
+        zdot_num_parts = []
         for X, t in zip(self._X_list, self._time_list):
-            Z = X / self._species_std
-            Zdot_pred_parts.append(np.array(self.model.predict(Z)))
-            Zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
-        Zdot_pred = np.vstack(Zdot_pred_parts)
-        Zdot_num  = np.vstack(Zdot_num_parts)
+            Z = self._normalizer.normalize(X)
+            zdot_pred_parts.append(np.array(self.model.predict(Z)))
+            zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
+        Zdot_pred = np.vstack(zdot_pred_parts)
+        Zdot_num  = np.vstack(zdot_num_parts)
         r2 = {}
         for i, name in enumerate(self.species_names):
             y_true = Zdot_num[:, i]
@@ -304,7 +321,7 @@ class SystemDiscovery:
             warnings.warn(f"Simulation R² failed: {exc}. Use method='derivative'.")
             return {name: float("nan") for name in self.species_names}
 
-    def summary(self) -> pd.DataFrame:
+    def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
         """Return a DataFrame of denormalized non-zero coefficients for all species.
 
         Coefficients are adjusted from the normalized fit back to original-space
@@ -315,6 +332,17 @@ class SystemDiscovery:
 
         Rows are candidate library terms; columns are species.
 
+        Parameters
+        ----------
+        entry_threshold : float
+            Rows are kept only if the maximum absolute normalized coefficient
+            |c_norm| = |c_physical| * Π(σ_j^{p_j}) / σ_i exceeds this value.
+            Since |c_norm| is dimensionless (contribution relative to one
+            standard-deviation of the derivative), ``entry_threshold=1`` retains
+            terms whose effect is at least one standard-deviation-equivalent.
+            Default ``0`` (show all nonzero rows; sparsity is controlled by the
+            constructor ``threshold`` argument via :meth:`fit`).
+
         Returns
         -------
         pd.DataFrame
@@ -322,26 +350,22 @@ class SystemDiscovery:
         self._require_fitted()
         feature_names = self.model.get_feature_names()
         coefs = self.model.coefficients()          # shape (n_species, n_features)
-        df_coef = pd.DataFrame(
-            coefs.T,
-            index=feature_names,
-            columns=[f"d{n}/dt" for n in self.species_names],
-        )
-        non_zero_mask = (df_coef.abs() > 0).any(axis=1)
-        df_coef = df_coef[non_zero_mask].copy()   # type: ignore
-
-        std_map = dict(zip(self.species_names, self._species_std))
-        for feat_name in df_coef.index:
-            powers = self._parse_feature_powers(feat_name)
-            row_denom = 1.0
-            for sp_name, power in powers.items():
-                if sp_name in std_map:
-                    row_denom *= float(std_map[sp_name]) ** power
-            for sp_name in self.species_names:
-                col_name = f"d{sp_name}/dt"
-                adjustment = float(std_map[sp_name]) / row_denom
-                df_coef.loc[feat_name, col_name] *= adjustment
-
+        col_names = [f"d{n}/dt" for n in self.species_names]
+        df_norm = pd.DataFrame(coefs.T, index=feature_names, columns=col_names)
+        # Filter on normalized coefficients — exclude constant species whose fallback
+        # scaling makes c_norm values meaningless for the retention decision.
+        constant_cols = self._normalizer._constant_cols
+        variable_cols = [col for sp, col in zip(self.species_names, col_names)
+                         if sp not in constant_cols]
+        eval_cols = variable_cols if variable_cols else col_names
+        keep_mask = df_norm[eval_cols].abs().T.max() > entry_threshold
+        df_norm = df_norm[keep_mask].copy()        # type: ignore
+        # Denormalize surviving rows
+        df_coef = df_norm.copy()
+        for factor_str, row in df_norm.iterrows():
+            for sp_name, col in zip(self.species_names, col_names):
+                df_coef.loc[factor_str, col] = self._normalizer.denormalizeCoordinate(
+                    sp_name, factor_str, row[col])
         return df_coef  # type: ignore[return-value]
 
     def plotResult(
@@ -474,6 +498,22 @@ class SystemDiscovery:
     # Private helpers
     # ------------------------------------------------------------------
 
+    def _apply_threshold(self) -> None:
+        """
+        Zero out normalized coefficients whose physical value is below
+        self.threshold.
+        Updates self.model.optimizer.coef_ in-place.
+        """
+        feature_names = self.model.get_feature_names()
+        coefs = self.model.optimizer.coef_  # shape (n_species, n_features), modified in-place
+        for i, sp_name in enumerate(self.species_names):
+            for j, feat_name in enumerate(feature_names):
+                if not np.isclose(coefs[i, j],  0.0):
+                    norm_thresh = self._normalizer.normalizeThreshold(
+                        sp_name, feat_name, self.threshold)
+                    if abs(coefs[i, j]) < norm_thresh:
+                        coefs[i, j] = 0.0
+
     def _require_fitted(self) -> None:
         if not self._is_fitted:
             raise RuntimeError("Call `.fit()` before using this method.")
@@ -514,9 +554,11 @@ class SystemDiscovery:
         x0 = self.X[0, :]
 
         def rhs(t, x):
-            z = x / self._species_std
+            z = self._normalizer.normalize(x)
+            #z = x / self._species_std
             dz_dt = self.model.predict(z.reshape(1, -1))[0]
-            return np.array(dz_dt * self._species_std, dtype=float)
+            dx_dt = self._normalizer.denormalize(dz_dt)
+            return np.array(dx_dt, dtype=float)
 
 
         try:

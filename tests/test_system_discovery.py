@@ -10,7 +10,7 @@ import tellurium as te  # type: ignore
 from typing import cast
 
 # pylint: disable=invalid-name
-IGNORE_TESTS =  True
+IGNORE_TESTS =  False
 if not IGNORE_TESTS:
     matplotlib.use("Agg")
     pass
@@ -42,7 +42,8 @@ ANTIMONY_NETWORK_1_DF = pd.DataFrame(
 _FITTED_NETWORK1: SystemDiscovery | None = None
 
 
-def _get_fitted_network1(threshold: float = 0.01) -> SystemDiscovery:
+def _get_fitted_network1(threshold: float = 0.01,
+        is_normalize: bool = True) -> SystemDiscovery:
     global _FITTED_NETWORK1
     if _FITTED_NETWORK1 is None:
         _FITTED_NETWORK1 = SystemDiscovery(
@@ -52,6 +53,7 @@ def _get_fitted_network1(threshold: float = 0.01) -> SystemDiscovery:
             poly_degree=2,
             include_bias=True,
             differentiation="finite",
+            is_normalize=is_normalize,
             #bias_species=[],
             bias_species=["S8"],
         ).fit()
@@ -427,17 +429,17 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.nd = _get_fitted_network1(threshold=0.1)
+        cls.nd = _get_fitted_network1(threshold=5*1e-1, is_normalize=True)
 
     def tearDown(self) -> None:
         plt.close("all")
 
     def test_summary_has_five_columns(self) -> None:
         """summary() has exactly 5 columns (one per floating species)."""
-        print(self.nd.summary())
+        #print(self.nd.summary())
         if IGNORE_TESTS:
             return
-        result = self.nd.summary()
+        result = self.nd.summary(entry_threshold=10)
         self.assertEqual(len(result.columns), 
                 len(ANTIMONY_NETWORK_1_DF.columns))
 
@@ -555,6 +557,132 @@ class TestNetworkRateDiscoveryBiasConstraint(unittest.TestCase):
         summary = self.nd.summary()
         if "1" in summary.index:
             self.assertEqual(cast(float, summary.loc["1", "dS4/dt"]), 0.0)
+
+
+class TestSummaryEntryThreshold(unittest.TestCase):
+    """Tests for the entry_threshold parameter of summary()."""
+
+    nd: SystemDiscovery
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.nd = _get_fitted_network1(threshold=0.01, is_normalize=True)
+
+    def test_explicit_threshold_filters_small_rows(self) -> None:
+        """summary(entry_threshold=1) has fewer rows than summary(entry_threshold=0)."""
+        if IGNORE_TESTS:
+            return
+        all_rows = self.nd.summary(entry_threshold=0)
+        filtered = self.nd.summary(entry_threshold=1)
+        self.assertLessEqual(len(filtered), len(all_rows))
+
+    def test_zero_threshold_keeps_all_nonzero_rows(self) -> None:
+        """entry_threshold=0 keeps every row that has at least one nonzero coefficient."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.summary(entry_threshold=0)
+        self.assertGreater(len(result), 0)
+
+    def test_large_threshold_returns_empty(self) -> None:
+        """entry_threshold=1e9 removes all rows."""
+        if IGNORE_TESTS:
+            return
+        result = self.nd.summary(entry_threshold=1e9)
+        self.assertEqual(len(result), 0)
+
+    def test_retained_rows_exceed_threshold_in_normalized_space(self) -> None:
+        """Every retained row has max |c_norm| > entry_threshold."""
+        if IGNORE_TESTS:
+            return
+        thresh = 0.5
+        result = self.nd.summary(entry_threshold=thresh)
+        feature_names = self.nd.model.get_feature_names()
+        coefs = self.nd.model.coefficients()
+        df_norm = pd.DataFrame(
+            coefs.T, index=feature_names,
+            columns=result.columns,
+        )
+        for feat in result.index:
+            max_norm = float(df_norm.loc[feat].abs().max())
+            self.assertGreater(max_norm, thresh)
+
+    def test_columns_unchanged_by_threshold(self) -> None:
+        """entry_threshold does not affect column names."""
+        if IGNORE_TESTS:
+            return
+        self.assertEqual(
+            list(self.nd.summary(entry_threshold=0).columns),
+            list(self.nd.summary(entry_threshold=1e9).columns),
+        )
+
+    def test_constant_species_excluded_from_retention(self) -> None:
+        """S8 is constant so it is in _constant_cols and excluded from keep_mask."""
+        if IGNORE_TESTS:
+            return
+        self.assertIn('S8', self.nd._normalizer._constant_cols)  # pylint: disable=protected-access
+        # Every retained row must have at least one variable-species coefficient
+        # with |c_norm| > 0; rows kept only by the S8 column would be wrong.
+        result = self.nd.summary()
+        feature_names = self.nd.model.get_feature_names()
+        coefs = self.nd.model.coefficients()
+        col_names = [f"d{n}/dt" for n in self.nd.species_names]
+        df_norm = pd.DataFrame(coefs.T, index=feature_names, columns=col_names)
+        variable_cols = [
+            col for sp, col in zip(self.nd.species_names, col_names)
+            if sp not in self.nd._normalizer._constant_cols  # pylint: disable=protected-access
+        ]
+        for feat in result.index:
+            max_variable = float(df_norm.loc[feat, variable_cols].abs().max())
+            self.assertGreater(max_variable, 0)
+
+
+class TestPostFitThreshold(unittest.TestCase):
+    """Post-fit threshold filtering applies a physical coefficient threshold."""
+
+    def test_large_threshold_prunes_all(self) -> None:
+        """threshold=1e6 zeros every coefficient."""
+        if IGNORE_TESTS:
+            return
+        nd = SystemDiscovery(
+            _DECAY_DF,
+            threshold=1e6,
+            alpha=0.01,
+            poly_degree=1,
+            include_bias=False,
+            differentiation="finite",
+        ).fit()
+        self.assertTrue(np.all(nd.model.optimizer.coef_ == 0.0))
+
+    def test_zero_threshold_keeps_coefficients(self) -> None:
+        """threshold=0 retains all non-trivially-zero coefficients."""
+        if IGNORE_TESTS:
+            return
+        nd = SystemDiscovery(
+            _DECAY_DF,
+            threshold=0.0,
+            alpha=0.01,
+            poly_degree=1,
+            include_bias=False,
+            differentiation="finite",
+        ).fit()
+        self.assertTrue(np.any(nd.model.optimizer.coef_ != 0.0))
+
+    def test_normalize_and_no_normalize_agree_on_sparsity(self) -> None:
+        """is_normalize=True and False select the same nonzero terms for a physical threshold."""
+        if IGNORE_TESTS:
+            return
+        nd_norm = SystemDiscovery(
+            _TWO_SPECIES_DF, threshold=0.01, alpha=0.01, poly_degree=1,
+            include_bias=False, differentiation="finite", is_normalize=True,
+        ).fit()
+        nd_raw = SystemDiscovery(
+            _TWO_SPECIES_DF, threshold=0.01, alpha=0.01, poly_degree=1,
+            include_bias=False, differentiation="finite", is_normalize=False,
+        ).fit()
+        np.testing.assert_array_equal(
+            nd_norm.model.optimizer.coef_ != 0,
+            nd_raw.model.optimizer.coef_ != 0,
+        )
 
 
 if __name__ == "__main__":
