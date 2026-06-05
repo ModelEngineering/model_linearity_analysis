@@ -436,7 +436,7 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
 
     def test_summary_has_five_columns(self) -> None:
         """summary() has exactly 5 columns (one per floating species)."""
-        #print(self.nd.summary())
+        print(self.nd.summary())
         if IGNORE_TESTS:
             return
         result = self.nd.summary(entry_threshold=10)

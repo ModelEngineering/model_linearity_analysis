@@ -36,10 +36,7 @@ Usage
 To Do:
 1. Integrate normalizer
 """
-
-from __future__ import annotations
-
-from scaler import Scaler  # type: ignore
+from src.scaler import Scaler  # type: ignore
 
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
@@ -51,9 +48,6 @@ from typing import Literal
 import warnings
 
 warnings.filterwarnings("ignore", category=UserWarning)
-
-# FIXME: Not able to force a value for a fixed input
-# FIXME: Not fitting to the state variables; fitting to their derivatives.
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +248,7 @@ class SystemDiscovery:
         pd.DataFrame
             Predicted concentrations with time as the index and one column per
             species.  Raises ``RuntimeError`` if the ODE integrator fails.
+            columns: species names; index: time points
         """
         self._require_fitted()
         X_sim = self._simulate()
@@ -415,7 +410,7 @@ class SystemDiscovery:
             pred_df = None
             prediction_ok = False
 
-        r2_vals = self.r_squared(method="derivative")
+        r2_vals = self.r_squared(method="simulation")
 
         for idx, name in enumerate(self.species_names):
             row, col = divmod(idx, ncols)
