@@ -19,6 +19,7 @@ def main(
         first_model_num: int = 0,
         last_model_num: int = int(1e9),
         excluded_models: List[str] = EXCLUDED_MODELS,
+        is_initialize: bool = True, # Ignore existing serialized Timecourse when initializing (for testing).
 ) -> None:
     '''Serialize timecourses for all BioModels.
 
@@ -41,16 +42,21 @@ def main(
             last_model_num=last_model_num):
         model_name = item.model_name
         if not item.sbml_paths:
+            print(f"Skipping {model_name} (no SBML files)")
             continue
         pkl_path = os.path.join(cn.TIMECOURSE_SERIALIZATION_DIR,
                 f"{model_name}_timecourse.pkl")
-        if os.path.isfile(pkl_path):
+        if os.path.isfile(pkl_path) and (not is_initialize):
+            print(f"Skipping {model_name} (already serialized)")
             continue
         try:
             model = Model.makeBiomodel(model_name)
             timecourse = Timecourse(model=model, end_time=item.end_time)
             _ = timecourse.jacobian_collection_arr  # Force calculations
             path = timecourse.serialize()
+            serialized_timecourse = Timecourse.deserialize(path=path)
+            if not serialized_timecourse == timecourse:
+                raise ValueError(f"Deserialized timecourse does not match original for {model_name}.")  
         except Exception as e:
             print(f"Error processing {model_name}: {e}")
 

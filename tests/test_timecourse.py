@@ -80,6 +80,46 @@ class TestTimecourseInit(unittest.TestCase):
         self.assertGreater(tc._jacobian_collection_arr.size, 0)
 
 
+class TestTimecourseJacobianCollectionArr(unittest.TestCase):
+    """Tests for Timecourse.jacobian_collection_arr property."""
+
+    def test_returns_ndarray(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        self.assertIsInstance(tc.jacobian_collection_arr, np.ndarray)
+
+    def test_shape(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        self.assertEqual(tc.jacobian_collection_arr.shape,
+                (NUM_POINT, NUM_SPECIES, NUM_SPECIES))
+
+    def test_returns_prepopulated_array(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        np.testing.assert_array_equal(
+                tc.jacobian_collection_arr, tc._jacobian_collection_arr)
+
+    def test_cached_on_second_access(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        first = tc.jacobian_collection_arr
+        second = tc.jacobian_collection_arr
+        self.assertIs(first, second)
+
+    def test_simulation_populates_timecourse_df(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = Timecourse(model=_makeModel(), end_time=10.0)
+        self.assertTrue(tc._timecourse_df.empty)
+        _ = tc.jacobian_collection_arr
+        self.assertFalse(tc._timecourse_df.empty)
+
+
 class TestTimecourseSerialize(unittest.TestCase):
     """Tests for Timecourse.serialize."""
 
@@ -121,6 +161,71 @@ class TestTimecourseSerialize(unittest.TestCase):
             tc.serialize()
 
 
+class TestTimecourseEq(unittest.TestCase):
+    """Tests for Timecourse.__eq__."""
+
+    def test_equal_timecourses(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        self.assertEqual(tc1, tc2)
+
+    def test_different_model_not_equal(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        tc2.model = Model(ANTIMONY_MODEL, model_name="other")
+        self.assertNotEqual(tc1, tc2)
+
+    def test_different_start_time_not_equal(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        tc2.start_time = 99.0
+        self.assertNotEqual(tc1, tc2)
+
+    def test_different_end_time_not_equal(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        tc2.end_time = 99.0
+        self.assertNotEqual(tc1, tc2)
+
+    def test_different_num_point_not_equal(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        tc2.num_point = 999
+        self.assertNotEqual(tc1, tc2)
+
+    def test_different_timecourse_df_not_equal(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        tc2._timecourse_df = tc2._timecourse_df * 2
+        self.assertNotEqual(tc1, tc2)
+
+    def test_different_jacobian_not_equal(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc1 = _makeTimecourse()
+        tc2 = _makeTimecourse()
+        tc2._jacobian_collection_arr = tc2._jacobian_collection_arr * 2
+        self.assertNotEqual(tc1, tc2)
+
+    def test_not_equal_to_non_timecourse(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTimecourse()
+        self.assertIs(tc.__eq__("not a timecourse"), NotImplemented)
+
+
 class TestTimecourseRoundtrip(unittest.TestCase):
     """Roundtrip tests for Timecourse.serialize / Timecourse.deserialize."""
 
@@ -138,44 +243,17 @@ class TestTimecourseRoundtrip(unittest.TestCase):
         restored = Timecourse.deserialize(path)
         return original, restored
 
-    def test_timecourse_df_roundtrip(self) -> None:
+    def test_roundtrip_equal(self) -> None:
         if IGNORE_TESTS:
             return
         original, restored = self._serializeAndDeserialize()
-        pd.testing.assert_frame_equal(
-                original._timecourse_df, restored._timecourse_df)
+        self.assertEqual(original, restored)
 
-    def test_jacobian_collection_arr_roundtrip(self) -> None:
+    def test_deserialize_raises_with_empty_path(self) -> None:
         if IGNORE_TESTS:
             return
-        original, restored = self._serializeAndDeserialize()
-        np.testing.assert_array_equal(
-                original._jacobian_collection_arr,
-                restored._jacobian_collection_arr)
-
-    def test_start_time_roundtrip(self) -> None:
-        if IGNORE_TESTS:
-            return
-        original, restored = self._serializeAndDeserialize()
-        self.assertEqual(original.start_time, restored.start_time)
-
-    def test_end_time_roundtrip(self) -> None:
-        if IGNORE_TESTS:
-            return
-        original, restored = self._serializeAndDeserialize()
-        self.assertEqual(original.end_time, restored.end_time)
-
-    def test_num_points_roundtrip(self) -> None:
-        if IGNORE_TESTS:
-            return
-        original, restored = self._serializeAndDeserialize()
-        self.assertEqual(original.num_point, restored.num_point)
-
-    def test_model_name_roundtrip(self) -> None:
-        if IGNORE_TESTS:
-            return
-        original, restored = self._serializeAndDeserialize()
-        self.assertEqual(original.model.model_name, restored.model.model_name)
+        with self.assertRaises(Exception):
+            Timecourse.deserialize("")
 
 
 if __name__ == "__main__":
