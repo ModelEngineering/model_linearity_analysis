@@ -43,11 +43,11 @@ on two nonlinear ODE systems of increasing complexity.
 
 from __future__ import annotations
 
-import numpy as np
-from scipy.integrate import solve_ivp
-from scipy.linalg import expm
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
+import numpy as np # type: ignore
+from scipy.integrate import solve_ivp # type: ignore
+from scipy.linalg import expm # type: ignore
+import matplotlib.pyplot as plt # type: ignore
+import matplotlib.gridspec as gridspec # type: ignore
 from typing import Callable
 
 
@@ -163,7 +163,7 @@ class TPWL:
         if not self.points:
             return True
         dists = [np.linalg.norm(x - s) for s in self.points]
-        return min(dists) > self.delta
+        return bool(np.min(dists) > self.delta)
 
     def _add_point(self, x: np.ndarray):
         A = self.jac(x)          # Jacobian at x
@@ -420,13 +420,13 @@ def compare_trajectories(t, x_true, x_tpwl_near, x_tpwl_gauss,
 # ============================================================
 
 def run_demo(system, system_name, x0_train, x0_test, t_end,
-             delta_train, state_labels, n_steps=800, output_path=None):
+            delta_train, state_labels, n_steps=800, output_path=None):
     """
     Full TPWL workflow:
-      1. Train on a representative trajectory from x0_train.
-      2. Simulate TPWL (nearest + Gaussian) from x0_test.
-      3. Simulate true nonlinear ODE from x0_test for comparison.
-      4. Plot and report errors.
+        1. Train on a representative trajectory from x0_train.
+        2. Simulate TPWL (nearest + Gaussian) from x0_test.
+        3. Simulate true nonlinear ODE from x0_test for comparison.
+        4. Plot and report errors.
     """
     print(f"\n{'='*60}")
     print(f" {system_name}")
@@ -438,12 +438,12 @@ def run_demo(system, system_name, x0_train, x0_test, t_end,
 
     # ---- 1. True nonlinear solution (training trajectory) ----
     sol_train = solve_ivp(lambda t, x: system.f(x), t_span,
-                          x0_train, t_eval=t_eval, **ivp_kw)
+                          x0_train, t_eval=t_eval, **ivp_kw) # type: ignore
     assert sol_train.success, sol_train.message
 
     # ---- 2. Train TPWL (nearest) ----
     model_near = TPWL(system.f, system.jac, delta=delta_train,
-                      weighting="nearest")
+            weighting="nearest")
     model_near.train(x0_train, t_span, t_eval, **ivp_kw)
     model_near.print_summary()
 
@@ -454,7 +454,7 @@ def run_demo(system, system_name, x0_train, x0_test, t_end,
 
     # ---- 4. True nonlinear solution from test initial condition ----
     sol_true = solve_ivp(lambda t, x: system.f(x), t_span,
-                         x0_test, t_eval=t_eval, **ivp_kw)
+                         x0_test, t_eval=t_eval, **ivp_kw) # type: ignore
     assert sol_true.success, sol_true.message
 
     # ---- 5. TPWL simulations from test IC ----
@@ -464,8 +464,8 @@ def run_demo(system, system_name, x0_train, x0_test, t_end,
                                      method="RK45", rtol=1e-8, atol=1e-10)
 
     x_true  = sol_true.y.T
-    x_near  = sol_near.y.T  if sol_near.success  else np.full_like(x_true, np.nan)
-    x_gauss = sol_gauss.y.T if sol_gauss.success else np.full_like(x_true, np.nan)
+    x_near  = sol_near.y.T  if sol_near.success  else np.full_like(x_true, np.nan) # type: ignore
+    x_gauss = sol_gauss.y.T if sol_gauss.success else np.full_like(x_true, np.nan) # type: ignore
 
     err_near  = np.linalg.norm(x_near  - x_true, axis=1)
     err_gauss = np.linalg.norm(x_gauss - x_true, axis=1)
@@ -513,7 +513,7 @@ def delta_sensitivity(system, system_name, x0_train, x0_test,
     ivp_kw = dict(method="RK45", rtol=1e-9, atol=1e-11)
 
     sol_true = solve_ivp(lambda t, x: system.f(x), t_span, x0_test,
-                         t_eval=t_eval, **ivp_kw)
+                         t_eval=t_eval, **ivp_kw)  # type: ignore
     x_true = sol_true.y.T
 
     results = []
@@ -522,7 +522,7 @@ def delta_sensitivity(system, system_name, x0_train, x0_test,
         m.train(x0_train, t_span, t_eval, **ivp_kw)
         sol = m.simulate(x0_test, t_span, t_eval, method="RK45",
                          rtol=1e-8, atol=1e-10)
-        x_approx = sol.y.T if sol.success else np.full_like(x_true, np.nan)
+        x_approx = sol.y.T if sol.success else np.full_like(x_true, np.nan) # type: ignore
         err = np.linalg.norm(x_approx - x_true, axis=1).mean()
         results.append((delta, len(m.points), err))
         print(f"    delta={delta:.3f}  →  {len(m.points):3d} pts  "
@@ -553,7 +553,7 @@ def delta_sensitivity(system, system_name, x0_train, x0_test,
 
     fig.suptitle(f"TPWL: delta sensitivity — {system_name}",
                  color="#e6edf3", fontsize=12, fontweight="bold")
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout(rect=[0, 0, 1, 0.95]) # type: ignore
     if output_path:
         fig.savefig(output_path, dpi=150, bbox_inches="tight",
                     facecolor="#0f1117")
@@ -578,7 +578,7 @@ if __name__ == "__main__":
         delta_train=0.4,
         state_labels=["x₁", "x₂"],
         n_steps=800,
-        output_path="/mnt/user-data/outputs/tpwl_vanderpol.png",
+        output_path="tpwl_vanderpol.png",
     )
 
     delta_sensitivity(
@@ -589,7 +589,7 @@ if __name__ == "__main__":
         t_end=15.0,
         deltas=[2.0, 1.0, 0.6, 0.4, 0.25, 0.15, 0.08],
         state_labels=["x₁", "x₂"],
-        output_path="/mnt/user-data/outputs/tpwl_delta_sensitivity.png",
+        output_path="tpwl_delta_sensitivity.png",
     )
 
     # ---- Example 2: Lorenz (chaotic) ----
@@ -603,7 +603,7 @@ if __name__ == "__main__":
         delta_train=1.5,
         state_labels=["x", "y", "z"],
         n_steps=800,
-        output_path="/mnt/user-data/outputs/tpwl_lorenz.png",
+        output_path="tpwl_lorenz.png",
     )
 
     # ---- Example 3: Duffing oscillator (lightly damped, double-well) ----
@@ -619,7 +619,7 @@ if __name__ == "__main__":
         delta_train=0.35,
         state_labels=["x₁ (displacement)", "x₂ (velocity)"],
         n_steps=800,
-        output_path="/mnt/user-data/outputs/tpwl_duffing.png",
+        output_path="tpwl_duffing.png",
     )
 
-    print("\nAll done. Output files written to /mnt/user-data/outputs/")
+    print("\nAll done. Output files written to user-data/outputs/")
