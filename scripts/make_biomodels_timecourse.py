@@ -1,25 +1,43 @@
 '''Script that serializes Timecourse (timecourse_df + Jacobians) for all BioModels.'''
 
+"""
+Usage:
+    python scripts/make_biomodels_timecourse.py --first_model_num 0 --last_model_num 100 
+
+"""
+
 import src.constants as cn  # type: ignore
 from src.biomodels_iterator import BiomodelsIterator  # type: ignore
 from src.model import Model  # type: ignore
 from src.timecourse import Timecourse  # type: ignore
 
+import argparse
 import os
 from typing import List
 
 EXCLUDED_MODELS: List[str] = [
+    "BIOMD0000000055",
+    "BIOMD0000000148",
+    "BIOMD0000000235",
+    "BIOMD0000000255",
     "BIOMD0000000268",
+    "BIOMD0000000469",
+    "BIOMD0000000470",
     "BIOMD0000000625",
 ]
-
+if os.path.isfile(os.path.join(cn.DATA_DIR, "badmodels.txt")):
+    with open(os.path.join(cn.DATA_DIR, "badmodels.txt"), "r") as f:
+        for line in f:
+            model_name = line.strip()
+            if model_name and not model_name.startswith("#"):
+                EXCLUDED_MODELS.append(model_name)
 
 def main(
-        is_report: bool = True,
+        is_report: bool = False,
         first_model_num: int = 0,
         last_model_num: int = int(1e9),
         excluded_models: List[str] = EXCLUDED_MODELS,
-        is_initialize: bool = True, # Ignore existing serialized Timecourse when initializing (for testing).
+        is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
 ) -> None:
     '''Serialize timecourses for all BioModels.
 
@@ -49,6 +67,7 @@ def main(
         if os.path.isfile(pkl_path) and (not is_initialize):
             print(f"Skipping {model_name} (already serialized)")
             continue
+        print(f"Processing {model_name}...")
         try:
             model = Model.makeBiomodel(model_name)
             timecourse = Timecourse(model=model, end_time=item.end_time)
@@ -62,4 +81,9 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(
+            description="Serialize Timecourses for BioModels.")
+    parser.add_argument("--first_model_num", type=int, default=0)
+    parser.add_argument("--last_model_num", type=int, default=int(1e9))
+    args = parser.parse_args()
+    main(first_model_num=args.first_model_num, last_model_num=args.last_model_num)

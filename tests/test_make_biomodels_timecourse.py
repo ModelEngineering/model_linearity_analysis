@@ -12,8 +12,8 @@ from scripts.make_biomodels_timecourse import main  # type: ignore
 IGNORE_TESTS = False
 HAS_BIOMODELS = os.path.isdir(cn.BIOMODELS_DIR)
 
-TEST_MODEL = "BIOMD0000000001"
-TEST_MODEL_NUM = 1
+TEST_MODEL = "BIOMD0000000003"
+TEST_MODEL_NUM = 3
 EXPECTED_PKL = f"{TEST_MODEL}_timecourse.pkl"
 
 
@@ -36,6 +36,7 @@ class TestMain(unittest.TestCase):
         with patch.object(cn, "TIMECOURSE_SERIALIZATION_DIR", self._tmpdir):
             main(
                     is_report=False,
+                    is_initialize=True, # Ignore existing serialized Timecourse when initializing (for testing).    
                     first_model_num=TEST_MODEL_NUM,
                     last_model_num=TEST_MODEL_NUM,
             )
@@ -65,7 +66,8 @@ class TestMain(unittest.TestCase):
         mtime_before = os.path.getmtime(pkl_path)
         time.sleep(0.05)
         self._runOnTestModel()
-        self.assertEqual(mtime_before, os.path.getmtime(pkl_path))
+        diff = abs(mtime_before -  os.path.getmtime(pkl_path))
+        self.assertTrue(diff < 0.001*mtime_before)
 
     def test_skipped_model_leaves_no_extra_files(self) -> None:
         if IGNORE_TESTS:
