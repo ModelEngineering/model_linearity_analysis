@@ -1,5 +1,6 @@
 """Tests for SystemDiscovery in network_discovery.py."""
 
+import os
 import unittest
 import matplotlib  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
@@ -15,7 +16,19 @@ if not IGNORE_TESTS:
     matplotlib.use("Agg")
     pass
 
+import src.constants as cn  # type: ignore
+from src.model import Model as _Model  # type: ignore
+from src.timecourse import Timecourse as _Timecourse  # type: ignore
 from system_discovery import SystemDiscovery, discover_network, MAX_SPECIES  # type: ignore
+
+HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
+FIRST_REAL_MODEL = "BIOMD0000000003"
+
+_ANTIMONY_TWO_SPECIES = """
+S1 -> S2; k1*S1
+S2 -> ; k2*S2
+k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
+"""
 
 #----------------------------------------------------------------------------
 # Antimony networks
@@ -685,13 +698,50 @@ class TestPostFitThreshold(unittest.TestCase):
         )
 
 
+def _makeTestTimecourse() -> _Timecourse:
+    model = _Model(_ANTIMONY_TWO_SPECIES, model_name="test_model")
+    return _Timecourse(model=model, timecourse_df=_TWO_SPECIES_DF)
+
+
+class TestSystemDiscoveryMakeBiomodel(unittest.TestCase):
+    """Tests for SystemDiscovery.makeBiomodel."""
+
+    def test_returns_system_discovery_with_provided_timecourse(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTestTimecourse()
+        result = SystemDiscovery.makeBiomodel("test_model", timecourse=tc)
+        self.assertIsInstance(result, SystemDiscovery)
+
+    def test_threshold_is_stored(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTestTimecourse()
+        result = SystemDiscovery.makeBiomodel("test_model", threshold=0.5, timecourse=tc)
+        self.assertAlmostEqual(result.threshold, 0.5)
+
+    def test_df_matches_timecourse_df(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = _makeTestTimecourse()
+        result = SystemDiscovery.makeBiomodel("test_model", timecourse=tc)
+        pd.testing.assert_frame_equal(result.df, _TWO_SPECIES_DF)
+
+    @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+    def test_loads_from_zip_when_timecourse_not_provided(self) -> None:
+        if IGNORE_TESTS:
+            return
+        result = SystemDiscovery.makeBiomodel(FIRST_REAL_MODEL)
+        self.assertIsInstance(result, SystemDiscovery)
+
+
 class TestSystemDiscoveryScore(unittest.TestCase):
     """Tests for SystemDiscovery.score."""
 
     def test_score_returns_score_info(self) -> None:
         if IGNORE_TESTS:
             return
-        from src.score import ScoreInfo  # type: ignore
+        from system_discovery import ScoreInfo  # type: ignore
         disc = _get_fitted_two_species()
         self.assertIsInstance(disc.score(), ScoreInfo)
 

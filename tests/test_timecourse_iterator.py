@@ -164,6 +164,48 @@ class TestTimecourseIteratorIter(unittest.TestCase):
         self.assertEqual(items, [])
 
 
+class TestTimecourseIteratorGetTimecourse(unittest.TestCase):
+    """Tests for TimecourseIterator.getTimecourse using a synthetic zip."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._zip_path = os.path.join(self._tmpdir.name, "test.zip")
+        _makeZipWithTimecourses(self._zip_path, ["model_A", "model_B"])
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
+
+    def _iterator(self) -> TimecourseIterator:
+        return TimecourseIterator(zip_path=self._zip_path)
+
+    def test_returns_timecourse_for_valid_model(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = self._iterator().getTimecourse("model_A")
+        self.assertIsInstance(tc, Timecourse)
+
+    def test_raises_for_unknown_model(self) -> None:
+        if IGNORE_TESTS:
+            return
+        with self.assertRaises(KeyError):
+            self._iterator().getTimecourse("does_not_exist")
+
+    def test_timecourse_df_is_nonempty(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = self._iterator().getTimecourse("model_A")
+        self.assertFalse(tc._timecourse_df.empty)
+
+    def test_can_get_each_model_independently(self) -> None:
+        if IGNORE_TESTS:
+            return
+        it = self._iterator()
+        tc_a = it.getTimecourse("model_A")
+        tc_b = it.getTimecourse("model_B")
+        self.assertEqual(tc_a.model.model_name, "model_A")
+        self.assertEqual(tc_b.model.model_name, "model_B")
+
+
 @unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
 class TestTimecourseIteratorRealZip(unittest.TestCase):
     """Integration tests using the real timecourse zip at cn.TIMECOURSE_ZIP_PATH."""
@@ -199,6 +241,23 @@ class TestTimecourseIteratorRealZip(unittest.TestCase):
         with zipfile.ZipFile(cn.TIMECOURSE_ZIP_PATH) as zf:
             count = sum(1 for n in zf.namelist() if n.endswith('_timecourse.pkl'))
         self.assertGreater(count, 1)
+
+
+@unittest.skipUnless(HAS_REAL_ZIP, "Real timecourse zip not found")
+class TestTimecourseIteratorGetTimecourseRealZip(unittest.TestCase):
+    """Integration tests for getTimecourse using the real zip."""
+
+    def test_returns_timecourse(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = TimecourseIterator().getTimecourse(FIRST_REAL_MODEL)
+        self.assertIsInstance(tc, Timecourse)
+
+    def test_timecourse_df_is_nonempty(self) -> None:
+        if IGNORE_TESTS:
+            return
+        tc = TimecourseIterator().getTimecourse(FIRST_REAL_MODEL)
+        self.assertFalse(tc._timecourse_df.empty)
 
 
 if __name__ == "__main__":

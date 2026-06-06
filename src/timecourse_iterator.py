@@ -19,23 +19,52 @@ class TimecourseIteratorItem:
 class TimecourseIterator:
     """Iterates over serialized Timecourses in the timecourse zip archive."""
 
-    def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH) -> None:
+    def __init__(self, zip_path: str = cn.TIMECOURSE_ZIP_PATH,
+            num_model:int = -1) -> None:
+        """
+        Args:
+            zip_path (str, optional): _description_. Defaults to cn.TIMECOURSE_ZIP_PATH.
+            num_model (int, optional): number of models to process. Defaults to -1 (all)
+        """
         self.zip_path = zip_path
+        self.num_model = num_model
+
+    def getTimecourse(self, model_name: str) -> Timecourse:
+        """Return the deserialized Timecourse for *model_name* from the zip.
+
+        Raises
+        ------
+        KeyError
+            If no entry named ``{model_name}_timecourse.pkl`` exists in the zip.
+        """
+        entry_name = f"{model_name}_timecourse.pkl"
+        with zipfile.ZipFile(self.zip_path, 'r') as zf:
+            with zf.open(entry_name) as entry_f:
+                dct = pickle.load(entry_f)
+        return self._timecourseFromDict(dct)
 
     def __iter__(self) -> Iterator[TimecourseIteratorItem]:
         with zipfile.ZipFile(self.zip_path, 'r') as zf:
-            for name in sorted(zf.namelist()):
+            for idx, name in enumerate(sorted(zf.namelist())):
+                if self.num_model > 0 and idx >= self.num_model:
+                    break
                 if not name.endswith('_timecourse.pkl'):
                     continue
                 model_name = name[: -len('_timecourse.pkl')]
                 with zf.open(name) as entry_f:
                     dct = pickle.load(entry_f)
-                timecourse = Timecourse(
-                    model=dct['model'],
-                    start_time=dct['start_time'],
-                    end_time=dct['end_time'],
-                    num_point=dct['num_point'],
-                    timecourse_df=dct['timecourse_df'],
-                    jacobian_collection_arr=dct['jacobian_collection_arr'],
+                yield TimecourseIteratorItem(
+                    model_name=model_name,
+                    timecourse=self._timecourseFromDict(dct),
                 )
-                yield TimecourseIteratorItem(model_name=model_name, timecourse=timecourse)
+
+    @staticmethod
+    def _timecourseFromDict(dct: dict) -> Timecourse:
+        return Timecourse(
+            model=dct['model'],
+            start_time=dct['start_time'],
+            end_time=dct['end_time'],
+            num_point=dct['num_point'],
+            timecourse_df=dct['timecourse_df'],
+            jacobian_collection_arr=dct['jacobian_collection_arr'],
+        )

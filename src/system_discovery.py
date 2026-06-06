@@ -36,8 +36,10 @@ Usage
 To Do:
 1. Integrate normalizer
 """
+from dataclasses import dataclass
 from src.scaler import Scaler  # type: ignore
-from src.score import ScoreInfo  # type: ignore
+from src.timecourse import Timecourse  # type: ignore
+from src.timecourse_iterator import TimecourseIterator  # type: ignore
 
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
@@ -57,6 +59,17 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 MAX_SPECIES = 20
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
+
+
+# ---------------------------------------------------------------------------
+# ScoreInfo
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ScoreInfo:
+    min: float
+    median: float
+    max: float
 
 
 # ---------------------------------------------------------------------------
@@ -232,146 +245,82 @@ class SystemDiscovery:
         self._is_fitted = True
         return self
 
-    def print_equations(self) -> None:
-        """Pretty-print the discovered ODE equations."""
-        self._require_fitted()
-        print("\n" + "=" * 60)
-        print("  Discovered Chemical Rate Equations")
-        print("=" * 60)
-        self.model.print()
-        print("=" * 60 + "\n")
-
-    def predict(self) -> pd.DataFrame:
-        """Integrate the discovered ODE and return predicted concentrations.
-
-        Returns
-        -------
-        pd.DataFrame
-            Predicted concentrations with time as the index and one column per
-            species.  Raises ``RuntimeError`` if the ODE integrator fails.
-            columns: species names; index: time points
-        """
-        self._require_fitted()
-        X_sim = self._simulate()
-        return pd.DataFrame(X_sim, index=self.time_arr, columns=self.species_names)
-
-    def r_squared(self, method: str = "simulation") -> dict[str, float]:
-        """Compute R² for each species.
+    @classmethod
+    def makeBiomodel(
+        cls,
+        model_name: str,
+        *,
+        threshold: float = 0.01,
+        poly_degree: int = 2,
+        timecourse: Timecourse | None = None,
+    ) -> "SystemDiscovery":
+        """Create a SystemDiscovery from a BioModel timecourse.
 
         Parameters
         ----------
-        method : str
-            ``"derivative"`` (default) – computes R² on the numerical time
-            derivatives, which is fast and always works.
-            ``"simulation"`` – integrates the ODE forward and compares
-            trajectories; more informative but may fail for stiff systems or
-            poorly-identified models.
+        model_name : str
+            BioModel identifier (e.g. ``'BIOMD0000000003'``).
+        threshold : float
+            STLSQ sparsity threshold passed to ``SystemDiscovery``.
+        poly_degree : int
+            Degree of the polynomial library.
+        timecourse : Timecourse | None
+            Pre-loaded timecourse.  When ``None``, the timecourse is loaded
+            from the default zip archive via ``TimecourseIterator``.
+        """
+        if timecourse is None:
+            timecourse = TimecourseIterator().getTimecourse(model_name)
+        return cls(timecourse.timecourse_df, threshold=threshold, poly_degree=poly_degree)
+
+    def plot_coefficient_heatmap(
+        self,
+        figsize: tuple[float, float] | None = None,
+        show: bool = True,
+    ) -> plt.Figure:  # type: ignore
+        """Visualise the coefficient matrix as a heatmap.
+
+        Each row is a library feature; each column is a species.
+        Non-zero entries (active terms) are highlighted.
 
         Returns
         -------
-        dict mapping species name → R²
+        matplotlib.figure.Figure
         """
         self._require_fitted()
-        try:
-            if method == "simulation":
-                result = self._r_squared_simulation()
-            else:
-                result = self._r_squared_derivative()
-        except Exception as exc:
-            warnings.warn(f"R² computation failed: {exc}")
-            result = self._r_squared_derivative()
-        return result
 
-    def score(self) -> ScoreInfo:
-        """Return a ScoreInfo with the min, median, and max of r_squared values."""
-        values = list(self.r_squared().values())
-        return ScoreInfo(
-            min=float(np.min(values)),
-            median=float(np.median(values)),
-            max=float(np.max(values)),
-        )
+        df_coef = self.summary()
+        if df_coef.empty:
+            print("No non-zero coefficients found; heatmap skipped.")
+            return plt.figure()
 
-    def _r_squared_derivative(self) -> dict[str, float]:
-        """
-        R² on predicted vs actual.
-        """
-        zdot_pred_parts = []
-        zdot_num_parts = []
-        for X, t in zip(self._X_list, self._time_list):
-            Z = self._normalizer.normalize(X)
-            zdot_pred_parts.append(np.array(self.model.predict(Z)))
-            zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
-        Zdot_pred = np.vstack(zdot_pred_parts)
-        Zdot_num  = np.vstack(zdot_num_parts)
-        r2 = {}
-        for i, name in enumerate(self.species_names):
-            y_true = Zdot_num[:, i]
-            y_pred = Zdot_pred[:, i]
-            ss_res = np.sum((y_true - y_pred) ** 2)
-            ss_tot = np.sum((y_true - y_true.mean()) ** 2)
-            r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-        return r2
+        if figsize is None:
+            figsize = (max(6, len(df_coef.columns) * 1.5), max(4, len(df_coef) * 0.5))
 
-    def _r_squared_simulation(self) -> dict[str, float]:
-        """R² on simulated concentration trajectories."""
-        try:
-            X_sim = self._simulate()
-            r2 = {}
-            for i, name in enumerate(self.species_names):
-                ss_res = np.sum((self.X[:, i] - X_sim[:, i]) ** 2)
-                ss_tot = np.sum((self.X[:, i] - self.X[:, i].mean()) ** 2)
-                r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-            return r2
-        except Exception as exc:
-            warnings.warn(f"Simulation R² failed: {exc}. Use method='derivative'.")
-            return {name: float("nan") for name in self.species_names}
+        fig, ax = plt.subplots(figsize=figsize)
+        cax = ax.imshow(df_coef.values, aspect="auto", cmap="RdBu_r")
+        fig.colorbar(cax, ax=ax, label="Coefficient value")
 
-    def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
-        """Return a DataFrame of denormalized non-zero coefficients for all species.
+        ax.set_xticks(range(len(df_coef.columns)))
+        ax.set_xticklabels(df_coef.columns, rotation=45, ha="right")
+        ax.set_yticks(range(len(df_coef.index)))
+        ax.set_yticklabels(df_coef.index)
+        ax.set_title("SINDy Coefficient Matrix (non-zero terms)", fontweight="bold")
 
-        Coefficients are adjusted from the normalized fit back to original-space
-        units: each raw coefficient c' is multiplied by σ_i / Π_j σ_j^{p_j},
-        where σ_i is the std of the output species (column) and σ_j^{p_j} are
-        the stds of the input species in the polynomial term (row) raised to
-        their powers.
+        # Annotate cells
+        for i in range(len(df_coef.index)):
+            for j in range(len(df_coef.columns)):
+                val = df_coef.iloc[i, j]
+                if abs(val) > 1e-10:  # type: ignore
+                    ax.text(
+                        j, i, f"{val:.3f}",
+                        ha="center", va="center", fontsize=7,
+                        color="white" if abs(val) > df_coef.values.max() * 0.5 else "black",  # type: ignore
+                    )
 
-        Rows are candidate library terms; columns are species.
-
-        Parameters
-        ----------
-        entry_threshold : float
-            Rows are kept only if the maximum absolute normalized coefficient
-            |c_norm| = |c_physical| * Π(σ_j^{p_j}) / σ_i exceeds this value.
-            Since |c_norm| is dimensionless (contribution relative to one
-            standard-deviation of the derivative), ``entry_threshold=1`` retains
-            terms whose effect is at least one standard-deviation-equivalent.
-            Default ``0`` (show all nonzero rows; sparsity is controlled by the
-            constructor ``threshold`` argument via :meth:`fit`).
-
-        Returns
-        -------
-        pd.DataFrame
-        """
-        self._require_fitted()
-        feature_names = self.model.get_feature_names()
-        coefs = self.model.coefficients()          # shape (n_species, n_features)
-        col_names = [f"d{n}/dt" for n in self.species_names]
-        df_norm = pd.DataFrame(coefs.T, index=feature_names, columns=col_names)
-        # Filter on normalized coefficients — exclude constant species whose fallback
-        # scaling makes c_norm values meaningless for the retention decision.
-        constant_cols = self._normalizer._constant_cols
-        variable_cols = [col for sp, col in zip(self.species_names, col_names)
-                         if sp not in constant_cols]
-        eval_cols = variable_cols if variable_cols else col_names
-        keep_mask = df_norm[eval_cols].abs().T.max() > entry_threshold
-        df_norm = df_norm[keep_mask].copy()        # type: ignore
-        # Denormalize surviving rows
-        df_coef = df_norm.copy()
-        for factor_str, row in df_norm.iterrows():
-            for sp_name, col in zip(self.species_names, col_names):
-                df_coef.loc[factor_str, col] = self._normalizer.denormalizeCoordinate(
-                    sp_name, factor_str, row[col])
-        return df_coef  # type: ignore[return-value]
+        fig.tight_layout()
+        if show:
+            plt.show()
+        return fig
 
     def plotResult(
         self,
@@ -389,7 +338,7 @@ class SystemDiscovery:
             Call ``plt.show()`` at the end.  Set to ``False`` when embedding
             in a larger figure or saving manually.
         num_skip_point : int
-            Plot only every N-th point from the original data to reduce clutter.    
+            Plot only every N-th point from the original data to reduce clutter.
 
         Returns
         -------
@@ -449,55 +398,119 @@ class SystemDiscovery:
             plt.show()
         return fig
 
-    def plot_coefficient_heatmap(
-        self,
-        figsize: tuple[float, float] | None = None,
-        show: bool = True,
-    ) -> plt.Figure:  # type: ignore
-        """Visualise the coefficient matrix as a heatmap.
-
-        Each row is a library feature; each column is a species.
-        Non-zero entries (active terms) are highlighted.
+    def predict(self) -> pd.DataFrame:
+        """Integrate the discovered ODE and return predicted concentrations.
 
         Returns
         -------
-        matplotlib.figure.Figure
+        pd.DataFrame
+            Predicted concentrations with time as the index and one column per
+            species.  Raises ``RuntimeError`` if the ODE integrator fails.
+            columns: species names; index: time points
         """
         self._require_fitted()
+        X_sim = self._simulate()
+        return pd.DataFrame(X_sim, index=self.time_arr, columns=self.species_names)
 
-        df_coef = self.summary()
-        if df_coef.empty:
-            print("No non-zero coefficients found; heatmap skipped.")
-            return plt.figure()
+    def print_equations(self) -> None:
+        """Pretty-print the discovered ODE equations."""
+        self._require_fitted()
+        print("\n" + "=" * 60)
+        print("  Discovered Chemical Rate Equations")
+        print("=" * 60)
+        self.model.print()
+        print("=" * 60 + "\n")
 
-        if figsize is None:
-            figsize = (max(6, len(df_coef.columns) * 1.5), max(4, len(df_coef) * 0.5))
+    def r_squared(self, method: str = "simulation") -> dict[str, float]:
+        """Compute R² for each species.
 
-        fig, ax = plt.subplots(figsize=figsize)
-        cax = ax.imshow(df_coef.values, aspect="auto", cmap="RdBu_r")
-        fig.colorbar(cax, ax=ax, label="Coefficient value")
+        Parameters
+        ----------
+        method : str
+            ``"derivative"`` (default) – computes R² on the numerical time
+            derivatives, which is fast and always works.
+            ``"simulation"`` – integrates the ODE forward and compares
+            trajectories; more informative but may fail for stiff systems or
+            poorly-identified models.
 
-        ax.set_xticks(range(len(df_coef.columns)))
-        ax.set_xticklabels(df_coef.columns, rotation=45, ha="right")
-        ax.set_yticks(range(len(df_coef.index)))
-        ax.set_yticklabels(df_coef.index)
-        ax.set_title("SINDy Coefficient Matrix (non-zero terms)", fontweight="bold")
+        Returns
+        -------
+        dict mapping species name → R²
+        """
+        self._require_fitted()
+        try:
+            if method == "simulation":
+                result = self._r_squared_simulation()
+            else:
+                result = self._r_squared_derivative()
+        except Exception as exc:
+            warnings.warn(f"R² computation failed: {exc}")
+            result = self._r_squared_derivative()
+        return result
 
-        # Annotate cells
-        for i in range(len(df_coef.index)):
-            for j in range(len(df_coef.columns)):
-                val = df_coef.iloc[i, j]
-                if abs(val) > 1e-10:  # type: ignore
-                    ax.text(
-                        j, i, f"{val:.3f}",
-                        ha="center", va="center", fontsize=7,
-                        color="white" if abs(val) > df_coef.values.max() * 0.5 else "black",  # type: ignore
-                    )
+    def score(self) -> ScoreInfo:
+        """Return a ScoreInfo with the min, median, and max of r_squared values."""
+        ##
+        def nrml(x: float) -> float:
+            if np.isnan(x):
+                return 0.0
+            new_x = max(0, x)
+            new_x = min(new_x, 1.0)
+            return new_x
+        ##
+        values = list(self.r_squared().values())
+        return ScoreInfo(
+            min=nrml(float(np.min(values))),
+            median=nrml(float(np.median(values))),
+            max=nrml(float(np.max(values))),
+        )
 
-        fig.tight_layout()
-        if show:
-            plt.show()
-        return fig
+    def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
+        """Return a DataFrame of denormalized non-zero coefficients for all species.
+
+        Coefficients are adjusted from the normalized fit back to original-space
+        units: each raw coefficient c' is multiplied by σ_i / Π_j σ_j^{p_j},
+        where σ_i is the std of the output species (column) and σ_j^{p_j} are
+        the stds of the input species in the polynomial term (row) raised to
+        their powers.
+
+        Rows are candidate library terms; columns are species.
+
+        Parameters
+        ----------
+        entry_threshold : float
+            Rows are kept only if the maximum absolute normalized coefficient
+            |c_norm| = |c_physical| * Π(σ_j^{p_j}) / σ_i exceeds this value.
+            Since |c_norm| is dimensionless (contribution relative to one
+            standard-deviation of the derivative), ``entry_threshold=1`` retains
+            terms whose effect is at least one standard-deviation-equivalent.
+            Default ``0`` (show all nonzero rows; sparsity is controlled by the
+            constructor ``threshold`` argument via :meth:`fit`).
+
+        Returns
+        -------
+        pd.DataFrame
+        """
+        self._require_fitted()
+        feature_names = self.model.get_feature_names()
+        coefs = self.model.coefficients()          # shape (n_species, n_features)
+        col_names = [f"d{n}/dt" for n in self.species_names]
+        df_norm = pd.DataFrame(coefs.T, index=feature_names, columns=col_names)
+        # Filter on normalized coefficients — exclude constant species whose fallback
+        # scaling makes c_norm values meaningless for the retention decision.
+        constant_cols = self._normalizer._constant_cols
+        variable_cols = [col for sp, col in zip(self.species_names, col_names)
+                         if sp not in constant_cols]
+        eval_cols = variable_cols if variable_cols else col_names
+        keep_mask = df_norm[eval_cols].abs().T.max() > entry_threshold
+        df_norm = df_norm[keep_mask].copy()        # type: ignore
+        # Denormalize surviving rows
+        df_coef = df_norm.copy()
+        for factor_str, row in df_norm.iterrows():
+            for sp_name, col in zip(self.species_names, col_names):
+                df_coef.loc[factor_str, col] = self._normalizer.denormalizeCoordinate(
+                    sp_name, factor_str, row[col])
+        return df_coef  # type: ignore[return-value]
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -518,10 +531,6 @@ class SystemDiscovery:
                         sp_name, feat_name, self.threshold)
                     if abs(coefs[i, j]) < norm_thresh:
                         coefs[i, j] = 0.0
-
-    def _require_fitted(self) -> None:
-        if not self._is_fitted:
-            raise RuntimeError("Call `.fit()` before using this method.")
 
     def _build_differentiator(self):
         if self.differentiation == "smooth":
@@ -553,6 +562,45 @@ class SystemDiscovery:
             else:
                 powers[factor] = 1
         return powers
+
+    def _r_squared_derivative(self) -> dict[str, float]:
+        """
+        R² on predicted vs actual.
+        """
+        zdot_pred_parts = []
+        zdot_num_parts = []
+        for X, t in zip(self._X_list, self._time_list):
+            Z = self._normalizer.normalize(X)
+            zdot_pred_parts.append(np.array(self.model.predict(Z)))
+            zdot_num_parts.append(self.model.differentiation_method(Z, t))  # type: ignore
+        Zdot_pred = np.vstack(zdot_pred_parts)
+        Zdot_num  = np.vstack(zdot_num_parts)
+        r2 = {}
+        for i, name in enumerate(self.species_names):
+            y_true = Zdot_num[:, i]
+            y_pred = Zdot_pred[:, i]
+            ss_res = np.sum((y_true - y_pred) ** 2)
+            ss_tot = np.sum((y_true - y_true.mean()) ** 2)
+            r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+        return r2
+
+    def _r_squared_simulation(self) -> dict[str, float]:
+        """R² on simulated concentration trajectories."""
+        try:
+            X_sim = self._simulate()
+            r2 = {}
+            for i, name in enumerate(self.species_names):
+                ss_res = np.sum((self.X[:, i] - X_sim[:, i]) ** 2)
+                ss_tot = np.sum((self.X[:, i] - self.X[:, i].mean()) ** 2)
+                r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
+            return r2
+        except Exception as exc:
+            warnings.warn(f"Simulation R² failed: {exc}. Use method='derivative'.")
+            return {name: float("nan") for name in self.species_names}
+
+    def _require_fitted(self) -> None:
+        if not self._is_fitted:
+            raise RuntimeError("Call `.fit()` before using this method.")
 
     def _simulate(self) -> np.ndarray:
         """Integrate the discovered ODE forward from the first observation."""
