@@ -5,11 +5,12 @@
    2. Simple network discovery at 2 to 3 thresholds (in units of std in normalized space): 0.01, 0.1, 1.0.
    3. Plot histogram of min $R^2$ for model species.
    4. Title: How Linear is BioModels?
-2. Construct piece-wise segments
-3. Not properly handling boundary species. Can estimate constants well, but not including the bias terms.
-4. Consider CRN construction?
-5. Can I do better with manual splitting?
-6. Review slow_subspace_prediction.py for possible use in splitting
-7. Bug in 577 & 599. Split = 2 results in an unstable system
-8. Evaluate consistency of forcing inputs.
-9. Re-run no split linear analyses
+2. ModelIterator iterates over the serialized models.
+3. Construct piece-wise segments
+4. Not properly handling boundary species. Can estimate constants well, but not including the bias terms.
+5. Consider CRN construction?
+6. Can I do better with manual splitting?
+7. Review slow_subspace_prediction.py for possible use in splitting
+8. Bug in 577 & 599. Split = 2 results in an unstable system
+9. Evaluate consistency of forcing inputs.
+10. Re-run no split linear analyses

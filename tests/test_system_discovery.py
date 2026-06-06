@@ -685,5 +685,44 @@ class TestPostFitThreshold(unittest.TestCase):
         )
 
 
+class TestSystemDiscoveryScore(unittest.TestCase):
+    """Tests for SystemDiscovery.score."""
+
+    def test_score_returns_score_info(self) -> None:
+        if IGNORE_TESTS:
+            return
+        from src.score import ScoreInfo  # type: ignore
+        disc = _get_fitted_two_species()
+        self.assertIsInstance(disc.score(), ScoreInfo)
+
+    def test_score_min_equals_min_of_r_squared(self) -> None:
+        if IGNORE_TESTS:
+            return
+        disc = _get_fitted_two_species()
+        expected = min(disc.r_squared().values())
+        self.assertAlmostEqual(disc.score().min, expected)
+
+    def test_score_median_equals_median_of_r_squared(self) -> None:
+        if IGNORE_TESTS:
+            return
+        disc = _get_fitted_two_species()
+        expected = float(np.median(list(disc.r_squared().values())))
+        self.assertAlmostEqual(disc.score().median, expected)
+
+    def test_score_max_equals_max_of_r_squared(self) -> None:
+        if IGNORE_TESTS:
+            return
+        disc = _get_fitted_two_species()
+        expected = max(disc.r_squared().values())
+        self.assertAlmostEqual(disc.score().max, expected)
+
+    def test_score_single_species_min_equals_max(self) -> None:
+        if IGNORE_TESTS:
+            return
+        disc = _get_fitted_decay()
+        info = disc.score()
+        self.assertAlmostEqual(info.min, info.max)
+
+
 if __name__ == "__main__":
     unittest.main()

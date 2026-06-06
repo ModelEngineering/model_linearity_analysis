@@ -37,6 +37,7 @@ To Do:
 1. Integrate normalizer
 """
 from src.scaler import Scaler  # type: ignore
+from src.score import ScoreInfo  # type: ignore
 
 import matplotlib.pyplot as plt # type: ignore
 import numpy as np # type: ignore
@@ -280,6 +281,15 @@ class SystemDiscovery:
             warnings.warn(f"R² computation failed: {exc}")
             result = self._r_squared_derivative()
         return result
+
+    def score(self) -> ScoreInfo:
+        """Return a ScoreInfo with the min, median, and max of r_squared values."""
+        values = list(self.r_squared().values())
+        return ScoreInfo(
+            min=float(np.min(values)),
+            median=float(np.median(values)),
+            max=float(np.max(values)),
+        )
 
     def _r_squared_derivative(self) -> dict[str, float]:
         """

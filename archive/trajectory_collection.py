@@ -174,7 +174,7 @@ class TrajectoryCollection(object):
         TrajectoryCollection
         """
         from src.linear_predictor import LinearPredictor  # local import avoids circularity
-        from src.slow_subspace_predictor import SlowSubspacePredictor  # local import avoids circularity
+        from src.slow_subspace_predictor import SlowSubspacePredictor  # type: ignore
 
         jacobian_selection = cn.JAC_MEDIAN
         tp_arr = trajectory.timepoint_arr

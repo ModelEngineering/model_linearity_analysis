@@ -13,6 +13,7 @@ CALCULATED_ENTIMES_PATH = os.path.join(DATA_DIR, "biomodels_endtime.csv")
 SERIALIZATION_DIR = os.path.join(PROJECT_DIR, "data", "serialize")
 TIMECOURSE_SERIALIZATION_DIR = os.path.join(SERIALIZATION_DIR,
         "timecourse")
+TIMECOURSE_ZIP_PATH = os.path.join(TIMECOURSE_SERIALIZATION_DIR, "timecourse.zip")
 
 # Types
 TYPE_ROADRUNNER = "tellurium.roadrunner.extended_roadrunner.ExtendedRoadRunner"
