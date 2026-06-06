@@ -206,10 +206,17 @@ class BiomodelsIterator:
             if os.path.isdir(os.path.join(self.biomodels_dir, d)) 
             and "BIOMD" in d
         )
+        is_reported_too_low = False
+        is_reported_too_high = False
         for model_name in model_names:
             model_num = self.extractModelNum(model_name)
             if model_num < self.first_model_num or model_num > self.last_model_num:
-                self._msg(f"Skipping model {model_name} with number {model_num}")
+                if not is_reported_too_low and model_num < self.first_model_num:
+                    self._msg(f"Model {model_name} has number {model_num} which is below the first model number {self.first_model_num}")
+                    is_reported_too_low = True
+                if not is_reported_too_high and model_num > self.last_model_num:
+                    self._msg(f"Model {model_name} has number {model_num} which is above the last model number {self.last_model_num}")
+                    is_reported_too_high = True
                 continue
             model_dir = os.path.join(self.biomodels_dir, model_name)
             if model_name in self._processed_models:

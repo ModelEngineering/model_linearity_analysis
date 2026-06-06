@@ -66,7 +66,7 @@ class Timecourse(object):
                 bool(np.allclose(self.jacobian_collection_arr,
                         other.jacobian_collection_arr)))
 
-    def _updateEndtime(self, end_time: Optional[float]=None)->float | None:
+    def _updateEndtime(self, end_time: Optional[float]=None):
         """Determine the end time and its source."""
         if end_time is not None:
             return end_time

@@ -22,6 +22,18 @@ S1 -> ; k_out*S1
 k_in = 1.0; k_out = 0.1; S1 = 0
 """
 
+ANTIMONY_ONE_REACTION = """
+-> S1; k_in
+k_in = 1.0; S1 = 0
+"""
+
+ANTIMONY_WITH_ASSIGNMENT_RULE = """
+S1 -> S2; k1*S1
+S2 -> ; k2*S2
+k1 = 0.1; k2 = 0.2; S1 = 10; S2 = 0
+total := S1 + S2
+"""
+
 SBML_MODEL = te.loada(ANTIMONY_MODEL).getSBML()
 
 
@@ -313,6 +325,50 @@ class TestModelBiomodel(unittest.TestCase):
         if IGNORE_TESTS:
             return
         self.assertGreater(self.model.num_species, 0)
+
+
+class TestModelNumReaction(unittest.TestCase):
+    """Tests for Model.num_reaction."""
+
+    def test_returns_int(self) -> None:
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_MODEL)
+        self.assertIsInstance(model.num_reaction, int)
+
+    def test_correct_count_two_reactions(self) -> None:
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_MODEL)
+        self.assertEqual(model.num_reaction, 2)
+
+    def test_correct_count_one_reaction(self) -> None:
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_ONE_REACTION)
+        self.assertEqual(model.num_reaction, 1)
+
+
+class TestModelNumAssignmentRule(unittest.TestCase):
+    """Tests for Model.num_assignment_rule."""
+
+    def test_returns_int(self) -> None:
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_MODEL)
+        self.assertIsInstance(model.num_assignment_rule, int)
+
+    def test_zero_for_model_without_rules(self) -> None:
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_MODEL)
+        self.assertEqual(model.num_assignment_rule, 0)
+
+    def test_one_for_model_with_assignment_rule(self) -> None:
+        if IGNORE_TESTS:
+            return
+        model = Model(ANTIMONY_WITH_ASSIGNMENT_RULE)
+        self.assertEqual(model.num_assignment_rule, 1)
 
 
 if __name__ == "__main__":

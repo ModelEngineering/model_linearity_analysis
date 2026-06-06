@@ -28,32 +28,20 @@ class Model(object):
         self.model_name = model_name
         self.sbml_str = self._toSBML(model_str)
         self._species_names: List[str] = []
+        #
+        rr = te.loadSBMLModel(self.sbml_str)
+        ids = rr.getFloatingSpeciesIds()
+        self.species_names = [
+                s[1:-1] if s.startswith("[") and s.endswith("]") else s
+                for s in ids]
+        self.num_reaction = rr.getNumReactions()
+        self.num_species = len(self.species_names)
+        self.num_assignment_rule = len(rr.getAssignmentRuleIds())
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Model):
             return NotImplemented
         return self.sbml_str == other.sbml_str and self.model_name == other.model_name
-
-    # ------------------------------------------------------------------
-    # Properties
-    # ------------------------------------------------------------------
-
-    @property
-    def species_names(self) -> List[str]:
-        """Floating species names, cached after the first query."""
-        if not self._species_names:
-            rr = te.loadSBMLModel(self.sbml_str)
-            ids = rr.getFloatingSpeciesIds()
-            self._species_names = [
-                s[1:-1] if s.startswith("[") and s.endswith("]") else s
-                for s in ids
-            ]
-        return self._species_names
-
-    @property
-    def num_species(self) -> int:
-        """Number of floating species in the model."""
-        return len(self.species_names)
 
     # ------------------------------------------------------------------
     # Class methods

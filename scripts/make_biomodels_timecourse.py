@@ -23,6 +23,11 @@ EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000268",
     "BIOMD0000000469",
     "BIOMD0000000470",
+    "BIOMD0000000471",
+    "BIOMD0000000472",
+    "BIOMD0000000473",
+    "BIOMD0000000566", # seg fault
+    "BIOMD0000000567", # seg fault
     "BIOMD0000000625",
 ]
 if os.path.isfile(os.path.join(cn.DATA_DIR, "badmodels.txt")):
@@ -33,11 +38,11 @@ if os.path.isfile(os.path.join(cn.DATA_DIR, "badmodels.txt")):
                 EXCLUDED_MODELS.append(model_name)
 
 def main(
-        is_report: bool = False,
+        is_report: bool = True,
         first_model_num: int = 0,
         last_model_num: int = int(1e9),
         excluded_models: List[str] = EXCLUDED_MODELS,
-        is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
+        is_initialize: bool = True, # Ignore existing serialized Timecourse when initializing (for testing).
 ) -> None:
     '''Serialize timecourses for all BioModels.
 
@@ -67,7 +72,6 @@ def main(
         if os.path.isfile(pkl_path) and (not is_initialize):
             print(f"Skipping {model_name} (already serialized)")
             continue
-        print(f"Processing {model_name}...")
         try:
             model = Model.makeBiomodel(model_name)
             timecourse = Timecourse(model=model, end_time=item.end_time)
