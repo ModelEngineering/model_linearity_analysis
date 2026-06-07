@@ -18,11 +18,13 @@ from src.timecourse_iterator import TimecourseIterator  # type: ignore
 
 DEGREES = [0, 1, 2]
 OUTPUT_PATH = os.path.join(cn.DATA_DIR, "evaluate_monomial_models.csv")
+EXCLUDES: list[str] = [
+]
 
 
 
-def _score_cols(deg: int) -> tuple[str, str, str]:
-    return f"deg{deg}_min", f"deg{deg}_median", f"deg{deg}_max"
+def _score_cols(deg: int) -> tuple[str, str, str, str, str]:
+    return f"deg{deg}_min", f"deg{deg}_median", f"deg{deg}_max", f"deg{deg}_values", f"deg{deg}_num_nonzero_term"
 
 
 def _evaluate_model(model_name: str, timecourse, *,
@@ -46,30 +48,46 @@ def _evaluate_model(model_name: str, timecourse, *,
             )
             sd.fit()
             info = sd.score()
-            min_col, median_col, max_col = _score_cols(deg)
+            min_col, median_col, max_col, values_col, num_nonzero_term_col = _score_cols(deg)
             row[min_col] = info.min
             row[median_col] = info.median
             row[max_col] = info.max
+            row[values_col] = info.values
+            row[num_nonzero_term_col] = info.num_nonzero_term
         except Exception as exc:
             print(f"  [deg={deg}] {model_name}: {exc}", file=sys.stderr)
 
     return row
 
 
-def main(threshold: float = 0.01, is_initialize: bool = True) -> None:
-    rows = []
-    if is_initialize:
+def main(threshold: float = 0.001, is_initialize: bool = False) -> None:
+    """
+
+
+    Args:
+        threshold (float, optional): _description_. Defaults to 0.01.
+        is_initialize (bool, optional): Overwrite existing output file.
+    """
+    rows:list = []
+    if not is_initialize:
         if os.path.isfile(OUTPUT_PATH):
             print(f"Loading existing results from {OUTPUT_PATH}...")
-            df = pd.read_csv(OUTPUT_PATH)
-            rows = df.to_dict(orient="records")
+            try:
+                df = pd.read_csv(OUTPUT_PATH)
+            except Exception as exc:
+                print(f"Error reading {OUTPUT_PATH}: {exc}", file=sys.stderr)
+                df = pd.DataFrame(rows)
+                df.to_csv(OUTPUT_PATH, index=False) 
         else:
             print(f"Initializing {OUTPUT_PATH} with header...")
             df = pd.DataFrame(rows)
             df.to_csv(OUTPUT_PATH, index=False) 
     # Process models not already present
     df = pd.DataFrame(rows)
-    for item in TimecourseIterator(num_model=50):
+    for item in TimecourseIterator(num_model=-1):
+        if item.model_name in EXCLUDES:
+            print(f"Skipping {item.model_name} (in EXCLUDES)", flush=True)
+            continue
         if len(df) > 0 and item.model_name in df[cn.COL_MODEL_NAME].values:
             print(f"Skipping {item.model_name} (already processed)", flush=True)
             continue

@@ -18,6 +18,7 @@ from typing import List
 EXCLUDED_MODELS: List[str] = [
     "BIOMD0000000055",
     "BIOMD0000000148",
+    "BIOMD0000000205",  # Long processing
     "BIOMD0000000235",
     "BIOMD0000000255",
     "BIOMD0000000268",
@@ -42,7 +43,7 @@ def main(
         first_model_num: int = 0,
         last_model_num: int = int(1e9),
         excluded_models: List[str] = EXCLUDED_MODELS,
-        is_initialize: bool = True, # Ignore existing serialized Timecourse when initializing (for testing).
+        is_initialize: bool = False, # Ignore existing serialized Timecourse when initializing (for testing).
 ) -> None:
     '''Serialize timecourses for all BioModels.
 
@@ -74,7 +75,8 @@ def main(
             continue
         try:
             model = Model.makeBiomodel(model_name)
-            timecourse = Timecourse(model=model, end_time=item.end_time)
+            timecourse = Timecourse(model=model, end_time=item.end_time,
+                                    num_point=1000)
             _ = timecourse.jacobian_collection_arr  # Force calculations
             path = timecourse.serialize()
             serialized_timecourse = Timecourse.deserialize(path=path)

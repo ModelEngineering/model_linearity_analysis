@@ -62,7 +62,17 @@ class Scaler(object):
         """
         if matrix_arr.size == 0:
             matrix_arr = self._matrix_arr
-        normalized_arr = matrix_arr / self._scale_arr
+        col_names = list(self._column_names)
+        constant_indices = [col_names.index(n) for n in self._constant_cols]
+        safe_scale = self._scale_arr.copy()
+        for icol in constant_indices:
+            safe_scale[icol] = 1.0
+        normalized_arr = matrix_arr / safe_scale
+        for icol in constant_indices:
+            if normalized_arr.ndim == 1:
+                normalized_arr[icol] = 1.0
+            else:
+                normalized_arr[:, icol] = 1.0
         return normalized_arr
     
     def denormalize(self, normalized_arr: np.ndarray) -> np.ndarray:

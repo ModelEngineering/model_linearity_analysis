@@ -16,7 +16,7 @@ Input
 -----
 A pandas DataFrame with:
   - Index is time
-  - One column per species   (up to 20)
+  - One column per species   (up to 100)
 
 Usage
 -----
@@ -57,7 +57,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 # Constants
 # ---------------------------------------------------------------------------
 
-MAX_SPECIES = 20
+MAX_SPECIES = 100
 DifferentiationMethod = Literal["smooth", "finite", "spectral"]
 
 
@@ -70,6 +70,8 @@ class ScoreInfo:
     min: float
     median: float
     max: float
+    values: list[float]
+    num_nonzero_term: int
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +371,7 @@ class SystemDiscovery:
             pred_df = None
             prediction_ok = False
 
-        r2_vals = self.r_squared(method="simulation")
+        r2_vals = self.calculateRsq(method="simulation")
 
         for idx, name in enumerate(self.species_names):
             row, col = divmod(idx, ncols)
@@ -412,7 +414,7 @@ class SystemDiscovery:
         X_sim = self._simulate()
         return pd.DataFrame(X_sim, index=self.time_arr, columns=self.species_names)
 
-    def print_equations(self) -> None:
+    def printEquations(self) -> None:
         """Pretty-print the discovered ODE equations."""
         self._require_fitted()
         print("\n" + "=" * 60)
@@ -421,7 +423,16 @@ class SystemDiscovery:
         self.model.print()
         print("=" * 60 + "\n")
 
-    def r_squared(self, method: str = "simulation") -> dict[str, float]:
+    def getNonzeroTerms(self) -> dict[str, int]:
+        """Return a dict mapping species name → number of non-zero terms in its ODE."""
+        self._require_fitted()
+        coefs = self.model.coefficients()  # shape (n_species, n_features)
+        return {
+            sp_name: np.sum(np.abs(coefs[i]) > 1e-10)  # type: ignore
+            for i, sp_name in enumerate(self.species_names)
+        }
+
+    def calculateRsq(self, method: str = "derivative") -> dict[str, float]:
         """Compute R² for each species.
 
         Parameters
@@ -458,11 +469,14 @@ class SystemDiscovery:
             new_x = min(new_x, 1.0)
             return new_x
         ##
-        values = list(self.r_squared().values())
+        values = list(self.calculateRsq().values())
+        num_nonzero_term = sum(self.getNonzeroTerms().values())
         return ScoreInfo(
             min=nrml(float(np.min(values))),
             median=nrml(float(np.median(values))),
             max=nrml(float(np.max(values))),
+            values=[nrml(x) for x in values],
+            num_nonzero_term=num_nonzero_term,
         )
 
     def summary(self, entry_threshold: float = 0) -> pd.DataFrame:
@@ -590,6 +604,7 @@ class SystemDiscovery:
             X_sim = self._simulate()
             r2 = {}
             for i, name in enumerate(self.species_names):
+                # FIXME: Can get float overruns
                 ss_res = np.sum((self.X[:, i] - X_sim[:, i]) ** 2)
                 ss_tot = np.sum((self.X[:, i] - self.X[:, i].mean()) ** 2)
                 r2[name] = 1.0 - ss_res / ss_tot if ss_tot > 0 else float("nan")
@@ -620,7 +635,8 @@ class SystemDiscovery:
                 t_span=(self.time_arr[0], self.time_arr[-1]),
                 y0=x0,
                 t_eval=self.time_arr,
-                method="LSODA",
+                #method="LSODA",
+                method="Radau",
                 rtol=1e-6,
                 atol=1e-8,
                 #max_step=0.01
@@ -651,7 +667,7 @@ class SystemDiscovery:
 # ---------------------------------------------------------------------------
 
 
-def discover_network(
+def DiscoverNetwork(
     df: pd.DataFrame | list[pd.DataFrame],
     threshold: float = 0.01,
     alpha: float = 0.05,
@@ -687,12 +703,12 @@ def discover_network(
 
     Returns
     -------
-    NetworkRateDiscovery
+    SystemDiscovery
         Fitted discovery object.
 
     Example
     -------
-    >>> disc = discover_network(df, threshold=0.02)
+    >>> disc = DiscoverNetwork(df, threshold=0.02)
     >>> disc.print_equations()
     >>> summary = disc.summary()
     """
@@ -706,16 +722,16 @@ def discover_network(
         species_names=species_names,
     )
     disc.fit()
-    disc.print_equations()
+    disc.printEquations()
 
-    r2 = disc.r_squared()
+    r2 = disc.calculateRsq()
     print("R² on time derivatives per species:")
     for name, val in r2.items():
         print(f"  {name}: {val:.6f}")
     print()
 
     try:
-        r2_sim = disc.r_squared(method="simulation")
+        r2_sim = disc.calculateRsq(method="simulation")
         print("R² on simulated trajectories per species:")
         for name, val in r2_sim.items():
             print(f"  {name}: {val:.6f}")
@@ -775,7 +791,7 @@ if __name__ == "__main__":
 
     df_demo = _generate_brusselator(noise_std=0.01)
 
-    disc = discover_network(
+    disc = DiscoverNetwork(
         df_demo,
         threshold=0.01,
         alpha=0.01,

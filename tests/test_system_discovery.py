@@ -19,7 +19,7 @@ if not IGNORE_TESTS:
 import src.constants as cn  # type: ignore
 from src.model import Model as _Model  # type: ignore
 from src.timecourse import Timecourse as _Timecourse  # type: ignore
-from system_discovery import SystemDiscovery, discover_network, MAX_SPECIES  # type: ignore
+from system_discovery import SystemDiscovery, DiscoverNetwork, MAX_SPECIES  # type: ignore
 
 HAS_REAL_ZIP = os.path.isfile(cn.TIMECOURSE_ZIP_PATH)
 FIRST_REAL_MODEL = "BIOMD0000000003"
@@ -265,7 +265,7 @@ class TestNetworkRateDiscoveryFit(unittest.TestCase):
             return
         nd = self._make_unfitted()
         with self.assertRaises(RuntimeError):
-            nd.r_squared()
+            nd.calculateRsq()
 
 
 class TestNetworkRateDiscoveryDecay(unittest.TestCase):
@@ -298,21 +298,21 @@ class TestNetworkRateDiscoveryDecay(unittest.TestCase):
         """r_squared() returns a dict."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared()
+        result = self.nd.calculateRsq()
         self.assertIsInstance(result, dict)
 
     def test_r_squared_has_s1_key(self) -> None:
         """r_squared() dict contains key 'S1'."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared()
+        result = self.nd.calculateRsq()
         self.assertIn("S1", result)
 
     def test_r_squared_derivative_is_high(self) -> None:
         """r_squared('derivative')['S1'] > 0.99 for clean decay data."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared(method="derivative")
+        result = self.nd.calculateRsq(method="derivative")
         self.assertGreater(result["S1"], 0.99)
 
     def test_discovered_coefficient_sign(self) -> None:
@@ -345,7 +345,7 @@ class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
         """r_squared() has keys 'S1' and 'S2'."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared()
+        result = self.nd.calculateRsq()
         self.assertIn("S1", result)
         self.assertIn("S2", result)
 
@@ -353,7 +353,7 @@ class TestNetworkRateDiscoveryTwoSpecies(unittest.TestCase):
         """Both r_squared values exceed 0.95 for clean two-species data."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared(method="derivative")
+        result = self.nd.calculateRsq(method="derivative")
         self.assertGreater(result["S1"], 0.95)
         self.assertGreater(result["S2"], 0.95)
 
@@ -414,7 +414,7 @@ class TestDiscoverNetworkFunction(unittest.TestCase):
         if IGNORE_TESTS:
             return
         df = _make_decay_df()
-        nd = discover_network(
+        nd = DiscoverNetwork(
             df,
             threshold=0.01,
             alpha=0.01,
@@ -468,7 +468,7 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
         """r_squared() returns keys for all five species."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared(method="derivative")
+        result = self.nd.calculateRsq(method="derivative")
         for name in ("S1", "S3", "S4", "S6", "S8"):
             self.assertIn(name, result)
 
@@ -476,7 +476,7 @@ class TestNetworkRateDiscoveryAntimonyNetwork1(unittest.TestCase):
         """R² on derivatives exceeds 0.90 for each species."""
         if IGNORE_TESTS:
             return
-        result = self.nd.r_squared(method="derivative")
+        result = self.nd.calculateRsq(method="derivative")
         for name in ("S1", "S3", "S4", "S6"):
             self.assertGreater(result[name], 0.90,
                     msg=f"R² for {name} = {result[name]:.4f}")
@@ -749,21 +749,21 @@ class TestSystemDiscoveryScore(unittest.TestCase):
         if IGNORE_TESTS:
             return
         disc = _get_fitted_two_species()
-        expected = min(disc.r_squared().values())
+        expected = min(disc.calculateRsq().values())
         self.assertAlmostEqual(disc.score().min, expected)
 
     def test_score_median_equals_median_of_r_squared(self) -> None:
         if IGNORE_TESTS:
             return
         disc = _get_fitted_two_species()
-        expected = float(np.median(list(disc.r_squared().values())))
+        expected = float(np.median(list(disc.calculateRsq().values())))
         self.assertAlmostEqual(disc.score().median, expected)
 
     def test_score_max_equals_max_of_r_squared(self) -> None:
         if IGNORE_TESTS:
             return
         disc = _get_fitted_two_species()
-        expected = max(disc.r_squared().values())
+        expected = max(disc.calculateRsq().values())
         self.assertAlmostEqual(disc.score().max, expected)
 
     def test_score_single_species_min_equals_max(self) -> None:

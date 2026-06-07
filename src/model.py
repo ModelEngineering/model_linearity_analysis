@@ -48,7 +48,7 @@ class Model(object):
     # ------------------------------------------------------------------
 
     @classmethod
-    def makeBiomodel(cls, model_name: str) -> "Model":
+    def makeBiomodel(cls, model_name: str="", model_num: int = -1) -> "Model":
         """
         Create a Model from a BioModels SBML file in cn.BIOMODELS_DIR.
 
@@ -56,11 +56,16 @@ class Model(object):
         ----------
         model_name : str
             BioModel identifier (e.g. 'BIOMD0000000001'). Must start with 'BIOMD'.
+        model_num : int, optional
+            The index of the model to load (default is -1, which loads the first one).
+            If the model_num is present, model_name is ignored and constructed as 'BIOMD{model_num:010d}'.
 
         Returns
         -------
         Model
         """
+        if model_num > 0:
+            model_name = f"BIOMD{model_num:010d}"
         if not model_name.startswith("BIOMD"):
             raise ValueError(f"model_name must start with 'BIOMD', got '{model_name}'.")
         model_dir = os.path.join(cn.BIOMODELS_DIR, model_name)
